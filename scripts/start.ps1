@@ -35,5 +35,5 @@ for ($attempt = 0; $attempt -lt 30; $attempt++) {
 }
 if (-not $ready) { throw "Server did not become ready. Inspect $stderrPath" }
 Write-Output "Workbench ready: http://127.0.0.1:$Port"
-Write-Output 'Local demo accounts: admin / operator / reviewer; password: demo12345'
+Write-Output 'Open the sign-in page to register an account or sign in.'
 Write-Output 'Model keys are loaded from the Windows user environment. Lifetime project model budget: CNY 300.'

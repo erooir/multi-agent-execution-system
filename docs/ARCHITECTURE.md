@@ -1,13 +1,9 @@
 # Research Agent Workbench Architecture
 
 ## Runtime
-Python 3.12+, FastAPI, Agno AgentOS, SQLite. React/TypeScript/Vite/React Flow frontend. Application data and credentials are under ignored `.local/`. No cloud control plane subscription. All model traffic uses the budget gateway.
+Python 3.12+, FastAPI, Agno AgentOS, SQLite. React/TypeScript/Vite/React Flow frontend. Application data is under ignored `.local/`; model API keys are read from the process or Windows user environment and never stored there. Login identities and salted password hashes persist in the local database. No cloud control plane subscription. All model traffic uses the budget gateway.
 
-## Ownership during initial parallel implementation
-- Root: storage.py, config.py, model_gateway.py, auth.py, dependency manifests, scripts, integration and verification.
-- Engine agent: engine.py, api.py, main.py, workflows.py, engine/API tests.
-- Knowledge agent: knowledge.py, seeds.py, reports.py, knowledge tests. No edits to other owned files.
-- Frontend agent: frontend/** only.
+AgentOS registers the same Agno Workflow that executes each validated node. Its unrestricted native API is private; the authenticated product API supplies role checks, persistence and spending control. At most two runs execute concurrently, with explicit recovery after interruption. Local deployment uses a single server process.
 
 ## Storage contract
 `from .storage import store` singleton. `store.list(kind) -> list[dict]`, `store.get(kind,id) -> dict|None`, `store.save(kind,item) -> dict` (generates id/timestamps when omitted), `store.delete(kind,id) -> bool`, `store.audit(action,entity,detail,user='system')`. Generic JSON records, all changes atomic. Kinds: projects, agents, workflows, runs, reports, documents, chunks, evaluations, samples, events, approvals, graph_nodes, graph_edges, audits.
@@ -15,7 +11,9 @@ Python 3.12+, FastAPI, Agno AgentOS, SQLite. React/TypeScript/Vite/React Flow fr
 ## API contract
 All routes under `/api`. JSON collections are arrays (no envelope). Errors return HTTP errors with `detail`. Model is `deepseek-flash`, with a visibly labeled deterministic `rehearsal` execution mode, never silent fallback.
 
-- POST /auth/login {username,password}; GET /auth/me; POST /auth/logout. Session is HttpOnly cookie. Seed demo usernames admin/operator/reviewer, password `demo12345` (localhost-only demo accounts).
+- POST /auth/register {username,password,name?} returns 201 {user} and signs in. Username is case-insensitive, 3–32 ASCII letters/digits/underscores; password 8–128 characters; display name at most 40 printable characters. Registration fixes the role to operator and rejects extra fields, including role. Concurrent duplicates are rejected by the SQLite record primary key.
+- POST /auth/login {username,password}; GET /auth/me; POST /auth/logout. Sessions use opaque HttpOnly, SameSite=Strict cookies (Secure on HTTPS); only a token hash is persisted. User responses include id/username/name/role, never password hashes. Every authenticated request reads current role and enabled status from the user record. Passwords use PBKDF2-SHA256 with 600,000 iterations and random 32-byte salts; hashing runs off the event loop. Existing local identities and sessions migrate once without resetting passwords on later environment changes.
+- Authentication writes enforce allowed local origins and reject cross-site browser requests. Durable rate limits apply to registration (10 per IP per 10 minutes) and login (30 per IP and 10 per username per 10 minutes), returning Retry-After. Auth storage kinds: users, sessions, auth_meta, auth_limits.
 - GET /bootstrap returns {projects,agents,skills,workflows,runs,reports,documents,evaluations,samples,approvals,stats,budget,system,user}. Keep it lightweight, no document full text or credential values.
 - GET/POST /projects; PUT/DELETE /projects/{id}
 - GET/POST /agents; PUT/DELETE /agents/{id}; POST /agents/{id}/test {message,mode}
@@ -39,7 +37,7 @@ Report: id,title,category,project_id,run_id,content(markdown),citations[],versio
 Document: id,name,project_id,visibility(external|local),status,chunk_count,size,kind,created_at; internal path and raw text must not leak through bootstrap.
 Evidence: id,document_id,document_name,location,text,score. Source IDs must resolve to actual retrieved chunks.
 Budget: limit_cny,spent_cny,reserved_cny,remaining_cny,request_count,blocked_count,input_tokens,output_tokens,pricing_note. Values are conservative upper bound from official peak prices, labeled accordingly.
-System: mode,model,key_configured,agno_version,skills status,embedding_status.
+System: default_mode,runtime_mode,model,key_configured,agno_version,skills status,embedding_status.
 
 ## Gateway contract (root)
 `async model_gateway.complete(prompt, *, system='', purpose='general', run_id=None, max_tokens=2000, json_mode=False, images=None) -> dict` returns {text,usage,cost_cny,model}. Every request is a genuine Agno Agent using the restricted DeepSeek transport. For deterministic rehearsal do not call gateway. Await gateway, no other model paths.
@@ -52,3 +50,9 @@ System: mode,model,key_configured,agno_version,skills status,embedding_status.
 
 ## Execution and security
 Backend enforces role: admin all, operator create/edit/run, reviewer read and approve/edit reports. Read all local demo projects. Persist node outputs and events. Resume explicitly after process restart; do not silently rerun ambiguous external actions. Evidence marked local must NEVER reach cloud models, including through prompt context, agent test, or vision. Rehearsal uses actual local retrieval and deterministic formatting, labeled throughout. SSE or polling must survive refreshing the frontend.
+
+Live planning generates nodes, edges and configuration, validates each terminal path's report/review order, and permits one metered repair attempt. Failed responses and validation reasons remain in local planning records. Reports are created as drafts before review; rejection records feedback and explicit retry reruns the relevant analysis and downstream nodes. Editing or restoring a report invalidates its reviewed status.
+
+Budget reservations use a separate durable SQLite ledger with transactional concurrency control. Unknown response costs remain reserved; cancellation does not refund requests already sent. The user-facing estimate uses twice the verified peak token prices and includes pending reservations. There is no reset endpoint. Tests cover concurrent reservations, unknown costs, network target restrictions, local evidence isolation, cancelled-run persistence, and gzip responses.
+
+Demo limits: seeded graph relations are not automatically extracted from new uploads; scanned PDFs require image extraction before OCR; rule evaluations do not measure factual accuracy. The local accounts and SQLite store are intended for this single-machine demo, with deployment hardening required before multi-user network service.
