@@ -2,6 +2,7 @@ import { useProject } from "./ProjectContext";
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { remarkReportCitations } from "./remarkReportCitations";
 import {
   Activity,
   ArrowLeft,
@@ -657,6 +658,7 @@ export function ReportsPage(p: PageProps) {
     [content, setContent] = useState(""),
     [title, setTitle] = useState(""),
     [versions, setVersions] = useState<any[] | null>(null),
+    [citationIndex, setCitationIndex] = useState<number | null>(null),
     [tab, setTab] = useState("report");
   const {
       value: report,
@@ -697,6 +699,7 @@ export function ReportsPage(p: PageProps) {
             onClick={() => {
               setSelected(null);
               setEditing(false);
+              setCitationIndex(null);
             }}
           >
             <ArrowLeft size={16} />
@@ -799,7 +802,57 @@ export function ReportsPage(p: PageProps) {
                 <article className="report-paper">
                   <div className="paper-label">RESEARCH BRIEF / 研究成果</div>
                   <div className="markdown">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    <ReactMarkdown
+                      remarkPlugins={[
+                        remarkGfm,
+                        [
+                          remarkReportCitations,
+                          { citations: report.citations || [] },
+                        ],
+                      ]}
+                      components={{
+                        a: ({ node, href, children, ...props }) => {
+                          const marker =
+                            node?.properties?.["data-report-citation"];
+                          if (marker === "unresolved") {
+                            return (
+                              <span
+                                className="report-citation-unresolved"
+                                title="此来源 ID 不在当前报告的引用清单中，无法解析。"
+                              >
+                                {children}
+                                <strong>无法解析</strong>
+                              </span>
+                            );
+                          }
+                          if (typeof marker === "string") {
+                            const index = Number(marker) - 1;
+                            const citation = report.citations?.[index];
+                            if (citation && typeof citation !== "string") {
+                              return (
+                                <button
+                                  type="button"
+                                  className="report-citation"
+                                  title={
+                                    citation.document_name ||
+                                    `引用来源 ${index + 1}`
+                                  }
+                                  aria-label={`查看引用 ${index + 1}：${citation.document_name || "来源详情"}`}
+                                  onClick={() => setCitationIndex(index)}
+                                >
+                                  {children}
+                                </button>
+                              );
+                            }
+                          }
+                          return (
+                            <a href={href} {...props}>
+                              {children}
+                            </a>
+                          );
+                        },
+                      }}
+                    >
                       {report.content || "暂无报告内容。"}
                     </ReactMarkdown>
                   </div>
@@ -890,6 +943,29 @@ export function ReportsPage(p: PageProps) {
             />
           )}
         </Panel>
+      )}
+      {citationIndex !== null && report?.citations?.[citationIndex] && (
+        <Modal
+          title={`引用来源 [${citationIndex + 1}]`}
+          onClose={() => setCitationIndex(null)}
+          wide
+        >
+          <EvidenceCard
+            evidence={report.citations[citationIndex]}
+            index={citationIndex}
+          />
+          {report.citations[citationIndex].document_id && (
+            <div className="modal-actions">
+              <a
+                className="button"
+                href={`/api/documents/${report.citations[citationIndex].document_id}/file`}
+              >
+                <Download size={15} />
+                下载来源资料
+              </a>
+            </div>
+          )}
+        </Modal>
       )}
       {editing && report && (
         <Modal title="编辑研究报告" wide onClose={() => setEditing(false)}>

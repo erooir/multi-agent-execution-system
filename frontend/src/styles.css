@@ -3528,3 +3528,37 @@ tbody tr:hover {
     display: none;
   }
 }
+.markdown .report-citation {
+  display: inline;
+  padding: 0 3px;
+  margin: 0 1px;
+  border: 0;
+  border-radius: 3px;
+  background: #eaf4ef;
+  color: #237d66;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.65;
+  vertical-align: super;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.markdown .report-citation:hover {
+  background: #d5eadd;
+  color: #145c47;
+}
+.markdown .report-citation-unresolved {
+  border-bottom: 1px dashed #b98041;
+  color: #ac6e34;
+  overflow-wrap: anywhere;
+}
+.markdown .report-citation-unresolved strong {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 500;
+  background: #fff1de;
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin-left: 4px;
+  white-space: nowrap;
+}

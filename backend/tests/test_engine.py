@@ -184,6 +184,11 @@ async def test_restart_requires_explicit_resume(isolated_engine):
 async def test_dynamic_plan_uses_model_topology_and_rejects_bad_graph(isolated_engine, monkeypatch):
     import json
 
+    store, _ = isolated_engine
+    planner = store.get("agents", "agent-planner")
+    planner["instructions"] = "规划配置实际生效标记"
+    store.save("agents", planner)
+    calls = []
     model_graph = {
         "name": "模型生成分支",
         "nodes": [
@@ -200,6 +205,8 @@ async def test_dynamic_plan_uses_model_topology_and_rejects_bad_graph(isolated_e
     }
 
     async def fake_complete(*args, **kwargs):
+        assert "规划配置实际生效标记" in kwargs["system"]
+        calls.append(kwargs["purpose"])
         return {"text": json.dumps(model_graph)}
 
     monkeypatch.setattr(engine.model_gateway, "complete", fake_complete)
@@ -211,6 +218,12 @@ async def test_dynamic_plan_uses_model_topology_and_rejects_bad_graph(isolated_e
     model_graph["edges"].append({"source": "e", "target": "s"})
     with pytest.raises(ValueError, match="校验"):
         await engine.plan({"prompt": "非法图", "mode": "live"})
+    assert calls == ["workflow_plan", "workflow_plan", "workflow_plan_repair"]
+    planner["enabled"] = False
+    store.save("agents", planner)
+    with pytest.raises(ValueError, match="智能体已禁用"):
+        await engine.plan({"prompt": "停用规划器不应调用模型", "mode": "live"})
+    assert len(calls) == 3
 
 
 @pytest.mark.asyncio
@@ -277,6 +290,58 @@ async def test_live_writer_uses_budget_gateway_with_real_evidence(isolated_engin
     assert purposes.count("workflow_analysis") == 4
     assert purposes[-1] == "report_generation"
     assert store.get("reports", run["report_id"])["mode"] == "live"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bound", [True, False])
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_report_writer_configuration_and_disabled_block(isolated_engine, monkeypatch, bound, enabled):
+    store, _ = isolated_engine
+    agent_id = "custom-writer" if bound else "agent-writer"
+    store.save(
+        "agents",
+        {
+            "id": agent_id,
+            "name": "报告测试智能体",
+            "enabled": enabled,
+            "instructions": "自定义报告写作指令标记",
+        },
+    )
+    workflow = store.get("workflows", "workflow-tech-trends")
+    report_data = next(n for n in workflow["nodes"] if n["data"]["kind"] == "report")["data"]
+    if bound:
+        report_data["agent_id"] = agent_id
+    else:
+        report_data.pop("agent_id", None)
+    store.save("workflows", workflow)
+    project = store.save("projects", {"name": "资料不足直达报告", "category": "technology"})
+    calls = []
+
+    async def fake_model(prompt, **kwargs):
+        calls.append(kwargs["purpose"])
+        assert "自定义报告写作指令标记" in kwargs["system"]
+        assert "不得虚构" in kwargs["system"]
+        assert "必须完成最后一节" in kwargs["system"]
+        return {"text": "## 信息缺口\n\n没有来源证据，须补充资料后复核。"}
+
+    monkeypatch.setattr(engine.model_gateway, "complete", fake_model)
+    run = engine.create_run(
+        {
+            "workflow_id": workflow["id"],
+            "project_id": project["id"],
+            "prompt": "资料不足的研究任务",
+            "mode": "live",
+        }
+    )
+    run = await settle(run["id"])
+    if enabled:
+        assert run["status"] == "waiting_review", run.get("error")
+        assert calls == ["report_generation"]
+    else:
+        assert run["status"] == "failed"
+        assert "智能体已禁用" in run["error"]
+        assert not calls
+        assert not run.get("report_id")
 
 
 @pytest.mark.asyncio
