@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -35,9 +35,14 @@ import {
   SlidersHorizontal,
   CheckCircle2,
   LayoutGrid,
+  Focus,
 } from "lucide-react";
 import { api, post, put, type RecordData } from "./api";
-import { layoutWorkflow } from "./workflowLayout";
+import {
+  layoutWorkflow,
+  prepareWorkflowLayout,
+  WORKFLOW_NODE_SIZE,
+} from "./workflowLayout";
 import {
   Badge,
   Field,
@@ -62,13 +67,30 @@ function TaskNode({ data, selected }: any) {
   const Icon = kind.icon;
   return (
     <div className={`task-node ${data.kind} ${selected ? "selected" : ""}`}>
-      <Handle type="target" position={Position.Left} />
-      <div className="task-node-icon">
-        <Icon size={18} />
+      <Handle type="target" position={Position.Left} title="输入" />
+      <div className="task-node-heading">
+        <div className="task-node-icon">
+          <Icon size={19} />
+        </div>
+        <div>
+          <small>{kind.name}</small>
+          <strong title={data.label}>{data.label}</strong>
+        </div>
       </div>
-      <div>
-        <small>{kind.name}</small>
-        <strong>{data.label}</strong>
+      <p className="task-node-summary" title={data._summary}>
+        {data._summary}
+      </p>
+      <div className="task-node-footer">
+        <span className="task-node-binding" title={data._bindings}>
+          {data._bindings}
+        </span>
+        <span className="task-node-state">
+          {selected
+            ? "已选中"
+            : Object.keys(data.config || {}).length
+              ? `${Object.keys(data.config).length} 项配置`
+              : "默认配置"}
+        </span>
       </div>
       {data.kind === "condition" ? (
         <>
@@ -76,19 +98,21 @@ function TaskNode({ data, selected }: any) {
             type="source"
             position={Position.Right}
             id="pass"
+            title="通过"
             style={{ top: "32%" }}
           />
           <Handle
             type="source"
             position={Position.Right}
             id="fail"
-            style={{ top: "74%", background: "#d69f4d" }}
+            title="不通过"
+            style={{ top: "74%" }}
           />
           <span className="handle-label pass">通过</span>
           <span className="handle-label fail">不通过</span>
         </>
       ) : (
-        <Handle type="source" position={Position.Right} />
+        <Handle type="source" position={Position.Right} title="输出" />
       )}
     </div>
   );
@@ -113,8 +137,13 @@ export default function WorkflowEditor({
   onRun: (id: string) => void;
   notify: (s: string, error?: boolean) => void;
 }) {
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const [initialLayout] = useState(() =>
+    prepareWorkflowLayout(workflow.nodes || [], workflow.edges || []),
+  );
   const [record, setRecord] = useState(workflow),
-    [nodes, setNodes] = useState<any[]>(workflow.nodes || []),
+    [nodes, setNodes] = useState<any[]>(initialLayout.nodes),
+    [layoutPreview, setLayoutPreview] = useState(initialLayout.adjusted),
     [edges, setEdges] = useState<any[]>(workflow.edges || []),
     [selected, setSelected] = useState<string | null>(null),
     [selectedEdge, setSelectedEdge] = useState<string | null>(null),
@@ -126,6 +155,67 @@ export default function WorkflowEditor({
     [flow, setFlow] = useState<ReactFlowInstance<any, any> | null>(null);
   const node = nodes.find((x) => x.id === selected),
     edge = edges.find((x) => x.id === selectedEdge);
+  const readableViewport = (items: any[], selectedNodeId?: string | null) => {
+    const focus =
+      items.find((item) => item.id === selectedNodeId) ||
+      items.find((item) => item.data.kind === "start") ||
+      items[0];
+    if (!focus) return { x: 48, y: 100, zoom: 1 };
+    return {
+      x: 48 - focus.position.x,
+      y:
+        Math.max(
+          85,
+          ((canvasRef.current?.clientHeight || 650) -
+            WORKFLOW_NODE_SIZE.height) /
+            2,
+        ) - focus.position.y,
+      zoom: 1,
+    };
+  };
+  // Presentation data stays out of the editable/persisted workflow graph.
+  const displayNodes = useMemo(
+    () =>
+      nodes.map((item) => {
+        const data = item.data;
+        const config = data.config || {};
+        const bindings = [
+          agents.find((agent) => agent.id === data.agent_id)?.name,
+          skills.find((skill) => skill.id === data.skill_id)?.name,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        const descriptions: Record<string, string> = {
+          start: "接收任务描述与项目资料",
+          parse: "解析研究范围与交付要求",
+          retrieve: "检索当前项目中的来源证据",
+          condition: config.contains
+            ? `任务包含「${config.contains}」`
+            : `至少 ${config.min_evidence ?? 1} 条证据时通过`,
+          batch: `分批处理 ${config.items?.length || config.count || 1} 项内容`,
+          analyze: "结合证据开展分析与研判",
+          review: "等待审核人确认报告内容",
+          report: "汇总研究结果与来源引用",
+          end: "完成流程并保留执行记录",
+        };
+        return {
+          ...item,
+          data: {
+            ...data,
+            _summary:
+              [
+                config.instruction,
+                config.query,
+                config.confirmation_message,
+              ].find((value) => typeof value === "string" && value.trim()) ||
+              descriptions[data.kind] ||
+              "按节点配置执行",
+            _bindings: bindings || "流程默认",
+          },
+        };
+      }),
+    [nodes, agents, skills],
+  );
   useEffect(() => {
     setConfigText(JSON.stringify(node?.data.config || {}, null, 2));
     setConfigError("");
@@ -186,6 +276,7 @@ export default function WorkflowEditor({
     const result = await put(`/workflows/${record.id}`, payload);
     setRecord(result);
     setDirty(false);
+    setLayoutPreview(false);
     onSaved();
     return result;
   }
@@ -205,8 +296,19 @@ export default function WorkflowEditor({
         id,
         type: "task",
         position: {
-          x: 80 + (v.length % 4) * 290,
-          y: 100 + Math.floor(v.length / 4) * 140,
+          x: v.length ? Math.min(...v.map((item) => item.position.x)) : 100,
+          y: v.length
+            ? Math.max(
+                ...v.map(
+                  (item) =>
+                    item.position.y +
+                    Math.max(
+                      WORKFLOW_NODE_SIZE.height,
+                      item.measured?.height || 0,
+                    ),
+                ),
+              ) + 64
+            : 100,
         },
         data: { label: kinds[kind].name, kind, config: {} },
       },
@@ -241,7 +343,8 @@ export default function WorkflowEditor({
           <div>
             <Badge status={record.status} />
             <span>
-              版本 {record.version || 1} · {dirty ? "有未保存更改" : "已保存"}
+              版本 {record.version || 1} ·{" "}
+              {dirty ? "有未保存更改" : layoutPreview ? "布局预览" : "已保存"}
             </span>
           </div>
         </div>
@@ -346,18 +449,22 @@ export default function WorkflowEditor({
             <span>流程中的审核节点会暂停运行，等待人工确认。</span>
           </div>
         </aside>
-        <div className="flow-canvas">
+        <div className="flow-canvas" ref={canvasRef}>
           <div className="canvas-toolbar">
             <button
               className="button small"
               disabled={!canEdit}
               onClick={() => {
                 try {
-                  setNodes(layoutWorkflow(nodes, edges));
+                  const arranged = layoutWorkflow(nodes, edges);
+                  setNodes(arranged);
+                  setLayoutPreview(false);
                   setDirty(true);
                   requestAnimationFrame(() =>
                     requestAnimationFrame(() =>
-                      flow?.fitView({ padding: 0.18, duration: 350 }),
+                      flow?.setViewport(readableViewport(arranged, selected), {
+                        duration: 350,
+                      }),
                     ),
                   );
                   notify(
@@ -371,10 +478,24 @@ export default function WorkflowEditor({
               <LayoutGrid size={14} />
               自动整理
             </button>
+            <button
+              className="button small"
+              onClick={() =>
+                flow?.setViewport(readableViewport(nodes), { duration: 350 })
+              }
+            >
+              <Focus size={14} />
+              定位开始
+            </button>
           </div>
           <ReactFlow
-            onInit={setFlow}
-            nodes={nodes}
+            colorMode="dark"
+            onInit={(instance) => {
+              setFlow(instance);
+              instance.setViewport(readableViewport(initialLayout.nodes));
+            }}
+            defaultViewport={readableViewport(initialLayout.nodes)}
+            nodes={displayNodes}
             edges={edges}
             nodeTypes={nodeTypes}
             onNodesChange={onNodesChange}
@@ -396,17 +517,20 @@ export default function WorkflowEditor({
             nodesConnectable={canEdit}
             edgesReconnectable={canEdit}
             deleteKeyCode={canEdit ? ["Backspace", "Delete"] : null}
-            fitView
             minZoom={0.15}
             maxZoom={1.6}
           >
-            <Background gap={22} size={1} color="#c8d3db" />
+            <Background gap={22} size={1} color="var(--canvas-dot)" />
             <Controls />
-            <MiniMap nodeColor="#d6e6e4" pannable zoomable />
+            <MiniMap nodeColor="var(--minimap-node)" pannable zoomable />
           </ReactFlow>
           <div className="canvas-hint">
             {nodes.length} 个节点 · {edges.length} 条连线{" "}
-            <span>拖拽编排 / 滚轮缩放</span>
+            <span>
+              {layoutPreview
+                ? "重叠布局已整理，仅本次预览；保存后生效"
+                : "滚轮缩放 · 缩略图导航"}
+            </span>
           </div>
         </div>
         <aside className="node-inspector">
@@ -614,7 +738,16 @@ export default function WorkflowEditor({
                         version: v.version,
                       });
                       setRecord(r);
-                      setNodes(r.nodes || []);
+                      const restoredLayout = prepareWorkflowLayout(
+                        r.nodes || [],
+                        r.edges || [],
+                      );
+                      setNodes(restoredLayout.nodes);
+                      setLayoutPreview(restoredLayout.adjusted);
+                      flow?.setViewport(
+                        readableViewport(restoredLayout.nodes),
+                        { duration: 350 },
+                      );
                       setEdges(r.edges || []);
                       setDirty(false);
                       setVersions(null);

@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
     # Never mount private_app: native model/registry execution must not bypass RBAC/budget.
     runtime = AgentOS(
         id="research-workbench-private",
-        name="研究智能体平台内部运行时",
+        name="航智航空情报平台内部运行时",
         workflows=[engine.runtime_workflow()],
         telemetry=False,
     )
@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
-app = FastAPI(title="研究智能体平台", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="航智 · 航空情报平台", version="0.1.0", lifespan=lifespan)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver"])
 app.add_middleware(
     CORSMiddleware,

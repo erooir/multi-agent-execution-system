@@ -25,11 +25,11 @@ export default function KnowledgeGraph({
               170,
         },
         style: {
-          border: "1px solid #c6dbd1",
+          border: "1px solid var(--border-strong)",
           borderRadius: 8,
-          color: "#4e7a6d",
-          background: "#f8fcfa",
-          fontSize: 11,
+          color: "var(--text-primary)",
+          background: "var(--surface-2)",
+          fontSize: 13,
           padding: 15,
           width: 155,
         },
@@ -44,13 +44,17 @@ export default function KnowledgeGraph({
         target: edge.target,
         label: edge.label || edge.relation || "关联",
         data: edge,
-        markerEnd: { type: MarkerType.ArrowClosed, color: "#a9bec7" },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: "var(--canvas-edge)",
+        },
       })),
     [graph],
   );
   return (
     <div className="knowledge-graph-canvas">
       <ReactFlow
+        colorMode="dark"
         nodes={nodes}
         edges={edges}
         onEdgeClick={(_, edge) => onSource(edge.data || {})}
@@ -61,7 +65,7 @@ export default function KnowledgeGraph({
         maxZoom={1.8}
         attributionPosition="bottom-right"
       >
-        <Background gap={24} size={1} color="#e0e9e9" />
+        <Background gap={24} size={1} color="var(--canvas-dot)" />
         <Controls showInteractive={false} />
       </ReactFlow>
       <div className="graph-source-hint">点击关系连线查看原始来源</div>

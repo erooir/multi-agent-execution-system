@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { layoutWorkflow } from "../src/workflowLayout.ts";
+import {
+  layoutWorkflow,
+  prepareWorkflowLayout,
+  hasOverlappingWorkflowNodes,
+  WORKFLOW_NODE_SIZE,
+} from "../src/workflowLayout.ts";
 
 const makeNode = (id, y = 0) => ({
   id,
@@ -73,4 +78,63 @@ test("two condition edges with the same destination do not create a false cycle"
     { source: "condition", target: "end" },
   ]);
   assert.ok(result[1].position.x > result[0].position.x);
+});
+
+test("legacy 12-node and 9-node grids are arranged in memory without overlapping current cards", () => {
+  for (const length of [9, 12]) {
+    const nodes = Array.from({ length }, (_, index) => ({
+      ...makeNode(String(index)),
+      position: { x: (index % 4) * 240, y: Math.floor(index / 4) * 140 },
+    }));
+    const edges = nodes
+      .slice(1)
+      .map((node, index) => ({ source: String(index), target: node.id }));
+    const before = structuredClone(nodes);
+    assert.equal(hasOverlappingWorkflowNodes(nodes), true);
+    const result = prepareWorkflowLayout(nodes, edges);
+    assert.equal(result.adjusted, true);
+    assert.equal(hasOverlappingWorkflowNodes(result.nodes), false);
+    assert.deepEqual(nodes, before);
+    assert.ok(
+      result.nodes[1].position.x - result.nodes[0].position.x >
+        WORKFLOW_NODE_SIZE.width,
+    );
+  }
+});
+
+test("well-spaced manual positions survive reopening and repeated preparation unchanged", () => {
+  const nodes = [
+    { ...makeNode("a"), position: { x: -50, y: 17 } },
+    { ...makeNode("b"), position: { x: 460, y: 93 } },
+  ];
+  const edges = [{ source: "a", target: "b" }];
+  const result = prepareWorkflowLayout(nodes, edges);
+  assert.equal(result.adjusted, false);
+  assert.equal(result.nodes, nodes);
+  assert.equal(prepareWorkflowLayout(result.nodes, edges).nodes, nodes);
+});
+
+test("layout leaves vertical clearance for parallel nodes, including measured card sizes", () => {
+  const nodes = [
+    makeNode("a"),
+    makeNode("b"),
+    { ...makeNode("c"), measured: { width: 280, height: 190 } },
+  ];
+  const edges = [
+    { source: "a", target: "b" },
+    { source: "a", target: "c" },
+  ];
+  const result = layoutWorkflow(nodes, edges);
+  assert.equal(hasOverlappingWorkflowNodes(result), false);
+  assert.ok(Math.abs(result[1].position.y - result[2].position.y) > 190);
+});
+
+test("invalid legacy graphs remain editable without layout side effects", () => {
+  const nodes = [makeNode("a"), makeNode("b")];
+  const result = prepareWorkflowLayout(nodes, [
+    { source: "a", target: "b" },
+    { source: "b", target: "a" },
+  ]);
+  assert.equal(result.adjusted, false);
+  assert.equal(result.nodes, nodes);
 });

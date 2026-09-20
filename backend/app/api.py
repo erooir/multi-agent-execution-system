@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 from copy import deepcopy
 from typing import Annotated
@@ -12,7 +11,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Resp
 from fastapi.responses import FileResponse, StreamingResponse
 
 from . import engine, reports, workflows
-from .auth import get_current_user, login, logout, require_roles
+from .auth import get_current_user, login, logout, register, require_roles
 from .config import get_settings, save_settings
 from .knowledge import knowledge
 from .model_gateway import model_gateway
@@ -64,9 +63,15 @@ def health():
 
 
 @router.post("/auth/login")
-async def auth_login(body: dict, response: Response):
-    result = login(str(body.get("username", "")), str(body.get("password", "")), response)
-    return await result if inspect.isawaitable(result) else result
+async def auth_login(body: dict, request: Request, response: Response):
+    return await asyncio.to_thread(
+        login, body.get("username", ""), body.get("password", ""), response, request
+    )
+
+
+@router.post("/auth/register", status_code=201)
+async def auth_register(body: dict, request: Request, response: Response):
+    return await asyncio.to_thread(register, body, response, request)
 
 
 @router.get("/auth/me")
@@ -76,8 +81,7 @@ def auth_me(user: dict = read):
 
 @router.post("/auth/logout")
 async def auth_logout(request: Request, response: Response):
-    result = logout(request, response)
-    return await result if inspect.isawaitable(result) else result
+    return logout(request, response)
 
 
 def system_info():

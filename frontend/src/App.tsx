@@ -116,6 +116,9 @@ function Workspace() {
     refresh().finally(() => setLoading(false));
   }, [refresh]);
   useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }, [page]);
+  useEffect(() => {
     if (!user) return;
     const t = setInterval(refresh, 4000);
     return () => clearInterval(t);
@@ -152,7 +155,7 @@ function Workspace() {
           <Network />
         </div>
         <LoaderCircle className="spin" />
-        <p>正在连接研究工作台…</p>
+        <p>正在连接航空情报平台…</p>
       </div>
     );
   if (!user)
@@ -204,15 +207,15 @@ function Workspace() {
           </div>
           <div>
             <strong>
-              知序<span> RESEARCH</span>
+              航智<span> AVIATION</span>
             </strong>
-            <small>研究智能体工作台</small>
+            <small>航空情报平台</small>
           </div>
         </a>
         <div className="workspace-switch">
           <div className="workspace-avatar">研</div>
           <div>
-            <strong>研究协作空间</strong>
+            <strong>航空情报工作空间</strong>
             <small>LOCAL WORKSPACE</small>
           </div>
           <ChevronsUpDown size={14} />
@@ -243,19 +246,17 @@ function Workspace() {
             <span
               className={connectionError ? "status-dot warning" : "status-dot"}
             />
-            <span>AgentOS 本地运行时</span>
-            <Badge>
-              {data.system?.agno_version
-                ? `v${data.system.agno_version}`
-                : "LOCAL"}
-            </Badge>
+            <span>
+              {connectionError ? "工作空间连接待恢复" : "工作空间已连接"}
+            </span>
+            <Badge>{connectionError ? "重连中" : "在线"}</Badge>
           </div>
           <div className="user-box">
             <div className="user-avatar">
-              {(user.username || "U").slice(0, 1).toUpperCase()}
+              {(user.name || user.username || "U").slice(0, 1).toUpperCase()}
             </div>
             <div>
-              <strong>{user.username}</strong>
+              <strong>{user.name || user.username}</strong>
               <small>{roleNames[user.role] || user.role}</small>
             </div>
             <button
@@ -287,7 +288,7 @@ function Workspace() {
             >
               <Menu size={20} />
             </button>
-            <span>研究协作空间</span>
+            <span>航空情报工作空间</span>
             <ChevronRight size={14} />
             <strong>{navigation.find((x) => x.id === page)?.label}</strong>
           </div>
@@ -306,7 +307,7 @@ function Workspace() {
             </select>
             <span className="local-tag">
               <span className="status-dot" />
-              本地 Demo
+              服务就绪
             </span>
             <button
               className="notification-button"
@@ -349,7 +350,7 @@ function Workspace() {
           )}
         </div>
         <footer className="app-footer">
-          <span>知序研究工作台 · AGNO AGENTOS</span>
+          <span>航智 · 航空情报平台</span>
           <span>证据可追溯 · 过程可审查 · 成本可控制</span>
         </footer>
       </main>
@@ -392,10 +393,20 @@ function Login({
   onLogin: () => Promise<void>;
   connectionError: string;
 }) {
-  const [username, setUsername] = useState("admin"),
-    [password, setPassword] = useState("demo12345"),
+  const [mode, setMode] = useState<"login" | "register">("login"),
+    [username, setUsername] = useState(""),
+    [password, setPassword] = useState(""),
+    [name, setName] = useState(""),
+    [confirmation, setConfirmation] = useState(""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const registering = mode === "register";
+  function switchMode(next: "login" | "register") {
+    setMode(next);
+    setError("");
+    setPassword("");
+    setConfirmation("");
+  }
   return (
     <div className="login-page">
       <section className="login-story">
@@ -403,19 +414,22 @@ function Login({
           <div className="brand-symbol">
             <Network />
           </div>
-          <strong>知序 RESEARCH</strong>
+          <div>
+            <strong>航智</strong>
+            <small>航空情报平台</small>
+          </div>
         </div>
         <div>
-          <div className="eyebrow">FROM QUESTIONS TO EVIDENCE</div>
+          <div className="eyebrow">AVIATION INTELLIGENCE</div>
           <h1>
-            让每一次研究，
+            连接航空信息，
             <br />
-            都有据可循。
+            洞察产业前沿。
           </h1>
           <p>
-            连接资料、智能体与研究流程。
+            汇集航空技术、产业动态与研究资料。
             <br />
-            在一个工作空间中，完成从问题到报告的全过程。
+            从情报检索到专题研判，让每个结论都有据可循。
           </p>
           <div className="login-flow">
             <span>
@@ -434,19 +448,62 @@ function Login({
             </span>
           </div>
         </div>
-        <small>AGNO AGENTOS · LOCAL FIRST</small>
+        <small>航智 · 航空情报平台</small>
       </section>
       <section className="login-form">
-        <div className="eyebrow">欢迎回到工作空间</div>
-        <h2>登录研究工作台</h2>
-        <p className="muted">本地演示账号，角色权限由后端验证。</p>
+        <div className="auth-tabs" role="tablist" aria-label="账号入口">
+          <button
+            type="button"
+            role="tab"
+            id="login-tab"
+            aria-controls="auth-panel"
+            aria-selected={!registering}
+            className={!registering ? "active" : ""}
+            disabled={busy}
+            onClick={() => switchMode("login")}
+          >
+            登录
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="register-tab"
+            aria-controls="auth-panel"
+            aria-selected={registering}
+            className={registering ? "active" : ""}
+            disabled={busy}
+            onClick={() => switchMode("register")}
+          >
+            注册
+          </button>
+        </div>
+        <div className="eyebrow">
+          {registering ? "开启你的情报研究" : "欢迎回到航智"}
+        </div>
+        <h2>{registering ? "创建账号" : "登录航空情报平台"}</h2>
+        <p className="muted">
+          {registering
+            ? "建立你的情报工作空间，开展研究与协作。"
+            : "继续你的情报检索、任务编排与专题研判。"}
+        </p>
         <form
+          id="auth-panel"
+          role="tabpanel"
+          aria-labelledby={registering ? "register-tab" : "login-tab"}
           onSubmit={async (e) => {
             e.preventDefault();
-            setBusy(true);
             setError("");
+            if (registering && password !== confirmation) {
+              setError("两次输入的密码不一致，请重新确认。");
+              return;
+            }
+            setBusy(true);
             try {
-              await post("/auth/login", { username, password });
+              await post(registering ? "/auth/register" : "/auth/login", {
+                username: username.trim(),
+                password,
+                ...(registering && name.trim() ? { name: name.trim() } : {}),
+              });
               await onLogin();
             } catch (err) {
               setError((err as Error).message);
@@ -455,25 +512,72 @@ function Login({
             }
           }}
         >
-          <Field label="账号">
-            <select
+          <Field
+            label="用户名"
+            hint={
+              registering
+                ? "3–32 位字母、数字或下划线，不区分大小写。"
+                : undefined
+            }
+          >
+            <input
+              name="username"
+              autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-            >
-              <option value="admin">admin · 管理员</option>
-              <option value="operator">operator · 研究员</option>
-              <option value="reviewer">reviewer · 审核员</option>
-            </select>
-          </Field>
-          <Field label="密码">
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
+              placeholder="请输入用户名"
               required
+              minLength={registering ? 3 : undefined}
+              maxLength={32}
+              pattern={registering ? "[A-Za-z0-9_]{3,32}" : undefined}
+              disabled={busy}
             />
           </Field>
+          {registering && (
+            <Field label="姓名或昵称（选填）">
+              <input
+                name="name"
+                autoComplete="nickname"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={40}
+                placeholder="方便在协作中识别你的称呼"
+                disabled={busy}
+              />
+            </Field>
+          )}
+          <Field
+            label="密码"
+            hint={registering ? "请输入 8–128 位密码。" : undefined}
+          >
+            <input
+              type="password"
+              name="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete={registering ? "new-password" : "current-password"}
+              placeholder={registering ? "设置登录密码" : "请输入密码"}
+              minLength={registering ? 8 : undefined}
+              maxLength={128}
+              required
+              disabled={busy}
+            />
+          </Field>
+          {registering && (
+            <Field label="确认密码">
+              <input
+                type="password"
+                name="confirm-password"
+                autoComplete="new-password"
+                value={confirmation}
+                onChange={(e) => setConfirmation(e.target.value)}
+                placeholder="请再次输入密码"
+                maxLength={128}
+                required
+                disabled={busy}
+              />
+            </Field>
+          )}
           {(error || connectionError) && (
             <InlineMessage error>{error || connectionError}</InlineMessage>
           )}
@@ -482,18 +586,33 @@ function Login({
             className="button primary login-submit"
             disabled={busy}
           >
-            {busy ? <LoaderCircle size={18} className="spin" /> : "进入工作台"}
-            <ArrowRight size={18} />
+            <span>
+              {busy
+                ? registering
+                  ? "正在创建账号…"
+                  : "正在登录…"
+                : registering
+                  ? "注册并进入平台"
+                  : "登录并进入平台"}
+            </span>
+            {busy ? (
+              <LoaderCircle size={18} className="spin" />
+            ) : (
+              <ArrowRight size={18} />
+            )}
           </button>
         </form>
-        <div className="demo-credentials">
-          <ShieldCheck size={18} />
-          <span>
-            本地 Demo 默认密码：<code>demo12345</code>
-            <br />
-            支持管理员、研究员和审核员三个角色。
-          </span>
-        </div>
+        <p className="auth-switch">
+          {registering ? "已有账号？" : "还没有账号？"}
+          <button
+            className="text-button"
+            type="button"
+            disabled={busy}
+            onClick={() => switchMode(registering ? "login" : "register")}
+          >
+            {registering ? "立即登录" : "创建账号"}
+          </button>
+        </p>
       </section>
     </div>
   );
@@ -529,9 +648,9 @@ function Overview({
   return (
     <>
       <SectionTitle
-        eyebrow="RESEARCH WORKSPACE"
-        title="把研究想法，变成可执行的流程"
-        detail="以证据为基础，让智能体协作完成检索、分析与报告。"
+        eyebrow="AVIATION INTELLIGENCE"
+        title="航空情报工作台"
+        detail="跟进专题任务、核查来源证据，与团队协同完成研究交付。"
         actions={
           <button className="button" onClick={() => go("workflows")}>
             <Workflow size={16} />
@@ -545,16 +664,18 @@ function Overview({
             <Sparkles size={21} />
           </div>
           <div>
-            <h2>今天，你想研究什么？</h2>
-            <p>用自然语言描述目标，我们将为你规划一条可编辑的研究流程。</p>
+            <h2>创建研究任务</h2>
+            <p>
+              描述情报需求与交付目标，为你规划可编辑的检索、分析和报告流程。
+            </p>
           </div>
-          <span className="prompt-number">01 / START</span>
+          <span className="prompt-number">自然语言编排</span>
         </div>
         <textarea
           aria-label="研究任务描述"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder="例如：梳理现有资料中的民用航空复合材料关键技术，比较技术路线，形成附带来源的研究简报…"
+          placeholder="例如：对比民用航空复合材料的技术路线、适航认证进展与产业应用，输出附带来源的专题情报简报…"
           rows={3}
         />
         <div className="prompt-tools">

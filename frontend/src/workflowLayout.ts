@@ -1,5 +1,48 @@
-type LayoutNode = { id: string; position: { x: number; y: number } };
+type LayoutNode = {
+  id: string;
+  position: { x: number; y: number };
+  measured?: { width?: number; height?: number };
+};
 type LayoutEdge = { source: string; target: string };
+
+// Match .task-node in styles.css; leave room for branch labels and connector paths.
+export const WORKFLOW_NODE_SIZE = { width: 268, height: 156 };
+const HORIZONTAL_GAP = 100;
+const VERTICAL_GAP = 64;
+const nodeSize = (node: LayoutNode) => ({
+  width: Math.max(WORKFLOW_NODE_SIZE.width, node.measured?.width || 0),
+  height: Math.max(WORKFLOW_NODE_SIZE.height, node.measured?.height || 0),
+});
+
+/** Check card bounds plus the small space occupied by handles and branch labels. */
+export function hasOverlappingWorkflowNodes(nodes: LayoutNode[]): boolean {
+  return nodes.some((node, index) =>
+    nodes.slice(index + 1).some((other) => {
+      const a = nodeSize(node),
+        b = nodeSize(other);
+      return (
+        node.position.x < other.position.x + b.width + 48 &&
+        other.position.x < node.position.x + a.width + 48 &&
+        node.position.y < other.position.y + b.height + 16 &&
+        other.position.y < node.position.y + a.height + 16
+      );
+    }),
+  );
+}
+
+/** Upgrade only overlapping legacy layouts in memory; callers choose when to save. */
+export function prepareWorkflowLayout<T extends LayoutNode>(
+  nodes: T[],
+  edges: LayoutEdge[],
+) {
+  if (!hasOverlappingWorkflowNodes(nodes)) return { nodes, adjusted: false };
+  try {
+    return { nodes: layoutWorkflow(nodes, edges), adjusted: true };
+  } catch {
+    // Invalid graphs remain available for correction and validation in the editor.
+    return { nodes, adjusted: false };
+  }
+}
 
 /** Position a DAG from left to right without changing node data or edge meaning. */
 export function layoutWorkflow<T extends LayoutNode>(
@@ -7,6 +50,10 @@ export function layoutWorkflow<T extends LayoutNode>(
   edges: LayoutEdge[],
 ): T[] {
   if (!nodes.length) return [];
+  const columnWidth =
+    Math.max(...nodes.map((node) => nodeSize(node).width)) + HORIZONTAL_GAP;
+  const rowHeight =
+    Math.max(...nodes.map((node) => nodeSize(node).height)) + VERTICAL_GAP;
   const byId = new Map(nodes.map((node) => [node.id, node]));
   if (byId.size !== nodes.length)
     throw new Error("节点 ID 重复，请先修复后再整理。");
@@ -65,8 +112,8 @@ export function layoutWorkflow<T extends LayoutNode>(
     ids.forEach((id, index) => {
       order.set(id, index);
       positions.set(id, {
-        x: 100 + level * 310,
-        y: 100 + ((maxLayerSize - ids.length) / 2 + index) * 145,
+        x: 100 + level * columnWidth,
+        y: 100 + ((maxLayerSize - ids.length) / 2 + index) * rowHeight,
       });
     });
   }

@@ -1,4 +1,4 @@
-# 知序 Research Agent Workbench
+# 航智 · 航空情报平台
 
 A local Chinese research workbench built on Agno AgentOS. Create research projects, configure agents and skills, edit executable workflows, review evidence, and produce traceable reports.
 
@@ -13,7 +13,7 @@ uv sync --frozen --python 3.12
 powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 ```
 
-Open http://127.0.0.1:8000 . Local demonstration accounts are `admin`, `operator`, and `reviewer`; password `demo12345`. The application is bound to the local machine. These accounts are for local demonstration, not internet deployment. Set `WORKBENCH_DEMO_PASSWORD` to replace the demonstration password.
+Open http://127.0.0.1:8000 and choose **注册** to create an account, or sign in with an existing account. Registration creates a researcher account; privileged roles cannot be selected at registration. User records and salted password hashes persist locally. Existing accounts and sessions are migrated once without resetting their identity. The application is bound to the local machine and currently uses a shared workspace.
 
 Store your DeepSeek key in the Windows **user environment variable** `deepseek_api_key`. The backend reads it directly; never place it in source files, browser settings, or Git. The current default model is `deepseek-flash`. Model traffic is HTTPS to the official endpoint.
 

@@ -1,7 +1,7 @@
 # Research Agent Workbench Architecture
 
 ## Runtime
-Python 3.12+, FastAPI, Agno AgentOS, SQLite. React/TypeScript/Vite/React Flow frontend. Application data is under ignored `.local/`; credentials are read from the process or Windows user environment and never stored there. No cloud control plane subscription. All model traffic uses the budget gateway.
+Python 3.12+, FastAPI, Agno AgentOS, SQLite. React/TypeScript/Vite/React Flow frontend. Application data is under ignored `.local/`; model API keys are read from the process or Windows user environment and never stored there. Login identities and salted password hashes persist in the local database. No cloud control plane subscription. All model traffic uses the budget gateway.
 
 AgentOS registers the same Agno Workflow that executes each validated node. Its unrestricted native API is private; the authenticated product API supplies role checks, persistence and spending control. At most two runs execute concurrently, with explicit recovery after interruption. Local deployment uses a single server process.
 
@@ -11,7 +11,9 @@ AgentOS registers the same Agno Workflow that executes each validated node. Its 
 ## API contract
 All routes under `/api`. JSON collections are arrays (no envelope). Errors return HTTP errors with `detail`. Model is `deepseek-flash`, with a visibly labeled deterministic `rehearsal` execution mode, never silent fallback.
 
-- POST /auth/login {username,password}; GET /auth/me; POST /auth/logout. Session is HttpOnly cookie. Seed demo usernames admin/operator/reviewer, password `demo12345` (localhost-only demo accounts).
+- POST /auth/register {username,password,name?} returns 201 {user} and signs in. Username is case-insensitive, 3–32 ASCII letters/digits/underscores; password 8–128 characters; display name at most 40 printable characters. Registration fixes the role to operator and rejects extra fields, including role. Concurrent duplicates are rejected by the SQLite record primary key.
+- POST /auth/login {username,password}; GET /auth/me; POST /auth/logout. Sessions use opaque HttpOnly, SameSite=Strict cookies (Secure on HTTPS); only a token hash is persisted. User responses include id/username/name/role, never password hashes. Every authenticated request reads current role and enabled status from the user record. Passwords use PBKDF2-SHA256 with 600,000 iterations and random 32-byte salts; hashing runs off the event loop. Existing local identities and sessions migrate once without resetting passwords on later environment changes.
+- Authentication writes enforce allowed local origins and reject cross-site browser requests. Durable rate limits apply to registration (10 per IP per 10 minutes) and login (30 per IP and 10 per username per 10 minutes), returning Retry-After. Auth storage kinds: users, sessions, auth_meta, auth_limits.
 - GET /bootstrap returns {projects,agents,skills,workflows,runs,reports,documents,evaluations,samples,approvals,stats,budget,system,user}. Keep it lightweight, no document full text or credential values.
 - GET/POST /projects; PUT/DELETE /projects/{id}
 - GET/POST /agents; PUT/DELETE /agents/{id}; POST /agents/{id}/test {message,mode}
