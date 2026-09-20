@@ -1,0 +1,38 @@
+name: Workbench checks
+on:
+  push:
+    branches: [main, feat/research-workbench]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AGNO_TELEMETRY: "false"
+      WORKBENCH_DATA_DIR: /tmp/workbench-ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.16"
+      - name: Install Python dependencies
+        run: uv sync --frozen --python 3.12
+      - name: Test backend without paid model calls
+        run: uv run pytest -q
+      - name: Check Python style
+        run: |
+          uv run ruff check backend scripts
+          uv run ruff format --check backend scripts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test
+          npm run build

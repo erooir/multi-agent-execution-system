@@ -1,6 +1,8 @@
-# 澄观 Research Agent Workbench
+# 知序 Research Agent Workbench
 
 A local Chinese research workbench built on Agno AgentOS. Create research projects, configure agents and skills, edit executable workflows, review evidence, and produce traceable reports.
+
+中文操作与演示步骤见 [使用说明](docs/USER_GUIDE.md)。预置三个合成研究场景、四类智能体、六种技能、六条流程模板和 30 条评测样例。
 
 ## Start on Windows
 
@@ -49,4 +51,4 @@ npm ci
 npm run build
 ```
 
-See [architecture](docs/ARCHITECTURE.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md) for API contracts and delivery gates. Runtime data is intentionally not versioned. Core software dependencies are pinned by `uv.lock` and `frontend/package-lock.json`.
+See [architecture](docs/ARCHITECTURE.md), [implementation plan](docs/IMPLEMENTATION_PLAN.md) and [acceptance record](docs/VALIDATION.md) for API contracts, delivery gates and verified behavior. Runtime data is intentionally not versioned. Core software dependencies are pinned by `uv.lock` and `frontend/package-lock.json`.
