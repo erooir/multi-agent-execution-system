@@ -1,0 +1,9 @@
+#!/bin/sh
+if [ -x .venv/Scripts/python.exe ]; then
+  .venv/Scripts/python.exe scripts/check_staged.py
+elif [ -x .venv/bin/python ]; then
+  .venv/bin/python scripts/check_staged.py
+else
+  echo 'Create the project virtual environment before committing.'
+  exit 1
+fi

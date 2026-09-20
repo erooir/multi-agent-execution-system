@@ -1,0 +1,33 @@
+# Original private reference documents and generated office artifacts
+*.docx
+*.doc
+*.pptx
+*.ppt
+*.pdf
+*.xlsx
+# Secrets and all runtime/user data
+.env
+.env.*
+!.env.example
+.local/
+data/
+uploads/
+reports/
+*.db
+*.sqlite*
+*.log
+*.pem
+*.key
+# Environments and build output
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+node_modules/
+dist/
+playwright-report/
+test-results/
+.cache/
+*.tmp
+.DS_Store

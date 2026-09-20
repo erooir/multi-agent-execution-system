@@ -1,0 +1,21 @@
+[project]
+name = "research-agent-workbench"
+version = "0.1.0"
+description = "Local research agent workbench powered by Agno AgentOS"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "agno==3.0.10", "fastapi>=0.115", "uvicorn[standard]>=0.34", "sqlalchemy>=2.0",
+  "openai>=1.70", "httpx>=0.28", "python-multipart>=0.0.20", "pydantic>=2.10",
+  "python-docx>=1.1", "pypdf>=5.0", "pillow>=11", "rapidocr-onnxruntime>=1.4",
+  "fastembed>=0.6", "numpy>=2", "itsdangerous>=2.2"
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.25", "ruff>=0.11"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 110
