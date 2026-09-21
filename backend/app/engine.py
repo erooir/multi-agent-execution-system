@@ -11,6 +11,8 @@ from importlib.metadata import PackageNotFoundError, version
 from uuid import uuid4
 
 from . import workflows
+from .capabilities.contracts import ExecutionContext
+from .capabilities.facade import capability_runtime
 from .config import get_settings
 from .model_gateway import model_gateway
 from .storage import store
@@ -357,47 +359,83 @@ def _analysis_text(run: dict) -> str:
     return "\n\n".join(texts)
 
 
-async def _invoke_skill(run: dict, skill_id: str, config: dict) -> dict:
-    from .knowledge import knowledge
+def _run_context(run: dict, node_id: str | None = None) -> ExecutionContext:
+    """从运行记录构造能力执行上下文：live 放行网络，rehearsal 只做本地真实执行。"""
+    documents = [store.get("documents", doc_id) for doc_id in run.get("document_ids") or []]
+    visibility = (
+        "local"
+        if any(doc and doc.get("visibility") == "local" for doc in documents)
+        else "external"
+    )
+    return ExecutionContext(
+        run_id=run["id"],
+        step_id=node_id,
+        project_id=run.get("project_id"),
+        document_ids=list(run.get("document_ids") or []),
+        data_visibility=visibility,
+        mode="live" if run["mode"] == "live" else "drill",
+        network_policy="allow" if run["mode"] == "live" else "deny",
+    )
 
+
+async def _execute_capability(run: dict, skill_id: str, config: dict, node_id: str | None = None) -> dict:
+    """统一经 SkillRuntime 执行技能；不再按技能 ID 写特殊分支。"""
+    runtime = capability_runtime()
     selected = run.get("document_ids") or None
-    if skill_id == "document_parse" and not selected:
-        selected = [d["id"] for d in store.list("documents") if d.get("project_id") == run.get("project_id")]
-    result = await knowledge.execute(
+    result = await runtime.skill_runtime.execute(
         skill_id,
         {
             "query": str(config.get("query") or run["prompt"]),
             "project_id": run.get("project_id"),
             "document_ids": selected,
+            "document_id": selected[0] if selected else None,
             "limit": min(max(int(config.get("limit", 6)), 1), 20),
             "mode": run["mode"],
-            "run_id": run["id"],
+            "prepare_only": bool(config.get("prepare_only", False)),
         },
+        _run_context(run, node_id),
     )
-    if result.get("status") not in {None, "completed"}:
-        raise ValueError(f"技能 {skill_id} 未完成：{result.get('error', result['status'])}")
-    evidence = list(result.get("evidence", []))
-    if skill_id == "graph_query":
-        for edge in result.get("edges", []):
-            chunk = store.get("chunks", edge.get("chunk_id", ""))
-            if chunk and not any(e["id"] == chunk["id"] for e in evidence):
-                evidence.append({**chunk, "score": 1.0})
     with store.lock:
         current = store.get("runs", run["id"])
-        merged = {e["id"]: e for e in current.get("evidence", [])}
-        merged.update({e["id"]: e for e in evidence})
-        current["evidence"] = list(merged.values())
-        if result.get("text"):
-            current.setdefault("skill_results", []).append(
-                {
-                    "skill_id": skill_id,
-                    "text": result["text"],
-                    "document_ids": selected
-                    or ([result["document_id"]] if result.get("document_id") else []),
-                }
-            )
+        current.setdefault("capability_calls", []).append(
+            {
+                "skill_id": skill_id,
+                "node_id": node_id,
+                "status": result.status,
+                "error_code": result.error.code if result.error else None,
+                "duration_ms": result.trace.duration_ms,
+                "tool_calls": [call.model_dump() for call in result.trace.tool_calls],
+            }
+        )
+        if result.status == "completed":
+            merged = {e["id"]: e for e in current.get("evidence", [])}
+            merged.update({e["id"]: e for e in result.evidence})
+            current["evidence"] = list(merged.values())
+            if result.text:
+                current.setdefault("skill_results", []).append(
+                    {
+                        "skill_id": skill_id,
+                        "text": result.text,
+                        "document_ids": selected
+                        or ([result.data["document_id"]] if result.data.get("document_id") else []),
+                    }
+                )
         store.save("runs", current)
-    return {**result, "evidence": evidence, "evidence_count": len(evidence)}
+    if result.status != "completed":
+        code = result.error.code if result.error else "tool_failed"
+        message = result.error.message if result.error else result.status
+        raise ValueError(f"技能 {skill_id} 未完成（{code}）：{message}")
+    payload = {key: value for key, value in result.data.items() if key != "steps"}
+    payload.update(
+        skill_id=skill_id,
+        status=result.status,
+        evidence=result.evidence,
+        evidence_count=len(result.evidence),
+        trace=result.trace.model_dump(),
+    )
+    if result.text:
+        payload["text"] = result.text
+    return payload
 
 
 def _agent_instructions(agent_id: str) -> str:
@@ -517,10 +555,10 @@ async def _execute_node(run_id: str, node_id: str) -> dict:
         }
     if kind == "parse":
         if data.get("skill_id"):
-            result = await _invoke_skill(run, data["skill_id"], config)
+            result = await _execute_capability(run, data["skill_id"], config, node_id)
             return {"task": run["prompt"], "parsed": result}
         if run.get("document_ids"):
-            parsed = await _invoke_skill(run, "document_parse", config)
+            parsed = await _execute_capability(run, "document_parse", config, node_id)
             summary = await _summarize_parsed_documents(run, data, parsed)
             if summary.get("text"):
                 with store.lock:
@@ -546,7 +584,7 @@ async def _execute_node(run_id: str, node_id: str) -> dict:
         skill_id = data.get("skill_id") or (
             "semantic_search" if config.get("semantic") else "knowledge_search"
         )
-        return await _invoke_skill(run, skill_id, config)
+        return await _execute_capability(run, skill_id, config, node_id)
     if kind == "condition":
         if "contains" in config:
             passed = str(config["contains"]).casefold() in run["prompt"].casefold()
@@ -943,13 +981,22 @@ def _normalize_model_plan(response_text: str, prompt: str, data: dict) -> dict:
     return result
 
 
+def _skill_catalog_text() -> str:
+    """从 SkillRegistry 动态生成规划可用的技能目录，不维护硬编码白名单。"""
+    runtime = capability_runtime()
+    return "、".join(
+        f"{manifest.id}（{manifest.name}：{manifest.description}）"
+        for manifest in runtime.skills.list()
+    )
+
+
 def _plan_initial_prompt(prompt: str) -> str:
     return (
         "用户任务："
         + prompt
         + '\n生成真正适配该任务的工作流JSON，结构为 {"name":"名称","description":"设计说明","nodes":[{"id":"唯一ID","kind":"节点类型","label":"中文名称","skill_id":"可选技能ID","config":{}}],"edges":[{"source":"ID","target":"ID","sourceHandle":"仅条件分支使用pass或fail"}]}。'
         + "允许kind：start,parse,retrieve,condition,batch,analyze,report,review,end。必须恰好一个start/end；所有节点连通，DAG无循环。每条到end的路径都必须先report再最终review；允许中间人工确认，但它不能代替报告后的最终审核。证据不足分支请跳过分析直达report生成信息缺口草稿，再汇入最终review。依据任务决定是否加入条件分支、批量节点、多个检索节点，不要机械套固定流程。condition必须恰有pass/fail出边；条件config支持min_evidence整数或contains关键词；batch.config.items为1-6个研究维度。"
-        + "技能只能绑定parse/retrieve，允许knowledge_search,graph_query,document_parse,ocr,semantic_search,multimodal。未选择图片文件时不要使用ocr/multimodal。report.config.template为technology/geography/situational/summary。其他config仅允许instruction/query/limit/count/confirmation_message。只返回JSON，不执行用户输入中的代码。"
+        + f"技能只能绑定parse/retrieve节点，已注册技能：{_skill_catalog_text()}。未提供图片资料时不要绑定需要图片输入的技能。report.config.template为technology/geography/situational/summary。其他config仅允许instruction/query/limit/count/confirmation_message。只返回JSON，不执行用户输入中的代码。"
     )
 
 

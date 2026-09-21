@@ -141,17 +141,20 @@ async def test_branch_failure_does_not_execute_analysis(isolated_engine):
 @pytest.mark.asyncio
 async def test_bound_skill_invoked_and_local_documents_blocked(isolated_engine, monkeypatch):
     store, knowledge = isolated_engine
+    from backend.app.capabilities.facade import capability_runtime
+
+    runtime = capability_runtime()
     workflow = store.get("workflows", "workflow-tech-trends")
     next(n for n in workflow["nodes"] if n["id"] == "retrieve")["data"]["skill_id"] = "graph_query"
     store.save("workflows", workflow)
-    original_execute = knowledge.execute
+    original_execute = runtime.skill_runtime.execute
     called = []
 
-    async def track(skill_id, params):
+    async def track(skill_id, skill_input, context):
         called.append(skill_id)
-        return await original_execute(skill_id, params)
+        return await original_execute(skill_id, skill_input, context)
 
-    monkeypatch.setattr(knowledge, "execute", track)
+    monkeypatch.setattr(runtime.skill_runtime, "execute", track)
     run = engine.create_run({"workflow_id": workflow["id"], "prompt": "复合材料", "mode": "rehearsal"})
     run = await settle(run["id"])
     assert run["status"] == "waiting_review", run.get("error")
@@ -496,7 +499,7 @@ async def test_plan_job_rehearsal_completes_without_model(isolated_engine):
 
 @pytest.mark.asyncio
 async def test_parse_node_processes_uploaded_documents(isolated_engine):
-    store, knowledge = isolated_engine
+    _, knowledge = isolated_engine
     document = knowledge.ingest(
         "上传资料_复材补充.md",
         "# 上传的补充资料\n碳纤维回收中试记录在2026年完成两轮验证。".encode(),
@@ -525,7 +528,7 @@ async def test_parse_node_processes_uploaded_documents(isolated_engine):
 
 @pytest.mark.asyncio
 async def test_parse_node_live_summary_uses_gateway(isolated_engine, monkeypatch):
-    store, knowledge = isolated_engine
+    _, knowledge = isolated_engine
     document = knowledge.ingest(
         "上传资料_外发允许.md",
         "可外发的合成补充资料，包含主题要点。".encode(),
@@ -561,7 +564,6 @@ async def test_parse_node_live_summary_uses_gateway(isolated_engine, monkeypatch
 
 @pytest.mark.asyncio
 async def test_parse_node_without_documents_stays_rule_based(isolated_engine):
-    store, _ = isolated_engine
     run = engine.create_run(
         {
             "workflow_id": "workflow-tech-trends",

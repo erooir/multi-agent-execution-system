@@ -147,12 +147,26 @@ def test_semantic_ranks_vectors_not_keyword_scores(local, monkeypatch):
 def test_local_image_never_reaches_gateway(local, monkeypatch):
     from PIL import Image
 
-    knowledge = local[0]
+    from backend.app.capabilities import (
+        AuditLog,
+        ExecutionContext,
+        SkillRuntime,
+        ToolRuntime,
+        load_default_registries,
+    )
+
+    knowledge, database = local
     image = io.BytesIO()
     Image.new("RGB", (50, 50), "white").save(image, format="PNG")
     document = knowledge.ingest("本地.png", image.getvalue(), "test-project", "local")
-    with pytest.raises(ValueError, match="禁止发送"):
-        asyncio.run(knowledge.execute("multimodal", {"document_ids": [document["id"]], "mode": "live"}))
+    skills, tools, _ = load_default_registries()
+    runtime = SkillRuntime(skills, ToolRuntime(tools, audit=AuditLog()))
+    context = ExecutionContext(mode="live", network_policy="allow")
+    result = asyncio.run(runtime.execute("multimodal", {"document_ids": [document["id"]], "mode": "live"}, context))
+    assert result.status == "blocked"
+    assert result.error.code == "data_egress_blocked"
+    assert "禁止发送" in result.error.message
+    assert any(a["action"] == "model.blocked_local_document" for a in database.list("audits"))
 
 
 def test_seed_idempotent_30_runnable_samples_and_graph(local, monkeypatch):

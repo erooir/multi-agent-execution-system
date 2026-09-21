@@ -21,6 +21,10 @@ from .auth import (
     require_roles,
     update_user,
 )
+from .capabilities.contracts import ExecutionContext
+from .capabilities.errors import CapabilityError
+from .capabilities.facade import capability_runtime
+from .capabilities.status import skill_summaries
 from .config import get_settings, save_settings
 from .knowledge import knowledge
 from .model_gateway import model_gateway
@@ -113,7 +117,7 @@ def system_info():
     status.update(engine.runtime_status())
     status["runtime_mode"] = "local-connected"
     status["default_mode"] = get_settings()["default_mode"]
-    status["skills"] = knowledge.skills()
+    status["skills"] = skill_summaries(capability_runtime().skills, knowledge)
     embedding = getattr(knowledge, "embedding_status", None)
     status["embedding_status"] = embedding() if callable(embedding) else embedding or "按需加载本地嵌入模型"
     return status
@@ -145,7 +149,7 @@ def bootstrap(user: dict = read):
     result["documents"] = [
         safe_document(d) for d in store.list("documents") if not d.get("temporary")
     ]
-    result["skills"] = knowledge.skills()
+    result["skills"] = skill_summaries(capability_runtime().skills, knowledge)
     result["stats"] = {
         "projects": len(result["projects"]),
         "agents": len(result["agents"]),
@@ -229,7 +233,7 @@ def agent_data(body: dict, previous=None):
         raise HTTPException(400, "智能体名称不能为空")
     if item.get("role", "writer") not in {"planner", "retriever", "writer", "coordinator", "parser"}:
         raise HTTPException(400, "智能体角色无效")
-    valid_skills = {s["id"] for s in knowledge.skills()}
+    valid_skills = set(capability_runtime().skills.ids())
     if not isinstance(item.get("skill_ids", []), list) or any(
         s not in valid_skills for s in item.get("skill_ids", [])
     ):
@@ -285,27 +289,150 @@ async def test_agent(item_id: str, body: dict, user: dict = edit):
             "mode": mode,
         }
     elif mode == "live":
-        result = await model_gateway.complete(
-            message, system=str(agent.get("instructions", ""))[:10000], purpose="agent_test", max_tokens=1200
-        )
-        result["mode"] = mode
+        from .capabilities.runtime.agent import run_agent_test
+
+        try:
+            result = await run_agent_test(agent, message, "live")
+        except CapabilityError as error:
+            raise HTTPException(400, str(error)) from error
     else:
         raise HTTPException(400, "模式无效")
     audit("agent.test", item_id, user, {"mode": mode})
     return result
 
 
+def _skill_test_context(body: dict, mode: str, user: dict) -> ExecutionContext:
+    document_ids = body.get("document_ids") or ([body["document_id"]] if body.get("document_id") else [])
+    visibility = (
+        "local"
+        if any(
+            (store.get("documents", doc_id) or {}).get("visibility") == "local"
+            for doc_id in document_ids
+        )
+        else "external"
+    )
+    return ExecutionContext(
+        mode="live" if mode == "live" else "drill",
+        network_policy="allow",
+        user_id=user["username"],
+        project_id=body.get("project_id"),
+        document_ids=list(document_ids),
+        data_visibility=visibility,
+    )
+
+
 @router.get("/skills")
 def skills(user: dict = read):
-    return knowledge.skills()
+    return skill_summaries(capability_runtime().skills, knowledge)
 
 
 @router.post("/skills/{item_id}/test")
 async def test_skill(item_id: str, body: dict, user: dict = edit):
-    body.setdefault("mode", get_settings()["default_mode"])
-    result = await knowledge.execute(item_id, body)
-    audit("skill.test", item_id, user, {"mode": body.get("mode", "rehearsal")})
-    return result
+    runtime = capability_runtime()
+    if item_id not in runtime.skills:
+        raise HTTPException(404, "技能不存在")
+    mode = body.get("mode", get_settings()["default_mode"])
+    mode = "live" if mode == "real" else mode
+    if mode not in {"live", "rehearsal"}:
+        raise HTTPException(400, "模式无效")
+    context = _skill_test_context(body, mode, user)
+    result = await runtime.skill_runtime.execute(item_id, dict(body), context)
+    audit("skill.test", item_id, user, {"mode": mode, "status": result.status})
+    response = {key: value for key, value in result.data.items() if key != "steps"}
+    response.update(
+        skill_id=item_id,
+        status=result.status,
+        evidence=result.evidence,
+        text=result.text,
+        trace=result.trace.model_dump(),
+        error=result.error.model_dump() if result.error else None,
+    )
+    return response
+
+
+@router.get("/tools")
+def list_tools(user: dict = read):
+    return [
+        {
+            "id": tool.id,
+            "name": tool.name,
+            "version": tool.version,
+            "provider": tool.provider,
+            "read_only": tool.read_only,
+            "network": tool.network,
+            "data_egress": tool.data_egress,
+            "timeout_seconds": tool.timeout_seconds,
+            "requires_confirmation": tool.requires_confirmation,
+            "input_schema": tool.input_schema,
+        }
+        for tool in capability_runtime().tools.list()
+    ]
+
+
+@router.post("/tools/{item_id}/test")
+async def test_tool(item_id: str, body: dict, user: dict = edit):
+    runtime = capability_runtime()
+    if item_id not in runtime.tools:
+        raise HTTPException(404, "工具不存在")
+    mode = body.get("mode", get_settings()["default_mode"])
+    mode = "live" if mode == "real" else mode
+    if mode not in {"live", "rehearsal"}:
+        raise HTTPException(400, "模式无效")
+    arguments = body.get("input") if isinstance(body.get("input"), dict) else {
+        key: value for key, value in body.items() if key not in {"mode", "input"}
+    }
+    context = _skill_test_context(body, mode, user)
+    result = await runtime.tool_runtime.invoke(item_id, arguments, context)
+    audit("tool.test", item_id, user, {"mode": mode, "status": result.status})
+    return result.model_dump()
+
+
+@router.get("/mcp-servers")
+def list_mcp_servers(user: dict = read):
+    return [
+        {
+            "id": server.id,
+            "transport": server.transport,
+            "enabled": server.enabled,
+            "tool_allowlist": server.tool_allowlist,
+            "roots": server.roots,
+            "startup_timeout_seconds": server.startup_timeout_seconds,
+            "call_timeout_seconds": server.call_timeout_seconds,
+        }
+        for server in capability_runtime().mcp_servers.list()
+    ]
+
+
+@router.get("/mcp-servers/{item_id}/health")
+async def mcp_server_health(item_id: str, user: dict = read):
+    runtime = capability_runtime()
+    if item_id not in runtime.mcp_servers:
+        raise HTTPException(404, "MCP 服务不存在")
+    return await runtime.mcp_provider.health(item_id)
+
+
+@router.post("/mcp-servers/{item_id}/refresh")
+async def refresh_mcp_server(item_id: str, user: dict = admin):
+    runtime = capability_runtime()
+    if item_id not in runtime.mcp_servers:
+        raise HTTPException(404, "MCP 服务不存在")
+    try:
+        discovered = await runtime.mcp_provider.discover(item_id)
+    except CapabilityError as error:
+        raise HTTPException(503, f"{error.code}: {error}") from error
+    definitions = runtime.mcp_provider.to_tool_definitions(item_id, discovered)
+    for definition in definitions:
+        runtime.tools.upsert(definition)
+    audit("mcp.refresh", item_id, user, {"tools": len(definitions)})
+    return {"server_id": item_id, "discovered": discovered, "registered": [d.id for d in definitions]}
+
+
+@router.get("/capability-events")
+def capability_events(run_id: str | None = None, user: dict = read):
+    events = capability_runtime().audit.events()
+    if run_id:
+        events = [event for event in events if event.get("run_id") == run_id]
+    return events[-200:]
 
 
 @router.get("/documents")

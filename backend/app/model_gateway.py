@@ -313,4 +313,105 @@ class ModelGateway:
             }
 
 
+    @staticmethod
+    def _bind_tool(name: str, binding, tool_calls: list):
+        """把 SkillRuntime 生成的受控 callable 包成 Agno 工具并记录真实调用。"""
+        import functools
+        import inspect
+
+        @functools.wraps(binding)
+        async def wrapped(*args, **kwargs):
+            result = binding(*args, **kwargs)
+            if inspect.isawaitable(result):
+                result = await result
+            trace_calls = result.get("trace", {}).get("tool_calls", []) if isinstance(result, dict) else []
+            tool_calls.append(
+                {
+                    "tool_id": trace_calls[0].get("tool_id", name) if trace_calls else name,
+                    "status": result.get("status") if isinstance(result, dict) else "completed",
+                    "arguments": sorted(kwargs),
+                    "duration_ms": trace_calls[0].get("duration_ms", 0) if trace_calls else 0,
+                }
+            )
+            return result
+
+        wrapped.__name__ = name.replace(".", "_")
+        return wrapped
+
+    async def run_agent(
+        self,
+        agent_spec: dict,
+        messages,
+        tool_bindings: dict,
+        context=None,
+        max_rounds: int = 4,
+        timeout_seconds: float = 180,
+    ):
+        """带真实 tools= 的受控模型执行；所有请求仍经由计量传输与预算账本。"""
+        api_key = get_api_key()
+        if not api_key:
+            raise RuntimeError("未配置deepseek_api_key，请在Windows用户环境变量中设置后重试")
+        from agno.agent import Agent
+        from agno.models.deepseek import DeepSeek
+        from openai import AsyncOpenAI
+
+        run_id = getattr(context, "run_id", None)
+        transport = MeteredTransport(self.ledger, "agent_run", run_id)
+        tool_calls: list[dict] = []
+        tools = [self._bind_tool(name, binding, tool_calls) for name, binding in (tool_bindings or {}).items()]
+        async with (
+            self.semaphore,
+            httpx.AsyncClient(transport=transport, timeout=90, follow_redirects=False) as http_client,
+        ):
+            client = AsyncOpenAI(
+                api_key=api_key, base_url="https://api.deepseek.com", max_retries=0, http_client=http_client
+            )
+            model = DeepSeek(
+                id=MODEL_ID,
+                api_key=api_key,
+                async_client=client,
+                max_tokens=min(2000, get_settings()["max_output_tokens"], 6000),
+                use_thinking=False,
+                retries=0,
+                max_retries=0,
+            )
+            agent = Agent(
+                name=f"workbench-agent-{agent_spec.get('name', 'run')}",
+                model=model,
+                system_message=str(agent_spec.get("instructions") or "你是严谨的研究助手。"),
+                tools=tools or None,
+                tool_call_limit=max(1, int(max_rounds)),
+                telemetry=False,
+                markdown=True,
+                retries=0,
+                add_history_to_context=False,
+            )
+            try:
+                output = await asyncio.wait_for(
+                    agent.arun(str(messages)), timeout=max(1.0, float(timeout_seconds))
+                )
+            except BudgetExceeded:
+                raise
+            except Exception as exc:  # noqa: BLE001 - SDK errors must not expose credentials or request contents.
+                _require_complete_output(transport.result)
+                raise RuntimeError(
+                    f"模型调用未完成（{type(exc).__name__}），请检查连接、余额与模型配置；未确认费用仍计入预留"
+                ) from None
+            _require_complete_output(transport.result)
+            text = (
+                output.content
+                if isinstance(output.content, str)
+                else json.dumps(output.content, ensure_ascii=False, default=str)
+            )
+            return {
+                "text": text,
+                "usage": transport.result.get("usage", {}),
+                "cost_cny": transport.result.get("cost_cny", 0),
+                "model": transport.result.get("model", MODEL_ID),
+                "request_id": transport.result.get("request_id"),
+                "finish_reason": (transport.result.get("finish_reasons") or [None])[0],
+                "tool_calls": tool_calls,
+            }
+
+
 model_gateway = ModelGateway()

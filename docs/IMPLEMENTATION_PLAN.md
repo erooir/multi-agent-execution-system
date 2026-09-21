@@ -41,3 +41,22 @@ After client feedback: production identity and tenant isolation, deployment pack
 - 修复审核弹窗空白：前端此前只加载报告草稿，从未读取审批记录内容；现在中间审核节点会载入后端兜底内容（任务与证据状态说明）。
 - 运行详情页「执行过程 / 节点输出」两个面板改为各自独立滚动。
 - 验证：`uv run pytest` 79 项全部通过；前端构建与 12 项测试通过。
+
+## Skill/Tool/MCP 三层架构阶段 A：新内核旁路构建（2026-09-21，dev/analysis-and-changes 分支）
+- 新增 `backend/app/capabilities/` 包：contracts（ExecutionContext/ToolResult/SkillManifest/ToolDefinition/McpServerDefinition）、errors（稳定错误码）、registry、loader（启动校验：重复 ID、Skill/recipe 引用不存在的 Tool、非法 JSON Schema）、schema（极简 JSON Schema 校验器）、policy（授权交集/外发/确认/预算闸门）、audit（内存环形缓冲+脱敏）、runtime（ToolRuntime/SkillRuntime）、providers（local/http/mcp 基座）、services（documents/embeddings/graph）、tools（六项能力的 8 个 Tool 实现）。
+- 六个技能迁移为 Manifest + recipe，Skill ID 与输出字段契约不变：knowledge_search→local.knowledge.keyword_search（evidence/count/method）；graph_query→local.graph.query（nodes/edges）；document_parse→local.document.read_chunks（evidence/count，不自动挑选项目文档，摘要仍属调用方）；ocr→local.ocr.rapidocr（text/evidence/region_count/elapsed）；semantic_search→local.knowledge.semantic_search + local.embedding.prepare（prepare_only 与 embedding 状态，recipe 条件步骤 when/unless）；multimodal→model.vision.analyze（保留外发/文件类型/8MB/预算检查，仍只走 model_gateway.complete）。
+- `backend/app/skills/<kebab>/{SKILL.md,skill.yaml}` ×6；`backend/app/capability_manifests/tools/*.yaml` ×5（8 个 Tool）；`capability_manifests/mcp/docling-local.yaml` 仅配置清单（enabled:false，docling-mcp==1.2.0 占位，roots 用 ${AUTHORIZED_TEMP_ROOT}），本期不安装不接入。
+- knowledge.py 的解析/分块/分词/Evidence 组装抽取到 capabilities/services，knowledge.py 内部委托、外部行为与 SKILL_DEFINITIONS/skills()/execute() 全部保留（阶段 B 再删除）；api.py、engine.py、workflows.py、model_gateway.py 未改动，新内核不接管流量。
+- agent 模式：drill 返回 dry_run 预检（指令加载+工具绑定），live 在预算网关提供工具调用能力（run_agent，属后续阶段）前明确报 capability_disabled，不伪造模型调用。
+- MCP Provider 支持 stdio/streamable_http 的发现、健康检查、allowlist 过滤与调用；测试用 fastmcp 子进程桩验证发现+调用+allowlist+不可用报错。
+- 验证：`uv run pytest` 107 项全部通过（原 79 + 新 28）；`uv run ruff check backend/app/capabilities backend/tests` 通过（顺手修复 test_engine.py 既有的 3 处 RUF059 未使用变量）。
+
+## Skill/Tool/MCP 三层架构阶段 B：原子切换全部后端调用方（2026-09-21，dev/analysis-and-changes 分支）
+- `model_gateway.py`：保留 `complete()` 不变；新增 `run_agent(agent_spec, messages, tool_bindings, context, max_rounds)`，创建 Agno Agent 时传入真实 `tools=`（SkillRuntime.build_tool_functions 生成、经 ToolRuntime/Policy Gate 的受控 callable），工具轮数（tool_call_limit）、单次输出（≤2000 tokens）与总超时设上限，所有请求仍经 MeteredTransport 与预算账本（purpose=agent_run，携带 run_id），截断输出仍按 ModelOutputTruncated 处理。
+- `engine.py`：`_invoke_skill` 替换为 `_execute_capability`，统一经 SkillRuntime.execute；删除对 `knowledge.execute()` 的调用、document_parse 自动挑选项目文档的兜底（用户已否决）和 graph_query 边补证据的特殊分支（该行为迁入 local.graph.query Tool）；运行记录新增 `capability_calls`（skill_id/node_id/status/error_code/duration_ms/tool_calls），技能失败带稳定错误码；规划提示词的技能目录改为 `_skill_catalog_text()` 从 SkillRegistry 动态生成；`_plan_model_loop`/`start_plan`/`_summarize_parsed_documents`/`_review_content` 行为不变。
+- `workflows.py`：删除六个技能 ID 硬编码白名单，改为 SkillRegistry 存在性 + manifest.node_kinds 与节点类型（parse/retrieve）兼容校验。
+- `api.py`：`GET /skills`、`POST /skills/{id}/test`、`system_info`/`/bootstrap`、`agent_data()` 全部改走 Registry/SkillRuntime（响应保留原字段并新增 trace）；新增 `GET /tools`、`POST /tools/{id}/test`、`GET /mcp-servers`、`GET /mcp-servers/{id}/health`、`POST /mcp-servers/{id}/refresh`（admin）、`GET /capability-events`；`/agents/{id}/test` live 模式改经 AgentRuntime→model_gateway.run_agent 真实工具链，模型未调用能力时返回明确标注 note。
+- `knowledge.py`：删除 `SKILL_DEFINITIONS`、`Knowledge.skills()`、`Knowledge.execute()`；保留为纯文档服务层（ingest/search/chunks/graph/OCR/embedding/路径安全），全仓库已无 `SKILL_DEFINITIONS`/`knowledge.execute(` 引用。
+- `main.py`：启动 seed 后执行 `validate_registered_skills(store)` 只读校验，已存 Agent/Workflow 引用未注册技能时报明确错误。
+- 能力层配套增强：Registry 增加 upsert/unregister（MCP refresh 用）；build_tool_functions 生成带显式签名的 callable 供 Agno 真实参数绑定；graph Tool 返回边引用分块证据；ocr/vision Tool 兼容 document_id/document_ids 两种入参；multimodal manifest node_kinds 调整为 [parse, retrieve] 以保持旧工作流兼容。
+- 验证：`uv run pytest` 115 项全部通过（阶段A后 107 + 新增/调整 8）；`uv run ruff check backend` 全部通过；uvicorn 启动冒烟通过（/api/bootstrap 的 skills 六个技能字段兼容、/api/tools、/api/mcp-servers、docling health=disabled 均正常，进程已关闭）。前端未改动，bootstrap 字段向后兼容。

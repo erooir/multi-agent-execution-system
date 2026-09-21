@@ -1,0 +1,32 @@
+id: knowledge_search
+version: 2.0.0
+name: 知识库检索
+description: 本地关键词检索，返回可定位的文档片段
+execution_mode: recipe
+allowed_tools:
+  - local.knowledge.keyword_search
+node_kinds: [retrieve, analyze]
+input_schema:
+  type: object
+  properties:
+    query: {type: string}
+    project_id: {type: string}
+    document_ids: {type: array, items: {type: string}}
+    limit: {type: integer}
+  required: [query]
+output_schema:
+  type: object
+  properties:
+    evidence: {type: array}
+    count: {type: integer}
+    method: {type: string}
+  required: [evidence, count, method]
+evidence_required: true
+side_effect: none
+recipe:
+  - tool: local.knowledge.keyword_search
+    args:
+      query: "{input.query}"
+      project_id: "{input.project_id}"
+      document_ids: "{input.document_ids}"
+      limit: "{input.limit}"

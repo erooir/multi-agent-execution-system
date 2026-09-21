@@ -21,9 +21,13 @@ from . import engine
 async def lifespan(app: FastAPI):
     from agno.os import AgentOS
 
+    from .capabilities.facade import validate_registered_skills
     from .seeds import seed_all
+    from .storage import store
 
     seed_all()
+    # 启动期只读校验：已存 Agent/Workflow 不得引用未注册技能。
+    validate_registered_skills(store)
     engine.recover_interrupted()
     # The registered Workflow is the same object engine._drive actually executes.
     # Never mount private_app: native model/registry execution must not bypass RBAC/budget.

@@ -1,0 +1,47 @@
+tools:
+  - id: local.document.read_chunks
+    version: 1.0.0
+    name: 读取文档分块
+    provider: local
+    entrypoint: backend.app.capabilities.tools.documents:read_chunks
+    input_schema:
+      type: object
+      properties:
+        document_ids: {type: array, items: {type: string}}
+        project_id: {type: string}
+      required: [document_ids]
+    output_schema:
+      type: object
+      properties:
+        evidence: {type: array}
+        count: {type: integer}
+      required: [evidence, count]
+    read_only: true
+    network: none
+    data_egress: none
+    timeout_seconds: 30
+    requires_confirmation: false
+
+  - id: local.document.parse
+    version: 1.0.0
+    name: 解析文档原文
+    provider: local
+    entrypoint: backend.app.capabilities.tools.documents:document_parse
+    input_schema:
+      type: object
+      properties:
+        document_id: {type: string}
+        project_id: {type: string}
+      required: [document_id]
+    output_schema:
+      type: object
+      properties:
+        document_id: {type: string}
+        parts: {type: array}
+        count: {type: integer}
+      required: [parts, count]
+    read_only: true
+    network: none
+    data_egress: none
+    timeout_seconds: 60
+    requires_confirmation: false

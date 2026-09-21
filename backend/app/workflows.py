@@ -38,19 +38,20 @@ def validate_workflow(workflow: dict) -> dict:
             errors.append(f"节点 {node['id']} 配置必须为对象")
             continue
         skill_id = data.get("skill_id")
-        if skill_id and (
-            data["kind"] not in {"parse", "retrieve"}
-            or skill_id
-            not in {
-                "knowledge_search",
-                "graph_query",
-                "document_parse",
-                "ocr",
-                "semantic_search",
-                "multimodal",
-            }
-        ):
-            errors.append(f"节点 {node['id']} 的技能绑定无效，技能仅可绑定解析/检索节点")
+        if skill_id:
+            invalid = data["kind"] not in {"parse", "retrieve"}
+            if not invalid:
+                from .capabilities.facade import capability_runtime
+
+                registry = capability_runtime().skills
+                if skill_id not in registry:
+                    invalid = True
+                else:
+                    manifest = registry.get(skill_id)
+                    if manifest.node_kinds and data["kind"] not in manifest.node_kinds:
+                        invalid = True
+            if invalid:
+                errors.append(f"节点 {node['id']} 的技能绑定无效，技能仅可绑定解析/检索节点")
         for key in ("min_evidence", "limit", "count", "batch_size"):
             if key in config and (
                 not isinstance(config[key], int)

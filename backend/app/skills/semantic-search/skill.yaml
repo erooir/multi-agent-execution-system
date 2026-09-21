@@ -1,0 +1,36 @@
+id: semantic_search
+version: 2.0.0
+name: 语义检索
+description: 本地中文 BGE 向量检索；首次使用需准备模型
+execution_mode: recipe
+allowed_tools:
+  - local.embedding.prepare
+  - local.knowledge.semantic_search
+node_kinds: [retrieve, analyze]
+input_schema:
+  type: object
+  properties:
+    query: {type: string}
+    project_id: {type: string}
+    document_ids: {type: array, items: {type: string}}
+    limit: {type: integer}
+    prepare_only: {type: boolean}
+output_schema:
+  type: object
+  properties:
+    evidence: {type: array}
+    count: {type: integer}
+    method: {type: string}
+    embedding: {type: object}
+evidence_required: false
+side_effect: none
+recipe:
+  - tool: local.embedding.prepare
+    when: "{input.prepare_only}"
+  - tool: local.knowledge.semantic_search
+    unless: "{input.prepare_only}"
+    args:
+      query: "{input.query}"
+      project_id: "{input.project_id}"
+      document_ids: "{input.document_ids}"
+      limit: "{input.limit}"

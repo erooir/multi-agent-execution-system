@@ -1,0 +1,27 @@
+tools:
+  - id: model.vision.analyze
+    version: 1.0.0
+    name: 视觉理解（预算网关）
+    provider: local
+    entrypoint: backend.app.capabilities.tools.multimodal:vision_analyze
+    input_schema:
+      type: object
+      properties:
+        document_id: {type: string}
+        document_ids: {type: array, items: {type: string}}
+        query: {type: string}
+        mode: {type: string}
+        project_id: {type: string}
+    output_schema:
+      type: object
+      properties:
+        text: {type: string}
+        usage: {type: object}
+        document_id: {type: string}
+      required: [text, document_id]
+    read_only: true
+    network: required
+    data_egress: raw
+    timeout_seconds: 120
+    requires_confirmation: false
+    uses_model_budget: true
