@@ -538,9 +538,14 @@ function RunDetail({
               disabled={!p.canReview}
               onClick={() =>
                 task(async () => {
+                  const approval = (p.data.approvals || []).find(
+                    (a: any) => a.run_id === run.id && a.status === "pending",
+                  );
                   if (run.report_id) {
                     const draft = await api(`/reports/${run.report_id}`);
-                    setReviewContent(draft.content || "");
+                    setReviewContent(draft.content || approval?.content || "");
+                  } else {
+                    setReviewContent(approval?.content || "");
                   }
                   setReview(true);
                 })

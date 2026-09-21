@@ -560,13 +560,13 @@ async def test_parse_node_live_summary_uses_gateway(isolated_engine, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_parse_node_parses_project_documents_with_cap(isolated_engine):
+async def test_parse_node_without_documents_stays_rule_based(isolated_engine):
     store, _ = isolated_engine
     run = engine.create_run(
         {
             "workflow_id": "workflow-tech-trends",
             "project_id": "project-technology",
-            "prompt": "默认解析项目资料",
+            "prompt": "不指定资料时不擅自解析项目文档",
             "mode": "rehearsal",
         }
     )
@@ -574,13 +574,8 @@ async def test_parse_node_parses_project_documents_with_cap(isolated_engine):
     assert run["status"] == "waiting_review", run.get("error")
     parse_step = next(s for s in run["steps"] if s["kind"] == "parse")
     assert parse_step["status"] == "completed"
-    assert "默认解析项目内" in parse_step["payload"]["scope"]
-    assert parse_step["payload"]["summary"] is None
-    parsed_evidence = parse_step["payload"]["parsed"]["evidence"]
-    counts: dict[str, int] = {}
-    for item in parsed_evidence:
-        counts[item["document_id"]] = counts.get(item["document_id"], 0) + 1
-    assert counts and max(counts.values()) <= 4
+    assert parse_step["payload"].get("parsed") is None
+    assert parse_step["payload"]["method"] == "规则解析"
 
 
 @pytest.mark.asyncio
