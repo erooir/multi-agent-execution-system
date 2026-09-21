@@ -182,9 +182,10 @@ def test_api_capability_endpoints(isolated_engine):
         assert bad["status"] == "failed"
         assert bad["error"]["code"] == "schema_validation_failed"
 
-        servers = client.get("/api/mcp-servers").json()
-        assert servers[0]["id"] == "docling-local" and servers[0]["enabled"] is False
-        assert "command" not in servers[0]
+        servers = {s["id"]: s for s in client.get("/api/mcp-servers").json()}
+        assert servers["docling-local"]["enabled"] is False
+        assert servers["aviation-local"]["enabled"] is True
+        assert all("command" not in s for s in servers.values())
         health = client.get("/api/mcp-servers/docling-local/health").json()
         assert health["status"] == "disabled"
 

@@ -117,7 +117,12 @@ def system_info():
     status.update(engine.runtime_status())
     status["runtime_mode"] = "local-connected"
     status["default_mode"] = get_settings()["default_mode"]
-    status["skills"] = skill_summaries(capability_runtime().skills, knowledge)
+    status["skills"] = skill_summaries(
+        capability_runtime().skills,
+        knowledge,
+        tools=capability_runtime().tools,
+        server_health=capability_runtime().server_health,
+    )
     embedding = getattr(knowledge, "embedding_status", None)
     status["embedding_status"] = embedding() if callable(embedding) else embedding or "按需加载本地嵌入模型"
     return status
@@ -142,17 +147,19 @@ def tool_summaries() -> list[dict]:
 
 
 def mcp_server_summaries() -> list[dict]:
+    runtime = capability_runtime()
     return [
         {
             "id": server.id,
             "transport": server.transport,
             "enabled": server.enabled,
+            "status": runtime.server_health.get(server.id, "unknown" if server.enabled else "disabled"),
             "tool_allowlist": server.tool_allowlist,
             "roots": server.roots,
             "startup_timeout_seconds": server.startup_timeout_seconds,
             "call_timeout_seconds": server.call_timeout_seconds,
         }
-        for server in capability_runtime().mcp_servers.list()
+        for server in runtime.mcp_servers.list()
     ]
 
 
@@ -197,7 +204,12 @@ def bootstrap(user: dict = read):
     result["documents"] = [
         safe_document(d) for d in store.list("documents") if not d.get("temporary")
     ]
-    result["skills"] = skill_summaries(capability_runtime().skills, knowledge)
+    result["skills"] = skill_summaries(
+        capability_runtime().skills,
+        knowledge,
+        tools=capability_runtime().tools,
+        server_health=capability_runtime().server_health,
+    )
     result["tools"] = tool_summaries()
     result["mcp_servers"] = mcp_server_summaries()
     result["capability_stats"] = capability_stats(
@@ -376,7 +388,12 @@ def _skill_test_context(body: dict, mode: str, user: dict) -> ExecutionContext:
 
 @router.get("/skills")
 def skills(user: dict = read):
-    return skill_summaries(capability_runtime().skills, knowledge)
+    return skill_summaries(
+        capability_runtime().skills,
+        knowledge,
+        tools=capability_runtime().tools,
+        server_health=capability_runtime().server_health,
+    )
 
 
 @router.post("/skills/{item_id}/test")
@@ -436,7 +453,9 @@ async def mcp_server_health(item_id: str, user: dict = read):
     runtime = capability_runtime()
     if item_id not in runtime.mcp_servers:
         raise HTTPException(404, "MCP 服务不存在")
-    return await runtime.mcp_provider.health(item_id)
+    health = await runtime.mcp_provider.health(item_id)
+    runtime.server_health[item_id] = health["status"]
+    return health
 
 
 @router.post("/mcp-servers/{item_id}/refresh")
@@ -446,7 +465,9 @@ async def refresh_mcp_server(item_id: str, user: dict = admin):
         raise HTTPException(404, "MCP 服务不存在")
     try:
         discovered = await runtime.mcp_provider.discover(item_id)
+        runtime.server_health[item_id] = "ready"
     except CapabilityError as error:
+        runtime.server_health[item_id] = "unavailable"
         raise HTTPException(503, f"{error.code}: {error}") from error
     definitions = runtime.mcp_provider.to_tool_definitions(item_id, discovered)
     for definition in definitions:

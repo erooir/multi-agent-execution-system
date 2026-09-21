@@ -1,0 +1,27 @@
+id: airport_lookup
+version: 1.0.0
+name: 机场要素检索
+description: 在 OurAirports 离线快照中按代码或名称检索机场要素
+execution_mode: recipe
+allowed_tools:
+  - aviation.ourairports.lookup_airport
+node_kinds: [retrieve, analyze]
+input_schema:
+  type: object
+  properties:
+    query: {type: string}
+    limit: {type: integer}
+  required: [query]
+output_schema:
+  type: object
+  properties:
+    airports: {type: array}
+    count: {type: integer}
+    snapshot_date: {type: string}
+evidence_required: true
+side_effect: none
+recipe:
+  - tool: aviation.ourairports.lookup_airport
+    args:
+      query: "{input.query}"
+      limit: "{input.limit}"

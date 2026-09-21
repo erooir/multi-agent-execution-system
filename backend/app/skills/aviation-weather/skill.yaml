@@ -1,0 +1,29 @@
+id: aviation_weather
+version: 1.0.0
+name: 航空气象分析
+description: 获取指定机场的 METAR 实况与 TAF 预报（NOAA Aviation Weather）
+execution_mode: recipe
+allowed_tools:
+  - aviation.noaa.get_metar
+  - aviation.noaa.get_taf
+node_kinds: [retrieve, analyze]
+input_schema:
+  type: object
+  properties:
+    icao: {type: string}
+  required: [icao]
+output_schema:
+  type: object
+  properties:
+    station: {type: string}
+    reports: {type: array}
+    count: {type: integer}
+evidence_required: true
+side_effect: none
+recipe:
+  - tool: aviation.noaa.get_metar
+    args:
+      icao: "{input.icao}"
+  - tool: aviation.noaa.get_taf
+    args:
+      icao: "{input.icao}"

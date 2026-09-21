@@ -1,7 +1,9 @@
 """面向 API 的 Skill 摘要：保持原 knowledge.skills() 的输出字段不变。
 
 字段：id/name/description/version/execution/status/note/input_schema/
-output_schema/enabled。状态逻辑与原实现一致（依赖探测 + 模型配置）。
+output_schema/enabled/execution_mode/node_kinds/allowed_tools/evidence_required。
+execution 依据 Skill 声明的 Tool 的 network 字段推导（需要网络即 external）；
+依赖 MCP 工具的 Skill 在 Server 最近已知不可用时标 degraded。
 """
 
 from __future__ import annotations
@@ -10,11 +12,9 @@ import importlib.util
 
 from .registry import SkillRegistry
 
-_EXECUTION_LABEL = {"knowledge_search": "local", "graph_query": "local", "document_parse": "local",
-                    "ocr": "local", "semantic_search": "local", "multimodal": "external"}
 
-
-def skill_summaries(skills: SkillRegistry, knowledge) -> list[dict]:
+def skill_summaries(skills: SkillRegistry, knowledge, tools=None, server_health=None) -> list[dict]:
+    server_health = server_health or {}
     results = []
     for manifest in skills.list():
         status, note = "ready", "可调用"
@@ -37,13 +37,26 @@ def skill_summaries(skills: SkillRegistry, knowledge) -> list[dict]:
                 if configured
                 else "需配置支持图像输入的预算网关模型"
             )
+        allowed = [tools.get(tool_id) for tool_id in manifest.allowed_tools] if tools else []
+        allowed = [tool for tool in allowed if tool is not None]
+        for tool in allowed:
+            if tool.provider != "mcp":
+                continue
+            server_id = tool.entrypoint.removeprefix("mcp://").split("/")[0]
+            health = server_health.get(server_id)
+            if health is not None and health != "ready":
+                status = "degraded"
+                note = f"依赖的 MCP 服务 {server_id} 当前不可用（{health}），其余本地能力不受影响"
+        execution = (
+            "external" if any(tool.network == "required" for tool in allowed) else "local"
+        )
         results.append(
             {
                 "id": manifest.id,
                 "name": manifest.name,
                 "description": manifest.description,
                 "version": manifest.version,
-                "execution": _EXECUTION_LABEL.get(manifest.id, "local"),
+                "execution": execution,
                 "execution_mode": manifest.execution_mode,
                 "node_kinds": manifest.node_kinds,
                 "allowed_tools": manifest.allowed_tools,

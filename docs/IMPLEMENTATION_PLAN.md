@@ -70,3 +70,11 @@ After client feedback: production identity and tenant isolation, deployment pack
 - 运行详情：节点输出带 trace 时以 Skill→Tool 层级缩进展示（tool_id/provider/耗时/状态徽标），错误按稳定错误码中文呈现；`.execution-grid` 独立滚动样式未改动。
 - 首页就绪情况将"技能工具"拆为 技能/工具（健康/全部）/MCP 服务 三项，数据源 capability_stats。
 - 验证：`uv run pytest` 115 项全部通过（test_engine_api 增加 bootstrap 新字段断言）；`uv run ruff check backend` 通过；前端 `npm run build` 通过；`npm test` 20 项通过（原 12 + capabilities.test.mjs 新增 8）。
+
+## Skill/Tool/MCP 阶段 D：真实外部工具 + 首个真实 MCP Server（2026-09-21，dev/analysis-and-changes 分支）
+- 新增 HTTP 工具（provider=http，allowed_hosts 白名单、≤15s 超时、5MB 响应上限、data_egress=query）：`aviation.noaa.get_metar/get_taf/get_sigmet`（aviationweather.gov）、`research.openalex.search_works`、`research.crossref.search_doi`。HttpProvider 改为 entrypoint 约定 `module:base`（`base_request(args)` 构造请求、`base_parse(payload,args)` 解析），网络出口统一在 Provider 内强制白名单；测试用 httpx MockTransport，零真实请求。
+- 新增 OurAirports 离线工具 `aviation.ourairports.lookup_airport/nearby_airports`（惰性加载 CSV+缓存，network:none，drill 下真实执行；快照缺失报 provider_unavailable 并提示补齐方式）；新增 `scripts/download_ourairports.py` 快照下载脚本；快照位于 gitignore 的 `.local/ourairports/`。
+- 首个真实 MCP 垂直验收：`backend/app/mcp_servers/aviation_server.py`（fastmcp stdio，复用 tools/airports.py）；`capability_manifests/mcp/aviation-local.yaml`（enabled:true，command `uv run python -m backend.app.mcp_servers.aviation_server`，allowlist 仅两个工具）。真实 stdio 会话验证发现（2 工具）、健康检查 ready、调用 lookup_airport 命中 ZBAA、越 allowlist 报 permission_denied、经 ToolRuntime 注册为 `mcp.aviation-local.*` 并可调用；server 不可用时依赖其工具的 Skill 经 skill_summaries 标 degraded，本地能力不受影响。
+- 新增三个 Skill（recipe，node_kinds [retrieve, analyze]，evidence_required:true）：aviation_weather（METAR+TAF）、airport_lookup（OurAirports）、literature_search（OpenAlex+Crossref）；规划提示词目录 `_skill_catalog_text()` 自动包含。
+- engine：外部来源证据（无 document_id 的 origin=external 条目）只进 `run["external_references"]`，不混入必须能定位 chunk 的 `run["evidence"]` 引用池，报告防伪造引用校验不受影响。
+- 验证：`uv run pytest` 134 项全部通过（新增 19）；`uv run ruff check backend` 通过；前端 `npm run build` 与 `npm test`（20 项）通过，未改动前端代码；uvicorn 冒烟确认 bootstrap 出现 9 技能/15 工具/2 MCP，aviation-local 健康检查经真实子进程 ready，工具与技能测试接口行为符合 drill/live 语义。

@@ -1,0 +1,31 @@
+id: literature_search
+version: 1.0.0
+name: 科技文献检索
+description: 跨 OpenAlex 与 Crossref 检索科技文献线索
+execution_mode: recipe
+allowed_tools:
+  - research.openalex.search_works
+  - research.crossref.search_doi
+node_kinds: [retrieve, analyze]
+input_schema:
+  type: object
+  properties:
+    query: {type: string}
+    limit: {type: integer}
+  required: [query]
+output_schema:
+  type: object
+  properties:
+    works: {type: array}
+    count: {type: integer}
+evidence_required: true
+side_effect: none
+recipe:
+  - tool: research.openalex.search_works
+    args:
+      query: "{input.query}"
+      limit: "{input.limit}"
+  - tool: research.crossref.search_doi
+    args:
+      query: "{input.query}"
+      limit: "{input.limit}"

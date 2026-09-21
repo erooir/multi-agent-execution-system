@@ -130,20 +130,26 @@ def test_loader_rejects_invalid_schema_and_duplicate_tools(tmp_path):
         load_tools(tools_dir=tmp_path)
 
 
-def test_default_manifests_cover_six_skills():
+def test_default_manifests_cover_nine_skills():
     skills, tools, mcp_servers = load_default_registries()
     assert skills.ids() == [
+        "airport_lookup",
+        "aviation_weather",
         "document_parse",
         "graph_query",
         "knowledge_search",
+        "literature_search",
         "multimodal",
         "ocr",
         "semantic_search",
     ]
     assert "docling-local" in mcp_servers
     assert mcp_servers.get("docling-local").enabled is False
+    assert mcp_servers.get("aviation-local").enabled is True
     vision = tools.get("model.vision.analyze")
     assert vision.network == "required" and vision.data_egress == "raw" and vision.uses_model_budget
+    metar = tools.get("aviation.noaa.get_metar")
+    assert metar.allowed_hosts == ["aviationweather.gov"] and metar.data_egress == "query"
 
 
 # ------------------------------------------------------------ Tool contract

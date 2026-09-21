@@ -29,6 +29,8 @@ class CapabilityRuntime:
             self.tools, policy=self.policy, audit=self.audit, mcp_servers=self.mcp_servers
         )
         self.mcp_provider = self.tool_runtime.providers["mcp"]
+        # MCP Server 最近已知健康状态（由 health/refresh 端点更新），供技能 degraded 标注。
+        self.server_health: dict[str, str] = {}
         self.skill_runtime = SkillRuntime(
             self.skills,
             self.tool_runtime,

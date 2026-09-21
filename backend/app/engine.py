@@ -408,9 +408,17 @@ async def _execute_capability(run: dict, skill_id: str, config: dict, node_id: s
             }
         )
         if result.status == "completed":
+            # 报告引用必须能定位到本地分块；外部来源证据（HTTP/MCP 工具）只进入
+            # external_references，绝不混入可引用证据池，避免伪造引用通道。
+            locatable = [e for e in result.evidence if e.get("document_id") and e.get("id")]
+            external = [e for e in result.evidence if not (e.get("document_id") and e.get("id"))]
             merged = {e["id"]: e for e in current.get("evidence", [])}
-            merged.update({e["id"]: e for e in result.evidence})
+            merged.update({e["id"]: e for e in locatable})
             current["evidence"] = list(merged.values())
+            if external:
+                references = {r["id"]: r for r in current.get("external_references", []) if r.get("id")}
+                references.update({r["id"]: r for r in external})
+                current["external_references"] = list(references.values())
             if result.text:
                 current.setdefault("skill_results", []).append(
                     {
