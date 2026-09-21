@@ -673,7 +673,11 @@ function Overview({
       return;
     }
     try {
-      const started = await post("/plan", { prompt, project_id: project, mode });
+      const started = await post("/plan", {
+        prompt,
+        project_id: project,
+        mode,
+      });
       setJob(started);
     } catch (e) {
       notify((e as Error).message, true);
@@ -869,9 +873,35 @@ function Overview({
           <div className="readiness-row">
             <div>
               <Boxes size={18} />
-              <span>技能工具</span>
+              <span>技能</span>
             </div>
-            <strong>{data.skills?.length || 0} 项</strong>
+            <strong>
+              {data.capability_stats?.skills ?? data.skills?.length ?? 0} 项
+            </strong>
+          </div>
+          <div className="readiness-row">
+            <div>
+              <Zap size={18} />
+              <span>工具（健康 / 全部）</span>
+            </div>
+            <strong>
+              {data.capability_stats
+                ? `${data.capability_stats.healthy_tools} / ${data.capability_stats.tools}`
+                : (data.tools?.length ?? 0)}{" "}
+              个
+            </strong>
+          </div>
+          <div className="readiness-row">
+            <div>
+              <Network size={18} />
+              <span>MCP 服务</span>
+            </div>
+            <strong>
+              {data.capability_stats?.mcp_servers ??
+                data.mcp_servers?.length ??
+                0}{" "}
+              个
+            </strong>
           </div>
           <div className="readiness-row">
             <div>
@@ -978,7 +1008,9 @@ function Overview({
             </>
           )}
           {job.status === "running" && (
-            <p className="muted">正在规划，你可以看到每一次生成与校验的真实进展…</p>
+            <p className="muted">
+              正在规划，你可以看到每一次生成与校验的真实进展…
+            </p>
           )}
         </Modal>
       )}

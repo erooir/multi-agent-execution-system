@@ -47,6 +47,7 @@ def skill_summaries(skills: SkillRegistry, knowledge) -> list[dict]:
                 "execution_mode": manifest.execution_mode,
                 "node_kinds": manifest.node_kinds,
                 "allowed_tools": manifest.allowed_tools,
+                "evidence_required": manifest.evidence_required,
                 "status": status,
                 "note": note,
                 "input_schema": manifest.input_schema,

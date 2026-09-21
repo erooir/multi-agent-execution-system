@@ -6358,3 +6358,59 @@ a:focus-visible {
 .handle-label {
   right: -46px;
 }
+
+.skill-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 14px 0 4px;
+}
+.checkbox-label small.muted {
+  display: block;
+  margin-left: 0;
+  font-size: 12px;
+}
+.trace-view {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 14px 0;
+}
+.node-trace {
+  margin: 6px 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-1);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.trace-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+.trace-row code {
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-primary, inherit);
+}
+.trace-row.error {
+  color: var(--text-secondary);
+}
+.trace-layer {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  text-transform: uppercase;
+}

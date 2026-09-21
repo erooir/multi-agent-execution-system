@@ -38,6 +38,7 @@ import {
   Focus,
 } from "lucide-react";
 import { api, post, put, type RecordData } from "./api";
+import { skillsForNodeKind } from "./capabilities";
 import {
   layoutWorkflow,
   prepareWorkflowLayout,
@@ -567,7 +568,10 @@ export default function WorkflowEditor({
                   ))}
                 </select>
               </Field>
-              <Field label="使用技能">
+              <Field
+                label="使用技能"
+                hint="仅列出与当前节点类型兼容且已启用的技能"
+              >
                 <select
                   disabled={!canEdit}
                   value={node.data.skill_id || ""}
@@ -576,11 +580,21 @@ export default function WorkflowEditor({
                   }
                 >
                   <option value="">按节点类型执行</option>
-                  {skills.map((s) => (
+                  {skillsForNodeKind(skills, node.data.kind).map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name}
                     </option>
                   ))}
+                  {node.data.skill_id &&
+                    !skillsForNodeKind(skills, node.data.kind).some(
+                      (s) => s.id === node.data.skill_id,
+                    ) && (
+                      <option value={node.data.skill_id} disabled>
+                        {skills.find((s) => s.id === node.data.skill_id)
+                          ?.name || node.data.skill_id}
+                        （与节点类型不兼容或已停用）
+                      </option>
+                    )}
                 </select>
               </Field>
               <Field

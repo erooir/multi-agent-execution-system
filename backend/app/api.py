@@ -123,6 +123,54 @@ def system_info():
     return status
 
 
+def tool_summaries() -> list[dict]:
+    return [
+        {
+            "id": tool.id,
+            "name": tool.name,
+            "version": tool.version,
+            "provider": tool.provider,
+            "read_only": tool.read_only,
+            "network": tool.network,
+            "data_egress": tool.data_egress,
+            "timeout_seconds": tool.timeout_seconds,
+            "requires_confirmation": tool.requires_confirmation,
+            "input_schema": tool.input_schema,
+        }
+        for tool in capability_runtime().tools.list()
+    ]
+
+
+def mcp_server_summaries() -> list[dict]:
+    return [
+        {
+            "id": server.id,
+            "transport": server.transport,
+            "enabled": server.enabled,
+            "tool_allowlist": server.tool_allowlist,
+            "roots": server.roots,
+            "startup_timeout_seconds": server.startup_timeout_seconds,
+            "call_timeout_seconds": server.call_timeout_seconds,
+        }
+        for server in capability_runtime().mcp_servers.list()
+    ]
+
+
+def capability_stats(skills: list[dict], tools: list[dict], servers: list[dict]) -> dict:
+    enabled_servers = {server["id"] for server in servers if server.get("enabled")}
+    healthy_tools = sum(
+        1
+        for tool in tools
+        if tool["provider"] != "mcp" or tool["id"].split(".")[1] in enabled_servers
+    )
+    return {
+        "skills": len(skills),
+        "tools": len(tools),
+        "mcp_servers": len(servers),
+        "healthy_tools": healthy_tools,
+    }
+
+
 @router.get("/bootstrap")
 def bootstrap(user: dict = read):
     result = {
@@ -150,6 +198,11 @@ def bootstrap(user: dict = read):
         safe_document(d) for d in store.list("documents") if not d.get("temporary")
     ]
     result["skills"] = skill_summaries(capability_runtime().skills, knowledge)
+    result["tools"] = tool_summaries()
+    result["mcp_servers"] = mcp_server_summaries()
+    result["capability_stats"] = capability_stats(
+        result["skills"], result["tools"], result["mcp_servers"]
+    )
     result["stats"] = {
         "projects": len(result["projects"]),
         "agents": len(result["agents"]),
@@ -352,21 +405,7 @@ async def test_skill(item_id: str, body: dict, user: dict = edit):
 
 @router.get("/tools")
 def list_tools(user: dict = read):
-    return [
-        {
-            "id": tool.id,
-            "name": tool.name,
-            "version": tool.version,
-            "provider": tool.provider,
-            "read_only": tool.read_only,
-            "network": tool.network,
-            "data_egress": tool.data_egress,
-            "timeout_seconds": tool.timeout_seconds,
-            "requires_confirmation": tool.requires_confirmation,
-            "input_schema": tool.input_schema,
-        }
-        for tool in capability_runtime().tools.list()
-    ]
+    return tool_summaries()
 
 
 @router.post("/tools/{item_id}/test")
@@ -389,18 +428,7 @@ async def test_tool(item_id: str, body: dict, user: dict = edit):
 
 @router.get("/mcp-servers")
 def list_mcp_servers(user: dict = read):
-    return [
-        {
-            "id": server.id,
-            "transport": server.transport,
-            "enabled": server.enabled,
-            "tool_allowlist": server.tool_allowlist,
-            "roots": server.roots,
-            "startup_timeout_seconds": server.startup_timeout_seconds,
-            "call_timeout_seconds": server.call_timeout_seconds,
-        }
-        for server in capability_runtime().mcp_servers.list()
-    ]
+    return mcp_server_summaries()
 
 
 @router.get("/mcp-servers/{item_id}/health")

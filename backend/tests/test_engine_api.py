@@ -20,6 +20,17 @@ def test_api_roles_bootstrap_exports_and_native_routes_are_private(isolated_engi
         payload = response.json()
         assert len(payload["samples"]) == 30
         assert len(payload["workflows"]) == 6
+        assert len(payload["skills"]) == 6
+        assert all("evidence_required" in s for s in payload["skills"])
+        assert payload["capability_stats"] == {
+            "skills": len(payload["skills"]),
+            "tools": len(payload["tools"]),
+            "mcp_servers": len(payload["mcp_servers"]),
+            "healthy_tools": len(payload["tools"]),
+        }
+        assert payload["mcp_servers"][0]["id"] == "docling-local"
+        assert payload["mcp_servers"][0]["enabled"] is False
+        assert "command" not in payload["mcp_servers"][0]
         assert "path" not in payload["documents"][0]
         assert payload["system"]["native_routes_public"] is False
         assert client.post("/api/runs", json={"workflow_id": "workflow-tech-trends"}).status_code == 403

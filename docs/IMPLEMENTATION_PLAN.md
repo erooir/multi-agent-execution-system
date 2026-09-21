@@ -60,3 +60,13 @@ After client feedback: production identity and tenant isolation, deployment pack
 - `main.py`：启动 seed 后执行 `validate_registered_skills(store)` 只读校验，已存 Agent/Workflow 引用未注册技能时报明确错误。
 - 能力层配套增强：Registry 增加 upsert/unregister（MCP refresh 用）；build_tool_functions 生成带显式签名的 callable 供 Agno 真实参数绑定；graph Tool 返回边引用分块证据；ocr/vision Tool 兼容 document_id/document_ids 两种入参；multimodal manifest node_kinds 调整为 [parse, retrieve] 以保持旧工作流兼容。
 - 验证：`uv run pytest` 115 项全部通过（阶段A后 107 + 新增/调整 8）；`uv run ruff check backend` 全部通过；uvicorn 启动冒烟通过（/api/bootstrap 的 skills 六个技能字段兼容、/api/tools、/api/mcp-servers、docling health=disabled 均正常，进程已关闭）。前端未改动，bootstrap 字段向后兼容。
+
+## 前端接入三层能力架构（2026-09-21，dev/analysis-and-changes 分支）
+- 后端：`GET /api/bootstrap` 新增 `tools`、`mcp_servers`、`capability_stats`（skills/tools/mcp_servers/healthy_tools 数量，healthy = 非 MCP 工具 + 所属服务已启用的 MCP 工具）；`/tools` 与 `/mcp-servers` 与 bootstrap 共用 tool_summaries()/mcp_server_summaries()；`skill_summaries` 新增 `evidence_required` 字段。ARCHITECTURE.md 契约已同步。
+- 前端 `src/capabilities.ts`（新）：错误码/状态/提供方/外发等级中文文案映射（按稳定 code 分支）、skillsForNodeKind（节点类型兼容过滤）、skillToolSummary（授权工具数+最高外发等级）、toolHealth（MCP 工具健康跟随所属服务）、toolInputFields/collectToolInput（input_schema 简化表单）、flattenTrace（trace 展平，直接工具测试去重）、mcpHealthText（disabled 视为配置状态而非故障）。
+- 技能工具箱拆三 Tab：技能（版本/执行模式/适用节点/Evidence 要求/依赖工具，测试展示 Skill→Tool 嵌套调用链与稳定错误码）；工具（provider 徽标/只读/网络/外发/超时/健康，测试表单按 input_schema 动态生成文本/数字/布尔输入）；MCP 服务（transport/启用状态/已允许与已发现工具数，健康检查全部可见、刷新发现仅管理员，docling-local 显示"已禁用"而非错误）。
+- 智能体页：启用技能复选项下显示授权工具数量与外发等级摘要；测试结果如实显示后端 note（"本次模型未调用能力"），有 tool_calls 时显示实际调用次数。
+- 工作流编辑器：「使用技能」下拉只列 node_kinds 兼容且已启用的技能；已绑定但不兼容的技能以禁用选项如实标注，旧数据不变。
+- 运行详情：节点输出带 trace 时以 Skill→Tool 层级缩进展示（tool_id/provider/耗时/状态徽标），错误按稳定错误码中文呈现；`.execution-grid` 独立滚动样式未改动。
+- 首页就绪情况将"技能工具"拆为 技能/工具（健康/全部）/MCP 服务 三项，数据源 capability_stats。
+- 验证：`uv run pytest` 115 项全部通过（test_engine_api 增加 bootstrap 新字段断言）；`uv run ruff check backend` 通过；前端 `npm run build` 通过；`npm test` 20 项通过（原 12 + capabilities.test.mjs 新增 8）。

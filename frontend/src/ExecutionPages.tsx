@@ -47,7 +47,8 @@ import {
   Panel,
   SectionTitle,
 } from "./ui";
-import { EvidenceCard } from "./ResourcePages";
+import { EvidenceCard, TraceView, SkillTraceHeader } from "./ResourcePages";
+import { capabilityErrorText } from "./capabilities";
 function useTask(p: PageProps) {
   return async (fn: () => Promise<any>, message?: string) => {
     try {
@@ -453,6 +454,41 @@ function normalizeProgress(value: any) {
   const n = Number(value || 0);
   return Math.max(0, Math.min(100, Math.round(n > 0 && n < 1 ? n * 100 : n)));
 }
+// 节点输出中的能力调用链：payload.trace 层级展示，错误按稳定错误码呈现。
+function NodeCapabilityTrace({ run, step }: { run: any; step: any }) {
+  const payload = step.payload;
+  const trace = payload?.trace;
+  const error = payload?.error;
+  const failedCall = (run.capability_calls || []).find(
+    (c: any) => c.node_id === step.node_id && c.error_code,
+  );
+  if (!trace?.tool_calls?.length && !trace?.tool_id && !error && !failedCall)
+    return null;
+  return (
+    <div className="node-trace">
+      {payload?.skill_id && (
+        <SkillTraceHeader
+          skillId={payload.skill_id}
+          status={payload.status}
+          durationMs={trace?.duration_ms}
+        />
+      )}
+      <TraceView
+        trace={trace}
+        error={error}
+        indent={payload?.skill_id ? 1 : 0}
+      />
+      {!error && failedCall && (
+        <div className="trace-row error">
+          <Badge status="failed">
+            {capabilityErrorText(failedCall.error_code)}
+          </Badge>
+          <span className="muted">{failedCall.skill_id}</span>
+        </div>
+      )}
+    </div>
+  );
+}
 function RunDetail({
   run,
   p,
@@ -636,6 +672,7 @@ function RunDetail({
                 {active.error && (
                   <InlineMessage error>{active.error}</InlineMessage>
                 )}
+                <NodeCapabilityTrace run={run} step={active} />
                 <JsonView
                   value={
                     active.payload ?? {
@@ -1669,7 +1706,12 @@ function UsersPanel({ p }: { p: PageProps }) {
         <button
           className="button primary small"
           onClick={() => {
-            setDraft({ username: "", password: "", name: "", role: "operator" });
+            setDraft({
+              username: "",
+              password: "",
+              name: "",
+              role: "operator",
+            });
             setCreating(true);
           }}
         >
@@ -1730,12 +1772,17 @@ function UsersPanel({ p }: { p: PageProps }) {
                         <ActionButton
                           className="text-button"
                           onClick={() =>
-                            task(async () => {
-                              await put(`/users/${u.username}`, {
-                                enabled: u.enabled === false,
-                              });
-                              await load();
-                            }, u.enabled === false ? "账号已启用" : "账号已停用，会话已注销")
+                            task(
+                              async () => {
+                                await put(`/users/${u.username}`, {
+                                  enabled: u.enabled === false,
+                                });
+                                await load();
+                              },
+                              u.enabled === false
+                                ? "账号已启用"
+                                : "账号已停用，会话已注销",
+                            )
                           }
                         >
                           {u.enabled === false ? "启用" : "停用"}
@@ -1751,7 +1798,10 @@ function UsersPanel({ p }: { p: PageProps }) {
       )}
       {creating && (
         <Modal title="新建用户" onClose={() => setCreating(false)}>
-          <Field label="用户名" hint="3–32 位字母、数字或下划线，不区分大小写。">
+          <Field
+            label="用户名"
+            hint="3–32 位字母、数字或下划线，不区分大小写。"
+          >
             <input
               value={draft.username}
               onChange={(e) => setDraft({ ...draft, username: e.target.value })}
@@ -1765,7 +1815,10 @@ function UsersPanel({ p }: { p: PageProps }) {
               onChange={(e) => setDraft({ ...draft, name: e.target.value })}
             />
           </Field>
-          <Field label="初始密码" hint="8–128 个字符，请线下告知对方并尽快修改。">
+          <Field
+            label="初始密码"
+            hint="8–128 个字符，请线下告知对方并尽快修改。"
+          >
             <input
               type="password"
               value={draft.password}
@@ -1807,7 +1860,10 @@ function UsersPanel({ p }: { p: PageProps }) {
         </Modal>
       )}
       {editing && (
-        <Modal title={`编辑用户 · ${editing.username}`} onClose={() => setEditing(null)}>
+        <Modal
+          title={`编辑用户 · ${editing.username}`}
+          onClose={() => setEditing(null)}
+        >
           <Field label="显示名">
             <input
               value={editing.name}
@@ -1822,14 +1878,21 @@ function UsersPanel({ p }: { p: PageProps }) {
             >
               <option value="operator">研究员</option>
               <option value="reviewer">审核员</option>
-              {editing.role === "admin" && <option value="admin">管理员</option>}
+              {editing.role === "admin" && (
+                <option value="admin">管理员</option>
+              )}
             </select>
           </Field>
-          <Field label="重置密码" hint="留空则不修改密码；重置后该用户的会话会被注销。">
+          <Field
+            label="重置密码"
+            hint="留空则不修改密码；重置后该用户的会话会被注销。"
+          >
             <input
               type="password"
               value={editing.password}
-              onChange={(e) => setEditing({ ...editing, password: e.target.value })}
+              onChange={(e) =>
+                setEditing({ ...editing, password: e.target.value })
+              }
               placeholder="输入新密码（至少 8 位）"
             />
           </Field>
@@ -1839,7 +1902,10 @@ function UsersPanel({ p }: { p: PageProps }) {
             </button>
             <ActionButton
               className="button primary"
-              disabled={!editing.name.trim() || (editing.password && editing.password.length < 8)}
+              disabled={
+                !editing.name.trim() ||
+                (editing.password && editing.password.length < 8)
+              }
               onClick={() =>
                 task(async () => {
                   await put(`/users/${editing.username}`, {
