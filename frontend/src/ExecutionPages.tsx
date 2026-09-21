@@ -116,11 +116,25 @@ export function RunsPage(p: PageProps) {
     [docIds, setDocIds] = useState<string[]>([]),
     [file, setFile] = useState<File | null>(null),
     [visibility, setVisibility] = useState("external"),
+    [keepInLibrary, setKeepInLibrary] = useState(false),
+    [uploads, setUploads] = useState<{ id: string; name: string }[]>([]),
     [filter, setFilter] = useState("all");
   const { value: run, error } = useRecord(
       selected ? `/runs/${selected}` : null,
     ),
     task = useTask(p);
+  const uploadAttachment = async () => {
+    const body = new FormData();
+    body.append("file", file!);
+    body.append("project_id", project);
+    body.append("visibility", visibility);
+    body.append("temporary", keepInLibrary ? "false" : "true");
+    const doc = await api("/documents/upload", { method: "POST", body });
+    setUploads((list) => [...list, { id: doc.id, name: doc.name }]);
+    setDocIds((ids) => [...ids, doc.id]);
+    setFile(null);
+    return doc;
+  };
   useEffect(() => {
     if (!creating || !workflow) return;
     const w = (p.data.workflows || []).find((x: any) => x.id === workflow);
@@ -360,22 +374,40 @@ export function RunsPage(p: PageProps) {
                 disabled={!file || !project}
                 onClick={() =>
                   task(async () => {
-                    const body = new FormData();
-                    body.append("file", file!);
-                    body.append("project_id", project);
-                    body.append("visibility", visibility);
-                    const doc = await api("/documents/upload", {
-                      method: "POST",
-                      body,
-                    });
-                    setDocIds((ids) => [...ids, doc.id]);
-                    setFile(null);
+                    await uploadAttachment();
                   }, "资料已上传并附加到本次任务")
                 }
               >
                 上传并附加
               </ActionButton>
             </div>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={keepInLibrary}
+                onChange={(e) => setKeepInLibrary(e.target.checked)}
+              />
+              保存到项目资料库（不勾选则仅本次任务使用，不进入资料库检索）
+            </label>
+            {uploads.length > 0 && (
+              <div className="uploaded-chips">
+                {uploads.map((u) => (
+                  <span className="uploaded-chip" key={u.id}>
+                    {u.name}
+                    <button
+                      type="button"
+                      aria-label={`移除 ${u.name}`}
+                      onClick={() => {
+                        setUploads((list) => list.filter((x) => x.id !== u.id));
+                        setDocIds((ids) => ids.filter((id) => id !== u.id));
+                      }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </Field>
           <InlineMessage>
             {mode === "live"
@@ -391,12 +423,17 @@ export function RunsPage(p: PageProps) {
               disabled={!workflow || !project || !prompt.trim()}
               onClick={() =>
                 task(async () => {
+                  let ids = docIds;
+                  if (file) {
+                    const doc = await uploadAttachment();
+                    ids = [...ids, doc.id];
+                  }
                   const r = await post("/runs", {
                     workflow_id: workflow,
                     project_id: project,
                     prompt,
                     mode,
-                    document_ids: docIds.length ? docIds : undefined,
+                    document_ids: ids.length ? ids : undefined,
                   });
                   setCreating(false);
                   setSelected(r.id);

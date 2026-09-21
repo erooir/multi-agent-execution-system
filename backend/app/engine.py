@@ -377,6 +377,16 @@ async def _invoke_skill(run: dict, skill_id: str, config: dict) -> dict:
     if result.get("status") not in {None, "completed"}:
         raise ValueError(f"技能 {skill_id} 未完成：{result.get('error', result['status'])}")
     evidence = list(result.get("evidence", []))
+    per_document = config.get("max_chunks_per_doc")
+    if per_document and evidence:
+        counts: dict[str, int] = {}
+        capped = []
+        for item in evidence:
+            document_id = item.get("document_id", "")
+            if counts.get(document_id, 0) < per_document:
+                capped.append(item)
+                counts[document_id] = counts.get(document_id, 0) + 1
+        evidence = capped
     if skill_id == "graph_query":
         for edge in result.get("edges", []):
             chunk = store.get("chunks", edge.get("chunk_id", ""))
@@ -473,6 +483,33 @@ async def _summarize_parsed_documents(run: dict, data: dict, parsed: dict) -> di
     }
 
 
+def _review_content(run: dict, draft: dict | None) -> str:
+    """Content shown at a review gate; never blank, never disguised as analysis."""
+    if draft and draft.get("content"):
+        return draft["content"]
+    text = _analysis_text(run)
+    if text.strip():
+        return text
+    lines = [
+        "【说明】流程到达此审核节点时尚未生成分析正文，以下为当前任务与已收集材料的真实状态，供审核参考。",
+        "",
+        f"任务：{run['prompt']}",
+        "",
+    ]
+    evidence = run.get("evidence", [])
+    if evidence:
+        lines.append("已收集的证据材料：")
+        lines.extend(
+            f"- [{item['id']}] 《{item.get('document_name', '未知资料')}》{item.get('location', '')}：{item.get('text', '')[:120]}"
+            for item in evidence[:6]
+        )
+        if len(evidence) > 6:
+            lines.append(f"- ……另有 {len(evidence) - 6} 条证据未在此列出")
+    else:
+        lines.append("尚未检索到任何证据材料。")
+    return "\n".join(lines)
+
+
 async def _execute_node(run_id: str, node_id: str) -> dict:
     from . import reports
 
@@ -492,26 +529,50 @@ async def _execute_node(run_id: str, node_id: str) -> dict:
         if data.get("skill_id"):
             result = await _invoke_skill(run, data["skill_id"], config)
             return {"task": run["prompt"], "parsed": result}
-        if run.get("document_ids"):
-            parsed = await _invoke_skill(run, "document_parse", config)
-            summary = await _summarize_parsed_documents(run, data, parsed)
-            if summary.get("text"):
-                with store.lock:
-                    current = store.get("runs", run["id"])
-                    if current and current["status"] != "cancelled":
-                        current.setdefault("skill_results", []).append(
-                            {
-                                "skill_id": "document_parse",
-                                "text": summary["text"],
-                                "document_ids": run.get("document_ids", []),
-                            }
-                        )
-                        store.save("runs", current)
-            return {"task": run["prompt"], "parsed": parsed, "summary": summary}
+        explicit = bool(run.get("document_ids"))
+        selected = run.get("document_ids") or [
+            d["id"]
+            for d in store.list("documents")
+            if d.get("project_id") == run.get("project_id") and not d.get("temporary")
+        ][:5]
+        scope_note = None
+        if selected and not explicit:
+            total = len(
+                [
+                    d
+                    for d in store.list("documents")
+                    if d.get("project_id") == run.get("project_id") and not d.get("temporary")
+                ]
+            )
+            scope_note = (
+                f"未指定参考资料，默认解析项目内 {len(selected)}/{total} 份文档"
+                "（每份仅取前 4 个分块；需要完整解析请在任务中指定资料）。"
+            )
+        if selected:
+            parse_config = dict(config)
+            if not explicit:
+                parse_config["max_chunks_per_doc"] = 4
+            parsed = await _invoke_skill({**run, "document_ids": selected}, "document_parse", parse_config)
+            summary = None
+            if explicit:
+                summary = await _summarize_parsed_documents(run, data, parsed)
+                if summary.get("text"):
+                    with store.lock:
+                        current = store.get("runs", run["id"])
+                        if current and current["status"] != "cancelled":
+                            current.setdefault("skill_results", []).append(
+                                {
+                                    "skill_id": "document_parse",
+                                    "text": summary["text"],
+                                    "document_ids": run.get("document_ids", []),
+                                }
+                            )
+                            store.save("runs", current)
+            return {"task": run["prompt"], "parsed": parsed, "summary": summary, "scope": scope_note}
         return {
             "task": run["prompt"],
             "project_id": run["project_id"],
-            "document_count": len(run.get("document_ids", [])),
+            "document_count": 0,
             "method": "规则解析",
             "requirements": [p.strip() for p in run["prompt"].replace("；", "\n").splitlines() if p.strip()],
         }
@@ -627,7 +688,7 @@ async def _execute_node(run_id: str, node_id: str) -> dict:
                 "report_id": run.get("report_id"),
                 "title": config.get("confirmation_message", "请审核分析结果和来源"),
                 "status": "pending",
-                "content": draft["content"] if draft else _analysis_text(run),
+                "content": _review_content(run, draft),
                 "mode": mode,
             },
         )

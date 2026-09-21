@@ -142,7 +142,9 @@ def bootstrap(user: dict = read):
         }
         for r in store.list("runs")[:60]
     ]
-    result["documents"] = [safe_document(d) for d in store.list("documents")]
+    result["documents"] = [
+        safe_document(d) for d in store.list("documents") if not d.get("temporary")
+    ]
     result["skills"] = knowledge.skills()
     result["stats"] = {
         "projects": len(result["projects"]),
@@ -307,11 +309,12 @@ async def test_skill(item_id: str, body: dict, user: dict = edit):
 
 
 @router.get("/documents")
-def documents(project_id: str | None = None, user: dict = read):
+def documents(project_id: str | None = None, include_temporary: bool = False, user: dict = read):
     return [
         safe_document(d)
         for d in store.list("documents")
-        if not project_id or d.get("project_id") == project_id
+        if (not project_id or d.get("project_id") == project_id)
+        and (include_temporary or not d.get("temporary"))
     ]
 
 
@@ -320,18 +323,26 @@ async def upload_document(
     file: Annotated[UploadFile, File()],
     project_id: Annotated[str, Form()],
     visibility: Annotated[str, Form()] = "local",
+    temporary: Annotated[str, Form()] = "false",
     user: dict = edit,
 ):
     required("projects", project_id)
     if visibility not in {"external", "local"}:
         raise HTTPException(400, "资料可见性必须为 external 或 local")
+    if temporary not in {"true", "false"}:
+        raise HTTPException(400, "temporary 必须为 true 或 false")
     content = await file.read(20 * 1024 * 1024 + 1)
     if len(content) > 20 * 1024 * 1024:
         raise HTTPException(413, "单个文件不能超过 20 MB")
     item = await asyncio.to_thread(
-        knowledge.ingest, file.filename or "upload.txt", content, project_id, visibility
+        knowledge.ingest, file.filename or "upload.txt", content, project_id, visibility, temporary == "true"
     )
-    audit("document.upload", item["id"], user, {"visibility": visibility, "size": len(content)})
+    audit(
+        "document.upload",
+        item["id"],
+        user,
+        {"visibility": visibility, "size": len(content), "temporary": temporary == "true"},
+    )
     return safe_document(item)
 
 
@@ -429,6 +440,17 @@ def restore_workflow(item_id: str, body: dict, user: dict = edit):
     item = workflows.restore(item_id, int(body.get("version", 0)))
     audit("workflow.restore", item_id, user, {"source_version": body.get("version")})
     return item
+
+
+@router.delete("/workflows/{item_id}")
+def delete_workflow(item_id: str, user: dict = edit):
+    required("workflows", item_id)
+    for version in store.list("workflow_versions"):
+        if version.get("workflow_id") == item_id:
+            store.delete("workflow_versions", version["id"])
+    store.delete("workflows", item_id)
+    audit("workflow.delete", item_id, user)
+    return {"deleted": True}
 
 
 @router.post("/plan", status_code=202)

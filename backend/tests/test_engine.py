@@ -557,3 +557,77 @@ async def test_parse_node_live_summary_uses_gateway(isolated_engine, monkeypatch
     assert "document_parse_summary" in purposes
     parse_step = next(s for s in run["steps"] if s["kind"] == "parse")
     assert parse_step["payload"]["summary"]["text"] == "解析摘要：资料主题为合成补充。"
+
+
+@pytest.mark.asyncio
+async def test_parse_node_parses_project_documents_with_cap(isolated_engine):
+    store, _ = isolated_engine
+    run = engine.create_run(
+        {
+            "workflow_id": "workflow-tech-trends",
+            "project_id": "project-technology",
+            "prompt": "默认解析项目资料",
+            "mode": "rehearsal",
+        }
+    )
+    run = await settle(run["id"])
+    assert run["status"] == "waiting_review", run.get("error")
+    parse_step = next(s for s in run["steps"] if s["kind"] == "parse")
+    assert parse_step["status"] == "completed"
+    assert "默认解析项目内" in parse_step["payload"]["scope"]
+    assert parse_step["payload"]["summary"] is None
+    parsed_evidence = parse_step["payload"]["parsed"]["evidence"]
+    counts: dict[str, int] = {}
+    for item in parsed_evidence:
+        counts[item["document_id"]] = counts.get(item["document_id"], 0) + 1
+    assert counts and max(counts.values()) <= 4
+
+
+@pytest.mark.asyncio
+async def test_early_review_gate_shows_status_content(isolated_engine):
+    store, _ = isolated_engine
+    workflow = workflows.save_workflow(
+        {
+            "name": "提前审核流程",
+            "category": "technology",
+            "project_id": "project-technology",
+            "nodes": [
+                {
+                    "id": "s",
+                    "type": "task",
+                    "position": {"x": 0, "y": 0},
+                    "data": {"label": "开始", "kind": "start", "config": {}},
+                },
+                {
+                    "id": "r",
+                    "type": "task",
+                    "position": {"x": 200, "y": 0},
+                    "data": {"label": "预审", "kind": "review", "config": {}},
+                },
+                {
+                    "id": "e",
+                    "type": "task",
+                    "position": {"x": 400, "y": 0},
+                    "data": {"label": "结束", "kind": "end", "config": {}},
+                },
+            ],
+            "edges": [
+                {"id": "e1", "source": "s", "target": "r"},
+                {"id": "e2", "source": "r", "target": "e"},
+            ],
+        }
+    )
+    workflows.publish(workflow["id"])
+    run = engine.create_run(
+        {
+            "workflow_id": workflow["id"],
+            "project_id": "project-technology",
+            "prompt": "预审测试任务",
+            "mode": "rehearsal",
+        }
+    )
+    run = await settle(run["id"])
+    assert run["status"] == "waiting_review", run.get("error")
+    approval = next(a for a in store.list("approvals") if a.get("run_id") == run["id"])
+    assert "尚未生成分析正文" in approval["content"]
+    assert "预审测试任务" in approval["content"]

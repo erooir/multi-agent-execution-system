@@ -112,3 +112,75 @@ def test_api_plan_is_async_and_parser_role_available(isolated_engine):
         )
         assert saved["source_prompt"] == "规划一个本地演练流程"
         assert saved["preferred_mode"] == "rehearsal"
+
+
+def test_api_workflow_delete_keeps_run_snapshots(isolated_engine):
+    from backend.app.main import app
+
+    with TestClient(app) as client:
+        client.post("/api/auth/login", json={"username": "operator", "password": "demo12345"})
+        created = client.post(
+            "/api/workflows",
+            json={
+                "name": "待删除流程",
+                "category": "technology",
+                "nodes": [
+                    {
+                        "id": "s",
+                        "type": "task",
+                        "position": {"x": 0, "y": 0},
+                        "data": {"label": "开始", "kind": "start", "config": {}},
+                    },
+                    {
+                        "id": "e",
+                        "type": "task",
+                        "position": {"x": 200, "y": 0},
+                        "data": {"label": "结束", "kind": "end", "config": {}},
+                    },
+                ],
+                "edges": [{"id": "e1", "source": "s", "target": "e"}],
+            },
+        )
+        assert created.status_code == 201, created.text
+        workflow_id = created.json()["id"]
+        assert client.post(f"/api/workflows/{workflow_id}/publish").status_code == 200
+        run = client.post(
+            "/api/runs",
+            json={
+                "workflow_id": workflow_id,
+                "project_id": "project-technology",
+                "prompt": "删除后仍可追溯",
+                "mode": "rehearsal",
+            },
+        ).json()
+        assert client.delete(f"/api/workflows/{workflow_id}").json() == {"deleted": True}
+        assert workflow_id not in {w["id"] for w in client.get("/api/workflows").json()}
+        assert client.get(f"/api/workflows/{workflow_id}/versions").status_code == 404
+        assert client.get(f"/api/runs/{run['id']}").status_code == 200
+        client.post("/api/auth/logout")
+        client.post("/api/auth/login", json={"username": "reviewer", "password": "demo12345"})
+        assert client.delete("/api/workflows/workflow-tech-trends").status_code == 403
+
+
+def test_api_temporary_upload_hidden_from_library(isolated_engine):
+    from backend.app.main import app
+
+    with TestClient(app) as client:
+        client.post("/api/auth/login", json={"username": "operator", "password": "demo12345"})
+        response = client.post(
+            "/api/documents/upload",
+            data={"project_id": "project-technology", "visibility": "external", "temporary": "true"},
+            files={"file": ("临时资料.txt", "一次性上传内容".encode(), "text/plain")},
+        )
+        assert response.status_code == 201, response.text
+        document = response.json()
+        listed = client.get("/api/documents", params={"project_id": "project-technology"}).json()
+        assert document["id"] not in {d["id"] for d in listed}
+        listed_all = client.get(
+            "/api/documents",
+            params={"project_id": "project-technology", "include_temporary": True},
+        ).json()
+        assert document["id"] in {d["id"] for d in listed_all}
+        bootstrap = client.get("/api/bootstrap").json()
+        assert document["id"] not in {d["id"] for d in bootstrap["documents"]}
+        assert client.get(f"/api/documents/{document['id']}/file").status_code == 200

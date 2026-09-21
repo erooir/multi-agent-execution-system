@@ -32,3 +32,11 @@ After client feedback: production identity and tenant isolation, deployment pack
 - 工作流记录 `source_prompt` 与 `preferred_mode`；发起研究任务弹窗按所选流程预填研究需求与执行模式，供用户微调确认。
 - 新增第五类智能体角色 parser（文档解析智能体，种子 agent-parser，旧库自动补齐）。parse 节点在未绑定技能但任务带上传资料时自动调用 document_parse 本地技能解析入证据；live 模式下追加一次计费摘要调用（purpose=document_parse_summary），演练模式输出带显著标注的确定性摘要。发起研究任务弹窗支持直接上传资料（可选可见性）并自动附加。
 - 验证：`uv run pytest` 74 项全部通过；前端 `tsc -b && vite build` 与 `npm test`（12 项）通过。
+
+## 上传体验与执行细节改进（2026-09-21，dev/analysis-and-changes 分支）
+- 运行弹窗上传资料可选「保存到项目资料库」，默认仅本次任务使用（temporary 资料不进资料库列表与默认检索，仅显式选中时参与；仍持久保存以维持证据与引用可解析）。已选未上传的文件在点击开始运行时自动上传，不再静默丢弃。
+- 审核节点内容不再为空：报告草稿 → 分析正文 → 如实标注的状态说明（任务与已收集证据摘要）依次兜底。
+- 新增 DELETE /workflows/{id}（edit 角色），删除流程及其版本快照；已有运行持有不可变快照不受影响；前端流程卡片提供删除按钮。
+- parse 节点未指定资料时默认解析项目内最多 5 份文档、每份前 4 个分块并在输出中注明；计费的解析摘要仍只在显式指定资料时触发。
+- 运行详情页「执行过程 / 节点输出」两个面板改为各自独立滚动。
+- 验证：`uv run pytest` 79 项全部通过；前端构建与 12 项测试通过。

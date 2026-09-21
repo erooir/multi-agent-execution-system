@@ -45,6 +45,29 @@ def test_ingest_retrieval_isolation_and_source_locations(local):
     assert not knowledge.search("复合材料")
 
 
+def test_temporary_documents_only_searchable_when_explicitly_selected(local):
+    knowledge, database = local
+    knowledge.ingest(
+        "常驻资料.md", "常规关键词：复合材料回收工艺。".encode(), "test-project", "external"
+    )
+    temporary = knowledge.ingest(
+        "临时资料.md",
+        "临时关键词：一次性上传的验证记录。".encode(),
+        "test-project",
+        "external",
+        temporary=True,
+    )
+    assert temporary["temporary"] is True
+    hits = knowledge.search("临时关键词", "test-project")
+    assert not [hit for hit in hits if hit["document_id"] == temporary["id"]]
+    hits = knowledge.search("临时关键词", "test-project", document_ids=[temporary["id"]])
+    assert hits and hits[0]["document_id"] == temporary["id"]
+    regular = knowledge.search("常规关键词", "test-project")
+    assert regular and all(
+        not database.get("documents", hit["document_id"]).get("temporary") for hit in regular
+    )
+
+
 @pytest.mark.parametrize(
     "name", ["../escape.txt", "..\\escape.txt", "C:\\escape.txt", "/tmp/a.txt", "x:y.txt", "x\x00.txt"]
 )

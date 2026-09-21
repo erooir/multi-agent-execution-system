@@ -1219,6 +1219,23 @@ export function WorkflowsPage(p: PageProps) {
                     >
                       <Copy size={16} />
                     </ActionButton>
+                    <ActionButton
+                      className="icon-button danger"
+                      disabled={!p.canEdit}
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            `删除流程“${w.name}”？已产生的运行记录会保留执行快照，不受影响。`,
+                          )
+                        )
+                          return task(
+                            () => remove(`/workflows/${w.id}`),
+                            "流程已删除",
+                          );
+                      }}
+                    >
+                      <Trash2 size={16} />
+                    </ActionButton>
                     <button
                       className="button primary small"
                       disabled={!p.canEdit}

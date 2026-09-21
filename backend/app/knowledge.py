@@ -207,7 +207,14 @@ class Knowledge:
             raise ValueError("资料原文件不存在")
         return path
 
-    def ingest(self, filename: str, content: bytes, project_id: str, visibility: str) -> dict:
+    def ingest(
+        self,
+        filename: str,
+        content: bytes,
+        project_id: str,
+        visibility: str,
+        temporary: bool = False,
+    ) -> dict:
         if not filename or any(character in filename for character in ("/", "\\", ":", "\x00")):
             raise ValueError("文件名不得包含路径")
         if filename in {".", ".."} or len(filename) > 200:
@@ -251,6 +258,7 @@ class Knowledge:
             "kind": suffix[1:],
             "sha256": hashlib.sha256(content).hexdigest(),
             "synthetic": False,
+            "temporary": bool(temporary),
         }
         path = self._file_path(document)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -322,6 +330,8 @@ class Knowledge:
             if chunk.get("document_id") in docs
             and (not project_id or docs[chunk["document_id"]].get("project_id") == project_id)
             and (selected is None or chunk["document_id"] in selected)
+            # Run-scoped uploads never leak into library-wide retrieval.
+            and (selected is not None or not docs[chunk["document_id"]].get("temporary"))
         ]
 
     @staticmethod
