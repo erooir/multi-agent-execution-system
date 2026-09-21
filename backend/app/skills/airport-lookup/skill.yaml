@@ -21,6 +21,7 @@ output_schema:
 evidence_required: true
 side_effect: none
 recipe:
+  # 业务检索 Agent 负责拆分城市并生成英文 query；Skill 只做一次可审计查询。
   - tool: aviation.ourairports.lookup_airport
     args:
       query: "{input.query}"

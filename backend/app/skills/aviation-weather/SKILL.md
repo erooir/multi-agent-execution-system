@@ -4,10 +4,12 @@
 
 基于 NOAA Aviation Weather 公开接口获取指定机场的实时气象与预报：
 
-1. 从输入取得 ICAO 机场代码（如 ZBAA）。
-2. 依次调用 `aviation.noaa.get_metar`（实况 METAR）与 `aviation.noaa.get_taf`
-   （ terminal 预报 TAF）。
-3. 返回结构化报告列表与带来源 URI/获取时间的证据条目；未取得数据时如实
+1. 从任务输入或上游机场检索结果取得真实 ICAO 代码（如 ZBAA），不得把中文城市名
+   或整句问题当作 ICAO 参数。
+2. 多机场任务应读取上游已检索到的机场列表，选择与任务范围一致的 ICAO，并对每个
+   机场分别调用 `aviation.noaa.get_metar` 和 `aviation.noaa.get_taf`。
+3. 检查工具返回，区分“没有报告”和“请求失败”，不要臆测机场运行状态。
+4. 返回结构化报告列表与带来源 URI/获取时间的证据条目；未取得数据时如实
    返回空结果，不编造气象信息。
 
 ## 边界

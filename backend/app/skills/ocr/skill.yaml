@@ -21,6 +21,7 @@ output_schema:
     elapsed: {}
   required: [text, evidence, region_count]
 evidence_required: false
+requires_documents: true
 side_effect: writes_ocr_chunks
 recipe:
   - tool: local.ocr.rapidocr

@@ -1096,6 +1096,19 @@ export function ReportsPage(p: PageProps) {
               </a>
             </div>
           )}
+          {report.citations[citationIndex].source_uri && (
+            <div className="modal-actions">
+              <a
+                className="button"
+                href={report.citations[citationIndex].source_uri}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <ExternalLink size={15} />
+                打开外部来源
+              </a>
+            </div>
+          )}
         </Modal>
       )}
       {editing && report && (

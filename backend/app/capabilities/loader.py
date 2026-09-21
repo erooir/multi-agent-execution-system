@@ -67,11 +67,13 @@ def load_skills(
                     raise CapabilityError(
                         SCHEMA_VALIDATION_FAILED, f"Skill {manifest.id} 引用了不存在的 Tool: {tool_id}"
                     )
-        if manifest.execution_mode == "recipe":
-            if not manifest.recipe:
-                raise CapabilityError(
-                    SCHEMA_VALIDATION_FAILED, f"Skill {manifest.id}: recipe 模式必须声明 recipe 步骤"
-                )
+        if manifest.execution_mode == "recipe" and not manifest.recipe:
+            raise CapabilityError(
+                SCHEMA_VALIDATION_FAILED, f"Skill {manifest.id}: recipe 模式必须声明 recipe 步骤"
+            )
+        # agent 技能也可声明 recipe，作为不调用模型的 drill 回退路径。
+        # 两种模式下都校验回退配方，避免只有上线执行时才暴露坏引用。
+        if manifest.recipe:
             for index, step in enumerate(manifest.recipe):
                 if tool_registry is not None and step.tool not in tool_registry:
                     raise CapabilityError(

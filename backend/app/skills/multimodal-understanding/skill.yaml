@@ -22,6 +22,7 @@ output_schema:
     document_id: {type: string}
   required: [text, document_id]
 evidence_required: false
+requires_documents: true
 side_effect: external_model_call
 recipe:
   - tool: model.vision.analyze

@@ -76,6 +76,9 @@ class SkillManifest(BaseModel):
     input_schema: dict[str, Any] = Field(default_factory=dict)
     output_schema: dict[str, Any] = Field(default_factory=dict)
     evidence_required: bool = False
+    # 该技能只有在运行时显式选择了上传资料后才有意义。规划器和执行器都据此
+    # 阻止“无附件任务误绑文档技能”，而不是等到底层 schema 校验时报错。
+    requires_documents: bool = False
     side_effect: str = "none"
     recipe: list[RecipeStep] = Field(default_factory=list)
     instructions_path: str | None = None

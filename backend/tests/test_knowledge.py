@@ -229,6 +229,29 @@ def test_report_rejects_fabricated_citation(local):
         )
 
 
+def test_report_accepts_controlled_external_citation(local):
+    _, database = local
+    citation = {
+        "id": "ourairports:ZBAA",
+        "origin": "external",
+        "visibility": "external",
+        "source_uri": "https://ourairports.com/airports/ZBAA/",
+        "source_title": "Beijing Capital International Airport",
+        "location": "Beijing, CN",
+        "text": "Beijing Capital International Airport（ZBAA）",
+        "retrieved_at": "OurAirports 快照 2026-01-15",
+    }
+    report = reports.create_report(
+        {"id": "external-run", "project_id": "test-project", "mode": "live"},
+        "机场要素来自受控外部工具 [ourairports:ZBAA]。",
+        [citation],
+    )
+
+    saved = database.get("reports", report["id"])
+    assert saved["citations"][0]["origin"] == "external"
+    assert saved["citations"][0]["source_uri"].startswith("https://ourairports.com/")
+
+
 def test_seed_migration_keeps_history_and_user_edits(local):
     _, database = local
     seeds.seed_all()

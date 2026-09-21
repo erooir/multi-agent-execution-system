@@ -84,3 +84,24 @@ After client feedback: production identity and tenant isolation, deployment pack
 - 问题 2（启动不发现）：`facade.discover_enabled_servers()` 在启动时对 enabled:true 的 MCP Server 逐个发现+注册（单 server 上限 min(startup_timeout_seconds, 20s)），失败标 unavailable（依赖 Skill 随之 degraded），平台照常启动；`main.py` lifespan 以后台任务执行，不阻塞 API；关停时取消该任务。测试环境经 `backend/tests/conftest.py` 默认置 `WORKBENCH_MCP_AUTODISCOVERY=off`，避免 TestClient 反复拉子进程。
 - 新增测试 4 项：fastmcp 桩验证三种解包形态（结构化 dict / JSON 文本 / 非 JSON 回退）与 evidence/text 顶层提升；启动路径自动注册（桩）；启动超时不阻塞并标 unavailable。更新 2 项旧断言以匹配解包后的真实载荷。
 - 验证：`uv run pytest` 138 项全部通过；`uv run ruff check backend` 通过。真实冒烟（8124 端口，admin 登录）：bootstrap 中 aviation-local status=ready 且 /api/tools 直接含 mcp.aviation-local.lookup_airport/nearby_airports（无需手动 refresh）；POST /api/tools/mcp.aviation-local.lookup_airport/test（live，ZBAA）返回 data 为真实载荷（airports/count/snapshot_date=2026-09-21）、顶层 evidence 非空、trace.provider=mcp。进程已关闭，无残留子进程。
+
+## 工作流技能选择与自适应输入修复（2026-09-21）
+- 根因 1：规划提示只限制了图片技能，没有表达 document_parse/ocr/multimodal 的附件前置条件；显式绑定的 document_parse 又绕过了 parse 节点原有的无文档规则解析兜底，最终以缺少 document_ids 中断。
+- 修复 1：SkillManifest 新增 `requires_documents`，三个文档类 Skill 显式声明；规划技能目录展示前置条件，模型规划校验会拒绝无附件意图任务中的文档类绑定并进入既有修复轮次。旧流程或手工误配在运行时无 document_ids 时明确记录 capability_skipped，并继续以规则需求解析输出，不再触发 schema_validation_failed。
+- 根因 2：airport_lookup/aviation_weather 原为 recipe，SKILL.md 从未交给执行模型；engine 只把静态 config.query（缺省为整句任务）直接送入工具，无法拆城市、处理中英文或消费上游 ICAO。
+- 修复 2：两项技能改为 agent 模式并保留 drill recipe 回退；SkillRuntime 将完整 SKILL.md、原始任务、初始 config 和有界上游结果交给受控智能体。初始 JSON 仅为候选，智能体可在工具 schema/allowed_tools 范围内多次调用、检查空结果并修正英文城市名或 ICAO。只有真实 ToolResult 会聚合为 airports/reports/evidence/trace，未调用工具则报 tool_result_invalid，模型正文不能伪装成技能成功。
+- engine 的技能输入改为按 manifest.input_schema 通用构造，节点中登记的 icao 等字段不再被硬编码丢弃；规划提示明确机场集合任务先 airport_lookup，后续 aviation_weather 从上游真实机场结果取得 ICAO，不把返回字段名拼成 query。
+- 补齐外部证据下游链路：`external_references` 仍不混入本地 chunk 证据池，但会参与证据充分性条件、分析和报告；报告只接受带有效 HTTP(S) source_uri 的受控外部引用并单独保存，前端可查看详情和打开原始来源。由此机场/气象 Skill 的真实结果不会再被条件节点误判为“零证据”。
+- API 技能摘要与前端技能卡片展示 `requires_documents`，让用户在编辑工作流前可见附件要求。
+- 新增回归覆盖：无附件规划自动修复 document_parse、旧工作流无附件安全跳过、机场智能体把中文集合任务拆成 Beijing/Shanghai 多次真实本地调用并合并 3 个机场结果。`ruff check backend/app backend/tests` 通过；其余验证结果见本次交付说明。
+- 最终验证：后端 `uv run pytest -q -p no:cacheprovider` 143 项通过（仅 Starlette 上游弃用警告）；`uv run ruff check backend/app backend/tests` 通过；前端 `npm test` 20 项通过，`npm run build` 通过。
+
+## 工作流业务 Agent 闭环（2026-09-21）
+- 澄清两层执行语义：`Skill.execution_mode` 只控制 Skill 内部是 recipe 还是受控 Agent；工作流节点新增 `execution_strategy: agent|direct_skill`，前者才是真正的业务 Agent。新模型规划的 retrieve 节点默认使用 `agent`；旧种子流程维持直接 Skill，避免历史行为和既有测试被静默改变。
+- 新增业务 Agent Runtime：按 `agent.skill_ids`、节点类型、文档可用性和 Policy Gate 的交集生成 Skill callable。每个 callable 向模型暴露 Skill 输入 schema、描述和完整 SKILL.md；模型可观察任务、节点目标/config 与有界上游输出，自主选择、组合、修正参数及重复调用，但看不到越权的底层 Tool。
+- 可靠性闭环：模型未调用 Skill 时自动进行一次带原因的修复调用；两次仍无真实调用才报 `tool_result_invalid`。成功必须来自实际 SkillRuntime/ToolRuntime 结果，模型文本不能伪装为能力结果。调用轨迹补充 agent_id，并保留 Skill→Tool 证据和耗时。
+- airport_lookup/aviation_weather 改回 recipe：单次机场/气象查询保持确定性；大城市列表、中文转英文、逐城市机场检索、从真实结果提取 ICAO、逐机场 METAR/TAF 调用由上层检索 Agent 决策。recipe 多步骤结果会合并数组字段，避免 METAR 被后续 TAF 覆盖。
+- 权限和迁移：工作流校验拒绝 Agent 模式未绑定智能体、非法策略及未授权 Skill；知识检索智能体自动补齐 airport_lookup/aviation_weather/literature_search，不覆盖用户自定义提示词；种子 parse 节点改绑文档解析智能体。
+- 前端工作流编辑器新增“智能体自主决策 / 直接执行固定技能”选择；Skill 下拉按所选 Agent 权限过滤，自主模式明确提示 skill_id/config 只是初始建议。
+- 新增回归：业务 Agent 第一次跳过 Skill 后自动修复、中文大城市任务拆成 Beijing/Shanghai 并多次调用 airport_lookup、工作流节点只看到已授权 Skill 且记录 Agent→Skill→Tool 轨迹。
+- 验证：后端 145 项测试全部通过（仅 Starlette 上游弃用警告），Ruff 通过；前端生产构建与 20 项测试通过。Agno `Function.from_callable` 冒烟确认所有授权 Skill callable 均生成正确 properties/required schema。

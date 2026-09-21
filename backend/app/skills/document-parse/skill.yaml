@@ -19,6 +19,7 @@ output_schema:
     count: {type: integer}
   required: [evidence, count]
 evidence_required: true
+requires_documents: true
 side_effect: none
 recipe:
   - tool: local.document.read_chunks

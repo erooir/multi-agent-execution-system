@@ -55,6 +55,9 @@ AGENTS = [
             "ocr",
             "semantic_search",
             "multimodal",
+            "airport_lookup",
+            "aviation_weather",
+            "literature_search",
         ],
     },
     {
@@ -318,7 +321,7 @@ def _workflow(definition: tuple) -> dict:
     identity, category, name, description, items, report_template = definition
     specs = [
         ("start", "开始任务", "start", "agent-coordinator", {}),
-        ("parse", "解析目标与约束", "parse", "agent-planner", {}),
+        ("parse", "解析目标与约束", "parse", "agent-parser", {}),
         ("retrieve", "检索资料与证据", "retrieve", "agent-retriever", {"limit": 8}),
         ("condition", "检查证据是否充分", "condition", "agent-coordinator", {"min_evidence": 1}),
         ("batch", "批量整理研究维度", "batch", "agent-coordinator", {"items": items, "count": len(items)}),
@@ -393,7 +396,7 @@ def seed_all() -> None:
     with _seed_lock:
         if store.get("seed_state", DATASET_VERSION):
             _migrate_seed_workflows()
-            _ensure_parser_agent()
+            _migrate_seed_agents()
             _ensure_image_fixture(knowledge)
             return
         for project in PROJECTS:
@@ -521,7 +524,7 @@ def seed_all() -> None:
                         },
                     )
         _ensure_image_fixture(knowledge)
-        _ensure_parser_agent()
+        _migrate_seed_agents()
         store.save("seed_state", {"id": DATASET_VERSION, "synthetic": True, "sample_count": 30})
         store.audit(
             "seed.initialize",
@@ -530,11 +533,18 @@ def seed_all() -> None:
         )
 
 
-def _ensure_parser_agent() -> None:
-    """Backfill the document-parser agent into databases seeded before it existed."""
+def _migrate_seed_agents() -> None:
+    """补齐系统 Agent 及新增授权；不覆盖用户修改过的说明和提示词。"""
     for agent in AGENTS:
-        if not store.get("agents", agent["id"]):
+        current = store.get("agents", agent["id"])
+        if not current:
             store.save("agents", {**agent, "model": "deepseek-flash", "enabled": True, "version": 1})
+            continue
+        missing = [skill_id for skill_id in agent.get("skill_ids", []) if skill_id not in current.get("skill_ids", [])]
+        if missing:
+            current["skill_ids"] = [*current.get("skill_ids", []), *missing]
+            current["version"] = int(current.get("version", 1)) + 1
+            store.save("agents", current)
 
 
 def _migrate_seed_workflows() -> None:

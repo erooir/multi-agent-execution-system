@@ -309,6 +309,71 @@ async def test_airport_lookup_skill_runs_local_in_drill(runtime, fixture_snapsho
     assert result.trace.tool_calls[0].tool_id == "aviation.ourairports.lookup_airport"
 
 
+async def test_airport_lookup_agent_adapts_queries_and_merges_real_tool_results(
+    runtime, fixture_snapshot, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from backend.app import model_gateway as gateway_module
+    from backend.app.capabilities.runtime import agent as agent_runtime
+
+    skills, _, _, tool_runtime = runtime
+    received = {}
+
+    skill_runtime = SkillRuntime(skills, tool_runtime, audit=AuditLog())
+    monkeypatch.setattr(
+        agent_runtime,
+        "capability_runtime",
+        lambda: SimpleNamespace(skills=skills, skill_runtime=skill_runtime),
+    )
+
+    async def fake_run_agent(agent_spec, messages, functions, context=None, max_rounds=4):
+        received.update(
+            instructions=agent_spec["instructions"],
+            message=messages,
+            tools=sorted(functions),
+        )
+        # 模拟业务 Agent 把中文集合任务拆成英文城市名，并多次调用 Skill。
+        await functions["airport_lookup"](query="Beijing", limit=5)
+        await functions["airport_lookup"](query="Shanghai", limit=5)
+        return {"text": "已按城市拆分并完成检索。", "usage": {}, "cost_cny": 0}
+
+    monkeypatch.setattr(gateway_module.model_gateway, "run_agent", fake_run_agent)
+    raw, observed = await agent_runtime.run_business_agent(
+        {
+            "id": "agent-retriever",
+            "name": "知识检索智能体",
+            "instructions": "根据任务检索真实数据。",
+            "skill_ids": ["airport_lookup"],
+        },
+        {
+            "task": "给我检索一下当前大城市的机场状况。",
+            "initial_config": {"query": "大城市机场 ICAO IATA 名称 坐标 跑道 海拔"},
+            "upstream": [],
+        },
+        ExecutionContext(
+            mode="live",
+            network_policy="allow",
+            agent_id="agent-retriever",
+            allowed_skill_ids=["airport_lookup"],
+        ),
+        node_kind="retrieve",
+        preferred_skill_id="airport_lookup",
+    )
+
+    airports = [airport for _, result in observed for airport in result.data["airports"]]
+    assert raw["text"].startswith("已按城市拆分")
+    assert len(airports) == 3
+    assert {airport["municipality"] for airport in airports} == {
+        "Beijing",
+        "Shanghai",
+    }
+    assert len(observed) == 2
+    assert received["tools"] == ["airport_lookup"]
+    assert "转换成适配格式" in received["instructions"]
+    assert "给我检索" in received["message"]
+
+
 async def test_aviation_weather_skill_drill_precheck(runtime):
     skills, _, _, tool_runtime = runtime
     skill_runtime = SkillRuntime(skills, tool_runtime, audit=AuditLog())

@@ -730,7 +730,9 @@ export function EvidenceCard({
           {String(index + 1).padStart(2, "0")}
         </span>
         <div>
-          <strong>{r.document_name || r.source || "来源文档"}</strong>
+          <strong>
+            {r.document_name || r.source_title || r.source || "来源文档"}
+          </strong>
           <small>{r.location || r.id}</small>
         </div>
         {r.score !== undefined && (
@@ -1158,6 +1160,7 @@ function SkillsTab({ p }: { p: PageProps }) {
                   .join("、") || "未限定"}
               </span>
               <span>{s.evidence_required ? "要求返回证据" : "不强制证据"}</span>
+              {s.requires_documents && <span>需要显式选择上传资料</span>}
             </div>
             {(s.allowed_tools || []).length > 0 && (
               <div className="agent-skills">

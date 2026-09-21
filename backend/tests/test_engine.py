@@ -1,6 +1,7 @@
 import asyncio
 import importlib
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 
@@ -227,6 +228,183 @@ async def test_dynamic_plan_uses_model_topology_and_rejects_bad_graph(isolated_e
     with pytest.raises(ValueError, match="智能体已禁用"):
         await engine.plan({"prompt": "停用规划器不应调用模型", "mode": "live"})
     assert len(calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_live_plan_repairs_document_skill_without_attachment_intent(
+    isolated_engine, monkeypatch
+):
+    import json
+
+    bad = {
+        "name": "误绑文档技能",
+        "nodes": [
+            {"id": "s", "kind": "start"},
+            {"id": "p", "kind": "parse", "skill_id": "document_parse"},
+            {"id": "r", "kind": "report"},
+            {"id": "h", "kind": "review"},
+            {"id": "e", "kind": "end"},
+        ],
+        "edges": [
+            {"source": a, "target": b}
+            for a, b in zip(["s", "p", "r", "h"], ["p", "r", "h", "e"])
+        ],
+    }
+    repaired = deepcopy(bad)
+    repaired["name"] = "普通需求分析"
+    repaired["nodes"][1].pop("skill_id")
+    responses = [json.dumps(bad), json.dumps(repaired)]
+
+    async def fake_complete(*args, **kwargs):
+        return {"text": responses.pop(0)}
+
+    monkeypatch.setattr(engine.model_gateway, "complete", fake_complete)
+    workflow = await engine.plan(
+        {"prompt": "给我检索一下当前大城市的机场状况。", "mode": "live"}
+    )
+
+    parse = next(node for node in workflow["nodes"] if node["data"]["kind"] == "parse")
+    assert "skill_id" not in parse["data"]
+
+
+@pytest.mark.asyncio
+async def test_legacy_document_skill_without_selected_documents_is_skipped(isolated_engine):
+    store, _ = isolated_engine
+    workflow = store.get("workflows", "workflow-tech-trends")
+    parse = next(node for node in workflow["nodes"] if node["data"]["kind"] == "parse")
+    parse["data"]["skill_id"] = "document_parse"
+    store.save("workflows", workflow)
+
+    run = engine.create_run(
+        {
+            "workflow_id": workflow["id"],
+            "prompt": "给我检索一下当前大城市的机场状况。",
+            "mode": "rehearsal",
+        }
+    )
+    run = await settle(run["id"])
+    parse_step = next(step for step in run["steps"] if step["kind"] == "parse")
+
+    assert run["status"] == "waiting_review", run.get("error")
+    assert parse_step["status"] == "completed"
+    assert parse_step["payload"]["status"] == "skipped"
+    assert "未选择上传资料" in parse_step["payload"]["reason"]
+    assert not any(
+        call["skill_id"] == "document_parse" for call in run.get("capability_calls", [])
+    )
+
+
+@pytest.mark.asyncio
+async def test_external_airport_references_drive_condition_analysis_and_report(
+    isolated_engine, monkeypatch
+):
+    from backend.app.capabilities.tools import airports as airport_tools
+
+    store, _ = isolated_engine
+    monkeypatch.setenv(
+        "OURAIRPORTS_DIR", str(Path(__file__).parent / "fixtures" / "ourairports")
+    )
+    airport_tools.reset_cache()
+    workflow = store.get("workflows", "workflow-tech-trends")
+    retrieve = next(node for node in workflow["nodes"] if node["data"]["kind"] == "retrieve")
+    retrieve["data"].update(
+        skill_id="airport_lookup",
+        config={"query": "ZBAA", "limit": 3},
+    )
+    store.save("workflows", workflow)
+
+    run = engine.create_run(
+        {
+            "workflow_id": workflow["id"],
+            "prompt": "查询北京首都机场要素",
+            "mode": "rehearsal",
+        }
+    )
+    run = await settle(run["id"])
+    condition = next(step for step in run["steps"] if step["kind"] == "condition")
+    report = store.get("reports", run["report_id"])
+
+    assert run["status"] == "waiting_review", run.get("error")
+    assert condition["payload"]["branch"] == "pass"
+    assert run["external_references"][0]["id"] == "ourairports:ZBAA"
+    assert any(citation["id"] == "ourairports:ZBAA" for citation in report["citations"])
+    assert any("ourairports:ZBAA" in step.get("payload", {}).get("text", "") for step in run["steps"])
+    airport_tools.reset_cache()
+
+
+@pytest.mark.asyncio
+async def test_retrieve_node_runs_business_agent_over_authorized_skills(
+    isolated_engine, monkeypatch
+):
+    from backend.app.capabilities.tools import airports as airport_tools
+
+    store, _ = isolated_engine
+    monkeypatch.setenv(
+        "OURAIRPORTS_DIR", str(Path(__file__).parent / "fixtures" / "ourairports")
+    )
+    airport_tools.reset_cache()
+    run = store.save(
+        "runs",
+        {
+            "id": "run-business-agent",
+            "name": "大城市机场状态",
+            "prompt": "给我检索一下当前大城市的机场状况。",
+            "mode": "live",
+            "project_id": None,
+            "document_ids": [],
+            "status": "running",
+            "steps": [
+                {
+                    "node_id": "start",
+                    "label": "接收任务",
+                    "kind": "start",
+                    "status": "completed",
+                    "payload": {"prompt": "给我检索一下当前大城市的机场状况。"},
+                }
+            ],
+            "evidence": [],
+            "external_references": [],
+            "workflow_snapshot": {
+                "nodes": [
+                    {"id": "start", "data": {"kind": "start", "label": "接收任务"}},
+                    {"id": "retrieve", "data": {"kind": "retrieve", "label": "机场状态检索"}},
+                ],
+                "edges": [{"source": "start", "target": "retrieve"}],
+            },
+        },
+    )
+    captured = {}
+
+    async def fake_run_agent(agent_spec, messages, tool_bindings, context=None, max_rounds=4):
+        captured["bindings"] = sorted(tool_bindings)
+        captured["messages"] = messages
+        await tool_bindings["airport_lookup"](query="Beijing", limit=5)
+        await tool_bindings["airport_lookup"](query="Shanghai", limit=5)
+        return {"text": "已按城市逐一检索。", "usage": {}, "cost_cny": 0, "tool_calls": []}
+
+    monkeypatch.setattr(engine.model_gateway, "run_agent", fake_run_agent)
+    payload = await engine._execute_agent_node(
+        run,
+        {
+            "kind": "retrieve",
+            "label": "机场状态检索",
+            "agent_id": "agent-retriever",
+            "skill_id": "airport_lookup",
+            "execution_strategy": "agent",
+        },
+        {"query": "大城市机场 ICAO IATA 名称 坐标 跑道 海拔", "limit": 5},
+        "retrieve",
+    )
+    stored = store.get("runs", run["id"])
+
+    assert payload["agent_id"] == "agent-retriever"
+    assert payload["skills"] == ["airport_lookup"]
+    assert {item["municipality"] for item in payload["airports"]} == {"Beijing", "Shanghai"}
+    assert len(stored["capability_calls"]) == 2
+    assert all(call["agent_id"] == "agent-retriever" for call in stored["capability_calls"])
+    assert {"airport_lookup", "aviation_weather"}.issubset(captured["bindings"])
+    assert "大城市机场" in captured["messages"]
+    airport_tools.reset_cache()
 
 
 @pytest.mark.asyncio

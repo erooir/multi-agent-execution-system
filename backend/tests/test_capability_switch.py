@@ -37,18 +37,24 @@ async def test_run_records_nested_capability_trace(isolated_engine):
 
 
 @pytest.mark.asyncio
-async def test_skill_failure_carries_stable_error_code(isolated_engine):
+async def test_document_skill_without_input_is_skipped_before_schema_validation(isolated_engine):
     store, _ = isolated_engine
     workflow = store.get("workflows", "workflow-tech-trends")
-    # document_parse 绑定到 parse 节点，但运行未选资料：明确失败而不是自动挑选项目文档。
+    # 旧流程误绑 document_parse 但运行未选资料：明确跳过，不自动挑选项目文档，
+    # 也不再用缺少 document_ids 的 schema 错误中断整条任务。
     next(n for n in workflow["nodes"] if n["id"] == "parse")["data"]["skill_id"] = "document_parse"
     store.save("workflows", workflow)
     run = engine.create_run(
         {"workflow_id": workflow["id"], "prompt": "无资料解析", "mode": "rehearsal"}
     )
     run = await settle(run["id"])
-    assert run["status"] == "failed"
-    assert "schema_validation_failed" in run["error"]
+    assert run["status"] == "waiting_review", run.get("error")
+    parse = next(step for step in run["steps"] if step["kind"] == "parse")
+    assert parse["payload"]["status"] == "skipped"
+    assert "未选择上传资料" in parse["payload"]["reason"]
+    assert not any(
+        call["skill_id"] == "document_parse" for call in run.get("capability_calls", [])
+    )
 
 
 def test_plan_prompt_catalog_comes_from_registry():
@@ -219,6 +225,7 @@ def test_api_agent_live_test_uses_run_agent(isolated_engine, monkeypatch):
     async def fake_run_agent(agent_spec, messages, tool_bindings, context=None, max_rounds=4):
         captured["bindings"] = sorted(tool_bindings)
         captured["agent_spec"] = agent_spec
+        await tool_bindings["knowledge_search"](query="复合材料", limit=3)
         return {
             "text": "已通过工具检索到 3 条证据。",
             "usage": {"prompt_tokens": 1},
@@ -239,7 +246,7 @@ def test_api_agent_live_test_uses_run_agent(isolated_engine, monkeypatch):
         assert result["mode"] == "live"
         assert result["tool_calls"][0]["tool_id"] == "local.knowledge.keyword_search"
         assert result["note"] == ""
-        assert captured["bindings"] == ["local.graph.query", "local.knowledge.keyword_search"]
+        assert captured["bindings"] == ["graph_query", "knowledge_search"]
         assert "协同调度智能体" in captured["agent_spec"]["name"]
 
     async def no_call_run_agent(agent_spec, messages, tool_bindings, context=None, max_rounds=4):
@@ -252,4 +259,51 @@ def test_api_agent_live_test_uses_run_agent(isolated_engine, monkeypatch):
             "/api/agents/agent-coordinator/test",
             json={"message": "随便聊聊", "mode": "live"},
         ).json()
-        assert "未调用能力" in result["note"]
+    assert "未调用能力" in result["note"]
+
+
+async def test_business_agent_repairs_once_when_model_skips_skill(isolated_engine, monkeypatch):
+    from backend.app.capabilities.contracts import ExecutionContext
+    from backend.app.capabilities.runtime.agent import run_business_agent
+
+    gateway_module = importlib.import_module("backend.app.model_gateway")
+    attempts = 0
+
+    async def fake_run_agent(agent_spec, messages, tool_bindings, context=None, max_rounds=4):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 2:
+            await tool_bindings["knowledge_search"](query="复合材料", limit=2)
+        return {
+            "text": "完成",
+            "usage": {
+                "prompt_tokens": 3,
+                "prompt_tokens_details": {"cached_tokens": attempts},
+            },
+            "cost_cny": 0,
+            "tool_calls": [],
+        }
+
+    monkeypatch.setattr(gateway_module.model_gateway, "run_agent", fake_run_agent)
+    agent = isolated_engine[0].get("agents", "agent-retriever")
+    result, observed = await run_business_agent(
+        agent,
+        {"task": "检索复合材料资料", "upstream": []},
+        ExecutionContext(
+            mode="live",
+            network_policy="allow",
+            project_id="project-technology",
+            agent_id=agent["id"],
+            allowed_skill_ids=agent["skill_ids"],
+        ),
+        node_kind="retrieve",
+    )
+
+    assert attempts == 2
+    assert result["attempts"] == 2
+    assert result["usage"] == {
+        "prompt_tokens": 6,
+        "prompt_tokens_details": {"cached_tokens": 3},
+    }
+    assert observed[0][0] == "knowledge_search"
+    assert observed[0][1].status == "completed"

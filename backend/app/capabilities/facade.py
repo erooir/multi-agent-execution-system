@@ -45,6 +45,7 @@ class CapabilityRuntime:
             json.dumps(skill_input, ensure_ascii=False),
             functions,
             context,
+            max_rounds=8,
         )
 
 

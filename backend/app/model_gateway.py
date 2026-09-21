@@ -315,7 +315,7 @@ class ModelGateway:
 
     @staticmethod
     def _bind_tool(name: str, binding, tool_calls: list):
-        """把 SkillRuntime 生成的受控 callable 包成 Agno 工具并记录真实调用。"""
+        """把受控 callable 包成 Agno 工具并记录 Skill/Tool 分层调用。"""
         import functools
         import inspect
 
@@ -325,8 +325,11 @@ class ModelGateway:
             if inspect.isawaitable(result):
                 result = await result
             trace_calls = result.get("trace", {}).get("tool_calls", []) if isinstance(result, dict) else []
+            skill_id = getattr(binding, "__skill_id__", None)
             tool_calls.append(
                 {
+                    "kind": "skill" if skill_id else "tool",
+                    "skill_id": skill_id,
                     "tool_id": trace_calls[0].get("tool_id", name) if trace_calls else name,
                     "status": result.get("status") if isinstance(result, dict) else "completed",
                     "arguments": sorted(kwargs),

@@ -10,8 +10,8 @@ node_kinds: [retrieve, analyze]
 input_schema:
   type: object
   properties:
+    query: {type: string}
     icao: {type: string}
-  required: [icao]
 output_schema:
   type: object
   properties:
@@ -21,6 +21,7 @@ output_schema:
 evidence_required: true
 side_effect: none
 recipe:
+  # 业务检索 Agent 从上游机场结果选择 ICAO，并可为每个机场重复调用本 Skill。
   - tool: aviation.noaa.get_metar
     args:
       icao: "{input.icao}"

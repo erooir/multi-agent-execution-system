@@ -9,6 +9,7 @@ export type SkillSummary = {
   node_kinds?: string[];
   allowed_tools?: string[];
   evidence_required?: boolean;
+  requires_documents?: boolean;
   status?: string;
   note?: string;
   input_schema?: Record<string, any>;

@@ -568,9 +568,32 @@ export default function WorkflowEditor({
                   ))}
                 </select>
               </Field>
+              {node.data.kind === "retrieve" && (
+                <Field
+                  label="执行方式"
+                  hint="自主决策会把节点配置作为初始提示，由智能体结合上游结果选择和重复调用已授权技能"
+                >
+                  <select
+                    disabled={!canEdit}
+                    value={node.data.execution_strategy || "direct_skill"}
+                    onChange={(e) =>
+                      updateNode({ execution_strategy: e.target.value })
+                    }
+                  >
+                    <option value="agent" disabled={!node.data.agent_id}>
+                      智能体自主决策
+                    </option>
+                    <option value="direct_skill">直接执行固定技能</option>
+                  </select>
+                </Field>
+              )}
               <Field
                 label="使用技能"
-                hint="仅列出与当前节点类型兼容且已启用的技能"
+                hint={
+                  node.data.execution_strategy === "agent"
+                    ? "作为初始建议；智能体可改用或组合其他已授权技能"
+                    : "直接执行所选技能；仅列出智能体已授权且与节点兼容的技能"
+                }
               >
                 <select
                   disabled={!canEdit}
@@ -580,11 +603,21 @@ export default function WorkflowEditor({
                   }
                 >
                   <option value="">按节点类型执行</option>
-                  {skillsForNodeKind(skills, node.data.kind).map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
+                  {skillsForNodeKind(skills, node.data.kind)
+                    .filter((s) => {
+                      const selectedAgent = agents.find(
+                        (agent) => agent.id === node.data.agent_id,
+                      );
+                      return (
+                        !selectedAgent ||
+                        (selectedAgent.skill_ids || []).includes(s.id)
+                      );
+                    })
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
                   {node.data.skill_id &&
                     !skillsForNodeKind(skills, node.data.kind).some(
                       (s) => s.id === node.data.skill_id,

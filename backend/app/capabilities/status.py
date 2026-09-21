@@ -1,7 +1,7 @@
 """面向 API 的 Skill 摘要：保持原 knowledge.skills() 的输出字段不变。
 
 字段：id/name/description/version/execution/status/note/input_schema/
-output_schema/enabled/execution_mode/node_kinds/allowed_tools/evidence_required。
+output_schema/enabled/execution_mode/node_kinds/allowed_tools/evidence_required/requires_documents。
 execution 依据 Skill 声明的 Tool 的 network 字段推导（需要网络即 external）；
 依赖 MCP 工具的 Skill 在 Server 最近已知不可用时标 degraded。
 """
@@ -61,6 +61,7 @@ def skill_summaries(skills: SkillRegistry, knowledge, tools=None, server_health=
                 "node_kinds": manifest.node_kinds,
                 "allowed_tools": manifest.allowed_tools,
                 "evidence_required": manifest.evidence_required,
+                "requires_documents": manifest.requires_documents,
                 "status": status,
                 "note": note,
                 "input_schema": manifest.input_schema,
