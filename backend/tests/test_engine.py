@@ -392,3 +392,168 @@ async def test_truncated_report_fails_run_without_creating_draft_or_approval(iso
     assert not any(report.get("run_id") == run["id"] for report in store.list("reports"))
     assert not any(approval.get("run_id") == run["id"] for approval in store.list("approvals"))
     assert len(report_attempts) == 1, "Agno must not automatically repeat a failed paid request"
+
+
+async def settle_plan(job_id):
+    for _ in range(500):
+        await asyncio.sleep(0.01)
+        if job_id not in engine.PLAN_TASKS:
+            return engine.store.get("planning_jobs", job_id)
+    raise AssertionError("planning job did not settle")
+
+
+@pytest.mark.asyncio
+async def test_plan_job_repairs_with_visible_attempts(isolated_engine, monkeypatch):
+    import json
+
+    store, _ = isolated_engine
+    nodes = [
+        {"id": "s", "kind": "start"},
+        {"id": "a", "kind": "analyze"},
+        {"id": "r", "kind": "report"},
+        {"id": "h", "kind": "review"},
+        {"id": "e", "kind": "end"},
+    ]
+    cyclic = {
+        "name": "有环流程",
+        "nodes": nodes,
+        "edges": [
+            {"source": "s", "target": "a"},
+            {"source": "a", "target": "r"},
+            {"source": "r", "target": "h"},
+            {"source": "h", "target": "e"},
+            {"source": "e", "target": "s"},
+        ],
+    }
+    valid = {
+        "name": "修复后的流程",
+        "nodes": nodes,
+        "edges": [
+            {"source": "s", "target": "a"},
+            {"source": "a", "target": "r"},
+            {"source": "r", "target": "h"},
+            {"source": "h", "target": "e"},
+        ],
+    }
+    responses = [json.dumps(cyclic), json.dumps(valid)]
+    purposes = []
+
+    async def fake_complete(prompt, **kwargs):
+        purposes.append(kwargs["purpose"])
+        return {"text": responses.pop(0) if responses else json.dumps(valid)}
+
+    monkeypatch.setattr(engine.model_gateway, "complete", fake_complete)
+    job = engine.start_plan(
+        {"prompt": "整理复合材料研究", "project_id": "project-technology", "mode": "live"},
+        {"username": "operator"},
+    )
+    assert job["status"] == "running"
+    job = await settle_plan(job["id"])
+    assert job["status"] == "completed", job.get("error")
+    assert purposes == ["workflow_plan", "workflow_plan_repair"]
+    assert job["attempts"][0]["status"] == "invalid" and job["attempts"][0]["error"]
+    assert job["attempts"][1]["status"] == "validated"
+    workflow = store.get("workflows", job["workflow_id"])
+    assert workflow["source_prompt"] == "整理复合材料研究"
+    assert workflow["preferred_mode"] == "live"
+    assert "【真实模型规划】" in workflow["description"]
+
+
+@pytest.mark.asyncio
+async def test_plan_job_failure_keeps_attempts_and_saves_nothing(isolated_engine, monkeypatch):
+    import json
+
+    store, _ = isolated_engine
+
+    async def fake_complete(prompt, **kwargs):
+        return {"text": json.dumps({"nodes": [], "edges": []})}
+
+    monkeypatch.setattr(engine.model_gateway, "complete", fake_complete)
+    job = engine.start_plan({"prompt": "总是失败的规划", "mode": "live"}, {"username": "operator"})
+    job = await settle_plan(job["id"])
+    assert job["status"] == "failed"
+    assert "校验" in job["error"]
+    assert len(job["attempts"]) == 1 + engine.PLAN_MAX_REPAIRS
+    assert all(attempt["status"] == "invalid" for attempt in job["attempts"])
+    assert job["workflow_id"] is None
+    assert not [w for w in store.list("workflows") if w.get("source_prompt") == "总是失败的规划"]
+
+
+@pytest.mark.asyncio
+async def test_plan_job_rehearsal_completes_without_model(isolated_engine):
+    store, _ = isolated_engine
+    job = engine.start_plan(
+        {"prompt": "本地演练规划", "project_id": "project-technology", "mode": "rehearsal"},
+        {"username": "operator"},
+    )
+    job = await settle_plan(job["id"])
+    assert job["status"] == "completed", job.get("error")
+    workflow = store.get("workflows", job["workflow_id"])
+    assert workflow["preferred_mode"] == "rehearsal"
+    assert workflow["source_prompt"] == "本地演练规划"
+    assert "【演练规则规划】" in workflow["description"]
+
+
+@pytest.mark.asyncio
+async def test_parse_node_processes_uploaded_documents(isolated_engine):
+    store, knowledge = isolated_engine
+    document = knowledge.ingest(
+        "上传资料_复材补充.md",
+        "# 上传的补充资料\n碳纤维回收中试记录在2026年完成两轮验证。".encode(),
+        "project-technology",
+        "external",
+    )
+    run = engine.create_run(
+        {
+            "workflow_id": "workflow-tech-trends",
+            "project_id": "project-technology",
+            "prompt": "结合上传资料整理复合材料研究",
+            "mode": "rehearsal",
+            "document_ids": [document["id"]],
+        },
+        {"username": "operator"},
+    )
+    run = await settle(run["id"])
+    assert run["status"] == "waiting_review", run.get("error")
+    parse_step = next(s for s in run["steps"] if s["kind"] == "parse")
+    assert parse_step["status"] == "completed"
+    assert parse_step["payload"]["summary"]["mode"] == "rehearsal"
+    assert "演练" in parse_step["payload"]["summary"]["text"]
+    assert any(e.get("document_id") == document["id"] for e in run["evidence"])
+    assert any(r["skill_id"] == "document_parse" for r in run.get("skill_results", []))
+
+
+@pytest.mark.asyncio
+async def test_parse_node_live_summary_uses_gateway(isolated_engine, monkeypatch):
+    store, knowledge = isolated_engine
+    document = knowledge.ingest(
+        "上传资料_外发允许.md",
+        "可外发的合成补充资料，包含主题要点。".encode(),
+        "project-technology",
+        "external",
+    )
+    purposes = []
+
+    async def fake_complete(prompt, **kwargs):
+        purposes.append(kwargs["purpose"])
+        if kwargs["purpose"] == "document_parse_summary":
+            assert "已解析的上传资料" in prompt
+            return {"text": "解析摘要：资料主题为合成补充。", "usage": {"prompt_tokens": 1}}
+        return {"text": "模型输出，无引用。"}
+
+    monkeypatch.setattr(engine.model_gateway, "complete", fake_complete)
+    run = engine.create_run(
+        {
+            "workflow_id": "workflow-tech-trends",
+            "project_id": "project-technology",
+            "prompt": "结合上传资料整理要点",
+            "mode": "live",
+            "document_ids": [document["id"]],
+        },
+        {"username": "operator"},
+    )
+    run = await settle(run["id"])
+    assert run["status"] == "waiting_review", run.get("error")
+    assert "document_parse_summary" in purposes
+    parse_step = next(s for s in run["steps"] if s["kind"] == "parse")
+    assert parse_step["payload"]["summary"]["text"] == "解析摘要：资料主题为合成补充。"

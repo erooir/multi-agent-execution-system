@@ -38,6 +38,7 @@ import {
   Empty,
   Field,
   InlineMessage,
+  Modal,
   ModeBadge,
   Panel,
   SectionTitle,
@@ -627,20 +628,53 @@ function Overview({
 }: PageProps) {
   const [project, setProject] = useProject();
   const [prompt, setPrompt] = useState(""),
-    [mode, setMode] = useState(data.system?.default_mode || "rehearsal");
+    [mode, setMode] = useState(data.system?.default_mode || "rehearsal"),
+    [job, setJob] = useState<RecordData | null>(null);
   const runs = data.runs || [],
     active = runs.filter((r: any) => ["running", "queued"].includes(r.status)),
     pending = runs.filter((r: any) => r.status === "waiting_review");
+  useEffect(() => {
+    if (!job || job.status !== "running") return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const current = await api(`/planning/${job.id}`);
+        if (cancelled) return;
+        setJob(current);
+        if (current.status === "completed" && current.workflow_id) {
+          await refresh();
+          const workflows = await api("/workflows");
+          const created = (workflows || []).find(
+            (w: any) => w.id === current.workflow_id,
+          );
+          if (created) {
+            setJob(null);
+            editWorkflow(created);
+            notify("研究流程已生成，可在画布中检查并调整");
+          }
+        }
+      } catch (e) {
+        if (!cancelled)
+          setJob((j: any) =>
+            j ? { ...j, status: "failed", error: (e as Error).message } : j,
+          );
+      }
+    };
+    const t = setInterval(poll, 800);
+    poll();
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [job?.id, job?.status]);
   const create = async () => {
     if (!prompt.trim()) {
       notify("请先描述你的研究任务", true);
       return;
     }
     try {
-      const w = await post("/plan", { prompt, project_id: project, mode });
-      await refresh();
-      editWorkflow(w);
-      notify("研究流程已生成，可在画布中检查并调整");
+      const started = await post("/plan", { prompt, project_id: project, mode });
+      setJob(started);
     } catch (e) {
       notify((e as Error).message, true);
     }
@@ -703,7 +737,7 @@ function Overview({
           </div>
           <ActionButton
             className="button primary"
-            disabled={!canEdit || !project}
+            disabled={!canEdit || !project || job?.status === "running"}
             onClick={create}
           >
             生成研究流程
@@ -892,6 +926,62 @@ function Overview({
           </button>
         ))}
       </div>
+      {job && (
+        <Modal
+          title="正在生成研究流程"
+          onClose={() => job.status !== "running" && setJob(null)}
+        >
+          <div className="prompt-disclaimer">
+            <ModeBadge mode={job.mode || mode} />
+            <span>
+              {job.mode === "live"
+                ? "真实模型规划：生成 → 硬规则校验 → 不通过则携带错误原因让模型修复。"
+                : "本地规则规划：不调用模型。"}
+            </span>
+          </div>
+          <div className="readiness-row">
+            <div>
+              {job.status === "running" ? (
+                <LoaderCircle size={18} className="spin" />
+              ) : job.status === "completed" ? (
+                <Check size={18} />
+              ) : (
+                <X size={18} />
+              )}
+              <span>{job.stage || "排队中"}</span>
+            </div>
+          </div>
+          {(job.attempts || []).length > 0 && (
+            <div className="log-list">
+              {job.attempts.map((a: any, i: number) => (
+                <div className="log-entry" key={i}>
+                  <span>第 {a.attempt} 次</span>
+                  <code>
+                    {a.status === "validated"
+                      ? `校验通过（${a.nodes} 个节点 / ${a.edges} 条连线）`
+                      : `校验未通过：${a.error}`}
+                  </code>
+                </div>
+              ))}
+            </div>
+          )}
+          {job.status === "failed" && (
+            <>
+              <InlineMessage error>
+                {job.error || "规划失败，未保存任何流程。"}
+              </InlineMessage>
+              <div className="modal-actions">
+                <button className="button" onClick={() => setJob(null)}>
+                  关闭
+                </button>
+              </div>
+            </>
+          )}
+          {job.status === "running" && (
+            <p className="muted">正在规划，你可以看到每一次生成与校验的真实进展…</p>
+          )}
+        </Modal>
+      )}
     </>
   );
 }

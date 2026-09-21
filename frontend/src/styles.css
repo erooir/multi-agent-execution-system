@@ -1414,6 +1414,20 @@ tbody tr:hover {
 .modal .doc-selection {
   margin: 18px 0 22px;
 }
+.upload-inline {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.upload-inline input[type="file"] {
+  flex: 1;
+  min-width: 220px;
+  font-size: 13px;
+}
+.upload-inline select {
+  min-width: 170px;
+}
 .evidence-results {
   display: grid;
   gap: 17px;

@@ -826,7 +826,7 @@ export function AgentsPage(p: PageProps) {
                 value={edit.role}
                 onChange={(e) => setEdit({ ...edit, role: e.target.value })}
               >
-                {["planner", "retriever", "writer", "coordinator"].map((k) => (
+                {["planner", "parser", "retriever", "writer", "coordinator"].map((k) => (
                   <option key={k} value={k}>
                     {roleNames[k]}
                   </option>

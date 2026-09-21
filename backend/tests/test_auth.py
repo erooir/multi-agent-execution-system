@@ -246,3 +246,121 @@ def test_login_and_registration_rate_limits(identity_app):
             == 429
         )
         assert not database.list("sessions")
+
+
+def _login(client, username="admin", password="demo12345"):
+    response = client.post("/api/auth/login", json={"username": username, "password": password})
+    assert response.status_code == 200, response.text
+    return response
+
+
+def test_admin_manages_users(identity_app):
+    app, database = identity_app
+    with TestClient(app) as client:
+        _login(client)
+        users = client.get("/api/users").json()
+        assert {user["username"] for user in users} == {"admin", "operator", "reviewer"}
+        assert all("password_hash" not in user for user in users)
+
+        created = client.post(
+            "/api/users",
+            json={
+                "username": "Reviewer_2",
+                "password": "review-password",
+                "name": "审核专家乙",
+                "role": "reviewer",
+            },
+        )
+        assert created.status_code == 201, created.text
+        assert created.json()["username"] == "reviewer_2"
+        assert "password_hash" not in created.json()
+        assert not database.list("sessions") or all(
+            session.get("username") != "reviewer_2" for session in database.list("sessions")
+        )
+
+        client.post("/api/auth/logout")
+        assert (
+            client.post(
+                "/api/auth/login", json={"username": "REVIEWER_2", "password": "review-password"}
+            ).json()["user"]["role"]
+            == "reviewer"
+        )
+
+        _login(client)
+        assert (
+            client.post(
+                "/api/users", json={"username": "reviewer_2", "password": "review-password"}
+            ).status_code
+            == 409
+        )
+        assert (
+            client.post(
+                "/api/users", json={"username": "root2", "password": "admin-password", "role": "admin"}
+            ).status_code
+            == 422
+        )
+        assert database.get("users", "root2") is None
+
+        updated = client.put(
+            "/api/users/reviewer_2", json={"name": "资深审核", "role": "operator"}
+        )
+        assert updated.status_code == 200
+        assert updated.json()["name"] == "资深审核" and updated.json()["role"] == "operator"
+
+        assert client.put("/api/users/admin", json={"enabled": False}).status_code == 400
+        assert client.put("/api/users/admin", json={"role": "reviewer"}).status_code == 400
+        assert database.get("users", "admin")["enabled"] is True
+
+        reset = client.put("/api/users/reviewer_2", json={"password": "new-password-1"})
+        assert reset.status_code == 200
+        record = database.get("users", "reviewer_2")
+        assert auth._verify_password("new-password-1", record["password_hash"])
+
+        disabled = client.put("/api/users/reviewer_2", json={"enabled": False})
+        assert disabled.status_code == 200 and disabled.json()["enabled"] is False
+        assert (
+            client.post(
+                "/api/auth/login", json={"username": "reviewer_2", "password": "new-password-1"}
+            ).status_code
+            == 401
+        )
+        client.put("/api/users/reviewer_2", json={"enabled": True})
+        assert (
+            client.post(
+                "/api/auth/login", json={"username": "reviewer_2", "password": "new-password-1"}
+            ).status_code
+            == 200
+        )
+
+
+def test_user_management_requires_admin(identity_app):
+    app, database = identity_app
+    with TestClient(app) as client:
+        _login(client, "operator")
+        assert client.get("/api/users").status_code == 403
+        assert (
+            client.post(
+                "/api/users", json={"username": "sneaky", "password": "sneaky-password"}
+            ).status_code
+            == 403
+        )
+        assert client.put("/api/users/reviewer", json={"enabled": False}).status_code == 403
+        assert database.get("users", "sneaky") is None
+
+
+def test_disabling_user_revokes_sessions(identity_app):
+    app, database = identity_app
+    with TestClient(app) as client:
+        _login(client)
+        client.post("/api/users", json={"username": "temp_user", "password": "temp-password"})
+        client.post("/api/auth/logout")
+        _login(client, "temp_user", "temp-password")
+        assert client.get("/api/auth/me").status_code == 200
+    with TestClient(app) as admin_client:
+        _login(admin_client)
+        admin_client.put("/api/users/temp_user", json={"enabled": False})
+        assert not [
+            session
+            for session in database.list("sessions")
+            if session.get("username") == "temp_user"
+        ]

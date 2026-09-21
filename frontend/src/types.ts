@@ -30,6 +30,7 @@ export const roleNames: Record<string, string> = {
   retriever: "知识检索",
   writer: "报告撰写",
   coordinator: "协同调度",
+  parser: "文档解析",
   admin: "管理员",
   operator: "研究员",
   reviewer: "审核员",

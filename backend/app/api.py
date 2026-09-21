@@ -11,7 +11,16 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Resp
 from fastapi.responses import FileResponse, StreamingResponse
 
 from . import engine, reports, workflows
-from .auth import get_current_user, login, logout, register, require_roles
+from .auth import (
+    create_user,
+    get_current_user,
+    list_users,
+    login,
+    logout,
+    register,
+    require_roles,
+    update_user,
+)
 from .config import get_settings, save_settings
 from .knowledge import knowledge
 from .model_gateway import model_gateway
@@ -82,6 +91,21 @@ def auth_me(user: dict = read):
 @router.post("/auth/logout")
 async def auth_logout(request: Request, response: Response):
     return logout(request, response)
+
+
+@router.get("/users")
+def list_users_route(user: dict = admin):
+    return list_users()
+
+
+@router.post("/users", status_code=201)
+def create_user_route(body: dict, user: dict = admin):
+    return create_user(body, user)
+
+
+@router.put("/users/{item_id}")
+def update_user_route(item_id: str, body: dict, user: dict = admin):
+    return update_user(item_id, body, user)
 
 
 def system_info():
@@ -201,7 +225,7 @@ def agent_data(body: dict, previous=None):
     )
     if not str(item.get("name", "")).strip():
         raise HTTPException(400, "智能体名称不能为空")
-    if item.get("role", "writer") not in {"planner", "retriever", "writer", "coordinator"}:
+    if item.get("role", "writer") not in {"planner", "retriever", "writer", "coordinator", "parser"}:
         raise HTTPException(400, "智能体角色无效")
     valid_skills = {s["id"] for s in knowledge.skills()}
     if not isinstance(item.get("skill_ids", []), list) or any(
@@ -407,11 +431,16 @@ def restore_workflow(item_id: str, body: dict, user: dict = edit):
     return item
 
 
-@router.post("/plan", status_code=201)
+@router.post("/plan", status_code=202)
 async def plan(body: dict, user: dict = edit):
-    item = await engine.plan(body)
-    audit("workflow.plan", item["id"], user, {"mode": body.get("mode", "rehearsal")})
-    return item
+    job = engine.start_plan(body, user)
+    audit("workflow.plan", job["id"], user, {"mode": body.get("mode", "rehearsal")})
+    return job
+
+
+@router.get("/planning/{item_id}")
+def planning_job(item_id: str, user: dict = read):
+    return required("planning_jobs", item_id)
 
 
 @router.post("/runs", status_code=201)

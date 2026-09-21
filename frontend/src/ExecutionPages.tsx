@@ -28,11 +28,13 @@ import {
   Square,
   Timer,
   Trash2,
+  UserPlus,
+  Users,
   X,
   Zap,
 } from "lucide-react";
 import { api, post, put, money, time, type RecordData } from "./api";
-import { type PageProps, categoryNames } from "./types";
+import { type PageProps, categoryNames, roleNames } from "./types";
 import {
   ActionButton,
   Badge,
@@ -112,11 +114,20 @@ export function RunsPage(p: PageProps) {
     [prompt, setPrompt] = useState(""),
     [mode, setMode] = useState(p.data.system?.default_mode || "rehearsal"),
     [docIds, setDocIds] = useState<string[]>([]),
+    [file, setFile] = useState<File | null>(null),
+    [visibility, setVisibility] = useState("external"),
     [filter, setFilter] = useState("all");
   const { value: run, error } = useRecord(
       selected ? `/runs/${selected}` : null,
     ),
     task = useTask(p);
+  useEffect(() => {
+    if (!creating || !workflow) return;
+    const w = (p.data.workflows || []).find((x: any) => x.id === workflow);
+    if (!w) return;
+    setPrompt(w.source_prompt || "");
+    setMode(w.preferred_mode || p.data.system?.default_mode || "rehearsal");
+  }, [workflow, creating]);
   const items = (p.data.runs || []).filter(
     (r: any) => filter === "all" || r.status === filter,
   );
@@ -325,6 +336,47 @@ export function RunsPage(p: PageProps) {
                 ))}
             </div>
           </details>
+          <Field
+            label="上传参考资料"
+            hint="上传后自动加入本次任务的指定资料，由文档解析节点处理后交给下游分析。仅限本地的资料不会发送给外部模型。"
+          >
+            <div className="upload-inline">
+              <input
+                type="file"
+                aria-label="选择要上传的资料"
+                accept=".txt,.md,.csv,.pdf,.docx,.png,.jpg,.jpeg,.webp"
+                onChange={(e) => setFile(e.target.files?.[0] || null)}
+              />
+              <select
+                aria-label="资料使用范围"
+                value={visibility}
+                onChange={(e) => setVisibility(e.target.value)}
+              >
+                <option value="external">允许外部模型使用</option>
+                <option value="local">仅限本地检索</option>
+              </select>
+              <ActionButton
+                className="button small"
+                disabled={!file || !project}
+                onClick={() =>
+                  task(async () => {
+                    const body = new FormData();
+                    body.append("file", file!);
+                    body.append("project_id", project);
+                    body.append("visibility", visibility);
+                    const doc = await api("/documents/upload", {
+                      method: "POST",
+                      body,
+                    });
+                    setDocIds((ids) => [...ids, doc.id]);
+                    setFile(null);
+                  }, "资料已上传并附加到本次任务")
+                }
+              >
+                上传并附加
+              </ActionButton>
+            </div>
+          </Field>
           <InlineMessage>
             {mode === "live"
               ? `实际调用将计入统一预算。当前预算余量 ¥ ${Number(p.data.budget?.remaining_cny || 0).toFixed(2)}。本地限定资料不会外发。`
@@ -1424,6 +1476,7 @@ export function SystemPage(p: PageProps) {
           }
         />
       )}
+      {p.data.user?.role === "admin" && <UsersPanel p={p} />}
       <Panel
         title="操作审计"
         detail="记录资源变更、执行、审批与系统操作。"
@@ -1546,6 +1599,222 @@ function SettingsForm({
           保存运行设置
         </ActionButton>
       </div>
+    </Panel>
+  );
+}
+
+function UsersPanel({ p }: { p: PageProps }) {
+  const [users, setUsers] = useState<any[] | null>(null),
+    [creating, setCreating] = useState(false),
+    [draft, setDraft] = useState({
+      username: "",
+      password: "",
+      name: "",
+      role: "operator",
+    }),
+    [editing, setEditing] = useState<any | null>(null),
+    [error, setError] = useState("");
+  const task = useTask(p);
+  const load = async () => setUsers(await api("/users"));
+  useEffect(() => {
+    load().catch((e) => setError(e.message));
+  }, []);
+  return (
+    <Panel
+      title="用户管理"
+      detail="仅管理员可见。注册入口只创建研究员账号，审核员由管理员在此创建。"
+      actions={
+        <button
+          className="button primary small"
+          onClick={() => {
+            setDraft({ username: "", password: "", name: "", role: "operator" });
+            setCreating(true);
+          }}
+        >
+          <UserPlus size={15} />
+          新建用户
+        </button>
+      }
+    >
+      {error && <InlineMessage error>{error}</InlineMessage>}
+      {users === null ? (
+        <Empty title="正在加载用户列表" />
+      ) : (
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>用户名</th>
+                <th>显示名</th>
+                <th>角色</th>
+                <th>状态</th>
+                <th>创建时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u: any) => (
+                <tr key={u.username}>
+                  <td>
+                    <code>{u.username}</code>
+                  </td>
+                  <td>{u.name}</td>
+                  <td>
+                    <Badge>{roleNames[u.role] || u.role}</Badge>
+                  </td>
+                  <td>
+                    <Badge status={u.enabled === false ? "pending" : "ready"}>
+                      {u.enabled === false ? "已停用" : "启用中"}
+                    </Badge>
+                  </td>
+                  <td className="muted">{time(u.created_at)}</td>
+                  <td>
+                    <div className="row-actions">
+                      <button
+                        className="text-button"
+                        onClick={() =>
+                          setEditing({
+                            username: u.username,
+                            name: u.name,
+                            role: u.role,
+                            password: "",
+                          })
+                        }
+                      >
+                        <Edit3 size={14} />
+                        编辑
+                      </button>
+                      {u.username !== p.data.user?.username && (
+                        <ActionButton
+                          className="text-button"
+                          onClick={() =>
+                            task(async () => {
+                              await put(`/users/${u.username}`, {
+                                enabled: u.enabled === false,
+                              });
+                              await load();
+                            }, u.enabled === false ? "账号已启用" : "账号已停用，会话已注销")
+                          }
+                        >
+                          {u.enabled === false ? "启用" : "停用"}
+                        </ActionButton>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {creating && (
+        <Modal title="新建用户" onClose={() => setCreating(false)}>
+          <Field label="用户名" hint="3–32 位字母、数字或下划线，不区分大小写。">
+            <input
+              value={draft.username}
+              onChange={(e) => setDraft({ ...draft, username: e.target.value })}
+              placeholder="例如 reviewer_li"
+            />
+          </Field>
+          <Field label="显示名（选填）">
+            <input
+              value={draft.name}
+              maxLength={40}
+              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+            />
+          </Field>
+          <Field label="初始密码" hint="8–128 个字符，请线下告知对方并尽快修改。">
+            <input
+              type="password"
+              value={draft.password}
+              onChange={(e) => setDraft({ ...draft, password: e.target.value })}
+            />
+          </Field>
+          <Field label="角色" hint="管理员账号不能通过界面创建。">
+            <select
+              value={draft.role}
+              onChange={(e) => setDraft({ ...draft, role: e.target.value })}
+            >
+              <option value="operator">研究员 · 创建与运行任务</option>
+              <option value="reviewer">审核员 · 审阅与人工确认</option>
+            </select>
+          </Field>
+          <div className="modal-actions">
+            <button className="button" onClick={() => setCreating(false)}>
+              取消
+            </button>
+            <ActionButton
+              className="button primary"
+              disabled={!draft.username.trim() || draft.password.length < 8}
+              onClick={() =>
+                task(async () => {
+                  await post("/users", {
+                    username: draft.username.trim(),
+                    password: draft.password,
+                    name: draft.name.trim() || undefined,
+                    role: draft.role,
+                  });
+                  setCreating(false);
+                  await load();
+                }, "用户已创建")
+              }
+            >
+              创建用户
+            </ActionButton>
+          </div>
+        </Modal>
+      )}
+      {editing && (
+        <Modal title={`编辑用户 · ${editing.username}`} onClose={() => setEditing(null)}>
+          <Field label="显示名">
+            <input
+              value={editing.name}
+              maxLength={40}
+              onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+            />
+          </Field>
+          <Field label="角色">
+            <select
+              value={editing.role}
+              onChange={(e) => setEditing({ ...editing, role: e.target.value })}
+            >
+              <option value="operator">研究员</option>
+              <option value="reviewer">审核员</option>
+              {editing.role === "admin" && <option value="admin">管理员</option>}
+            </select>
+          </Field>
+          <Field label="重置密码" hint="留空则不修改密码；重置后该用户的会话会被注销。">
+            <input
+              type="password"
+              value={editing.password}
+              onChange={(e) => setEditing({ ...editing, password: e.target.value })}
+              placeholder="输入新密码（至少 8 位）"
+            />
+          </Field>
+          <div className="modal-actions">
+            <button className="button" onClick={() => setEditing(null)}>
+              取消
+            </button>
+            <ActionButton
+              className="button primary"
+              disabled={!editing.name.trim() || (editing.password && editing.password.length < 8)}
+              onClick={() =>
+                task(async () => {
+                  await put(`/users/${editing.username}`, {
+                    name: editing.name.trim(),
+                    role: editing.role,
+                    ...(editing.password ? { password: editing.password } : {}),
+                  });
+                  setEditing(null);
+                  await load();
+                }, "用户信息已更新")
+              }
+            >
+              保存修改
+            </ActionButton>
+          </div>
+        </Modal>
+      )}
     </Panel>
   );
 }

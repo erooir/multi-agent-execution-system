@@ -73,4 +73,42 @@ def test_api_upload_rejects_path_and_budget_escalation(isolated_engine):
             ).status_code
             == 400
         )
-        assert client.get(f"/api/documents/{document['id']}/file").content == "仅本地测试".encode()
+        assert client.get("/api/documents/" + document["id"] + "/file").content == "仅本地测试".encode()
+
+
+def test_api_plan_is_async_and_parser_role_available(isolated_engine):
+    import time
+
+    from backend.app.main import app
+
+    with TestClient(app) as client:
+        client.post("/api/auth/login", json={"username": "operator", "password": "demo12345"})
+        agents = client.get("/api/agents").json()
+        assert any(a["role"] == "parser" for a in agents)
+        created = client.post(
+            "/api/agents",
+            json={"name": "解析员乙", "role": "parser", "skill_ids": ["document_parse"]},
+        )
+        assert created.status_code == 201, created.text
+
+        response = client.post(
+            "/api/plan",
+            json={
+                "prompt": "规划一个本地演练流程",
+                "project_id": "project-technology",
+                "mode": "rehearsal",
+            },
+        )
+        assert response.status_code == 202, response.text
+        job = response.json()
+        for _ in range(200):
+            job = client.get(f"/api/planning/{job['id']}").json()
+            if job["status"] != "running":
+                break
+            time.sleep(0.05)
+        assert job["status"] == "completed", job.get("error")
+        saved = next(
+            w for w in client.get("/api/workflows").json() if w["id"] == job["workflow_id"]
+        )
+        assert saved["source_prompt"] == "规划一个本地演练流程"
+        assert saved["preferred_mode"] == "rehearsal"

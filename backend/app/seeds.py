@@ -66,6 +66,14 @@ AGENTS = [
         "skill_ids": ["document_parse"],
     },
     {
+        "id": "agent-parser",
+        "name": "文档解析智能体",
+        "role": "parser",
+        "description": "解析上传的文档与图片，抽取结构化要点并交给下游智能体处理。",
+        "instructions": "忠实整理上传资料的结构与要点，保留来源位置与证据标识。不补充资料之外的事实，无法解析时明确说明原因。仅本地资料禁止交给外部模型。",
+        "skill_ids": ["document_parse", "ocr", "multimodal"],
+    },
+    {
         "id": "agent-coordinator",
         "name": "协同调度智能体",
         "role": "coordinator",
@@ -385,6 +393,7 @@ def seed_all() -> None:
     with _seed_lock:
         if store.get("seed_state", DATASET_VERSION):
             _migrate_seed_workflows()
+            _ensure_parser_agent()
             _ensure_image_fixture(knowledge)
             return
         for project in PROJECTS:
@@ -512,12 +521,20 @@ def seed_all() -> None:
                         },
                     )
         _ensure_image_fixture(knowledge)
+        _ensure_parser_agent()
         store.save("seed_state", {"id": DATASET_VERSION, "synthetic": True, "sample_count": 30})
         store.audit(
             "seed.initialize",
             DATASET_VERSION,
-            {"projects": 3, "agents": 4, "workflows": 6, "samples": 30, "documents": 10},
+            {"projects": 3, "agents": len(store.list("agents")), "workflows": 6, "samples": 30, "documents": 10},
         )
+
+
+def _ensure_parser_agent() -> None:
+    """Backfill the document-parser agent into databases seeded before it existed."""
+    for agent in AGENTS:
+        if not store.get("agents", agent["id"]):
+            store.save("agents", {**agent, "model": "deepseek-flash", "enabled": True, "version": 1})
 
 
 def _migrate_seed_workflows() -> None:

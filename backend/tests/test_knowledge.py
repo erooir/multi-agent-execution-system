@@ -143,7 +143,8 @@ def test_seed_idempotent_30_runnable_samples_and_graph(local, monkeypatch):
     }
     seeds.seed_all()
     assert before == {kind: len(database.list(kind)) for kind in before}
-    assert before["agents"] == 4 and before["workflows"] == 6 and before["samples"] == 30
+    assert before["agents"] == 5 and before["workflows"] == 6 and before["samples"] == 30
+    assert any(agent["role"] == "parser" for agent in database.list("agents"))
     assert before["documents"] == 10
     for workflow in database.list("workflows"):
         result = workflows.validate_workflow(workflow)
