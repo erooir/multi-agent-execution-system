@@ -503,8 +503,8 @@ async def test_mcp_discover_filters_allowlist(mcp_fixture):
 async def test_mcp_call_and_allowlist_enforced(mcp_fixture):
     provider = McpProvider(mcp_fixture)
     result = await provider.call("fixture", "add", {"a": 2, "b": 3})
-    assert result["is_error"] is False
-    assert "5" in result["content"] or (result["structured"] or {}).get("result") == 5
+    # fastmcp 对标量返回值包 {"result": ...}，Provider 解包后直达载荷。
+    assert result["result"] == 5
     with pytest.raises(CapabilityError) as caught:
         await provider.call("fixture", "hidden", {})
     assert caught.value.code == "permission_denied"

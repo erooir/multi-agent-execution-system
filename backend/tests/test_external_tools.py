@@ -369,10 +369,11 @@ async def test_mcp_aviation_discover_call_health(aviation_mcp_registry):
     assert sorted(tool["name"] for tool in discovered) == ["lookup_airport", "nearby_airports"]
     health = await provider.health("aviation-local")
     assert health["status"] == "ready" and health["tools"] == 2
-    # 真实 stdio 调用（使用 .local 中的真实 OurAirports 快照）。
+    # 真实 stdio 调用（使用 .local 中的真实 OurAirports 快照）；结果已解包为真实载荷。
     result = await provider.call("aviation-local", "lookup_airport", {"query": "ZBAA", "limit": 3})
-    assert result["is_error"] is False
-    assert "ZBAA" in result["content"] or b"ZBAA" in str(result["structured"]).encode()
+    assert result["count"] >= 1
+    assert result["airports"][0]["ident"] == "ZBAA"
+    assert result["evidence"] and result["evidence"][0]["origin"] == "external"
     with pytest.raises(CapabilityError) as caught:
         await provider.call("aviation-local", "drop_table", {})
     assert caught.value.code == "permission_denied"
@@ -400,6 +401,9 @@ async def test_mcp_tools_registered_and_invoked_via_runtime(aviation_mcp_registr
     )
     assert result.status == "completed", result.error
     assert result.trace.provider == "mcp"
+    # data 是解包后的真实载荷，evidence 提升到 ToolResult 顶层。
+    assert result.data["airports"][0]["ident"] == "ZBAA"
+    assert result.evidence and result.evidence[0]["source_uri"]
 
 
 def test_mcp_dependent_skill_degraded_when_server_down():
@@ -448,3 +452,129 @@ def test_mcp_dependent_skill_degraded_when_server_down():
     assert summaries["airport_lookup"]["status"] == "degraded"
     assert summaries["airport_lookup"]["enabled"] is True
     assert summaries["graph_query"]["status"] == "ready"
+
+
+# ------------------------------------------------- MCP 结果规范化与启动发现
+
+_MCP_SHAPES_SERVER = '''
+import json
+from fastmcp import FastMCP
+
+mcp = FastMCP("shapes")
+
+
+@mcp.tool()
+def rich() -> dict:
+    return {"items": [1], "evidence": [{"id": "e1", "text": "证据片段"}], "text": "结构化摘要"}
+
+
+@mcp.tool()
+def json_text() -> str:
+    return json.dumps({"items": [2], "evidence": [{"id": "e2"}]}, ensure_ascii=False)
+
+
+@mcp.tool()
+def plain() -> str:
+    return "这是一段普通文本，不是 JSON"
+
+mcp.run()
+'''
+
+
+@pytest.fixture
+def shapes_mcp(tmp_path):
+    script = tmp_path / "shapes_server.py"
+    script.write_text(_MCP_SHAPES_SERVER, encoding="utf-8")
+    servers = McpRegistry()
+    servers.register(
+        McpServerDefinition(
+            id="shapes",
+            transport="stdio",
+            command=sys.executable,
+            args=[str(script)],
+            enabled=True,
+            tool_allowlist=["rich", "json_text", "plain"],
+            startup_timeout_seconds=30,
+            call_timeout_seconds=30,
+        )
+    )
+    return servers
+
+
+async def test_mcp_result_unwrap_structured_json_and_plain(shapes_mcp):
+    provider = McpProvider(shapes_mcp)
+    # 1) dict 返回值：structured content 直接作为 data。
+    rich = await provider.call("shapes", "rich", {})
+    assert rich["items"] == [1] and rich["evidence"][0]["id"] == "e1"
+    # 2) JSON 文本（fastmcp 包成 {"result": "<json>"}）：解析为 data。
+    parsed = await provider.call("shapes", "json_text", {})
+    assert parsed["items"] == [2] and parsed["evidence"][0]["id"] == "e2"
+    # 3) 非 JSON 文本：不报错不丢结果，data 为空对象、text 为原文。
+    plain = await provider.call("shapes", "plain", {})
+    assert isinstance(plain.data, dict) and plain.data == {}
+    assert "普通文本" in plain.text
+
+
+async def test_mcp_unwrapped_payload_promoted_to_tool_result(shapes_mcp):
+    provider = McpProvider(shapes_mcp)
+    discovered = await provider.discover("shapes")
+    _, tools, _ = load_default_registries()
+    for definition in provider.to_tool_definitions("shapes", discovered):
+        tools.upsert(definition)
+    tool_runtime = ToolRuntime(
+        tools,
+        policy=PolicyGate(),
+        audit=AuditLog(),
+        providers={"local": LocalProvider(), "http": HttpProvider(), "mcp": provider},
+    )
+    result = await tool_runtime.invoke("mcp.shapes.rich", {}, LIVE)
+    assert result.status == "completed"
+    assert result.data["items"] == [1]
+    assert result.text == "结构化摘要"
+    assert result.evidence == [{"id": "e1", "text": "证据片段"}]
+    plain = await tool_runtime.invoke("mcp.shapes.plain", {}, LIVE)
+    assert plain.status == "completed"
+    assert plain.data == {} and "普通文本" in plain.text
+
+
+async def test_startup_autodiscovery_registers_enabled_server(shapes_mcp):
+    from backend.app.capabilities.facade import CapabilityRuntime, discover_enabled_servers
+
+    runtime = CapabilityRuntime()
+    runtime.mcp_servers = shapes_mcp
+    runtime.mcp_provider = McpProvider(shapes_mcp)
+    assert "mcp.shapes.rich" not in runtime.tools
+    results = await discover_enabled_servers(runtime)
+    assert results == {"shapes": "ready(3)"}
+    assert runtime.server_health["shapes"] == "ready"
+    assert "mcp.shapes.rich" in runtime.tools
+    assert runtime.tools.get("mcp.shapes.plain").provider == "mcp"
+
+
+async def test_startup_autodiscovery_timeout_marks_unavailable(tmp_path):
+    import time
+
+    from backend.app.capabilities.facade import CapabilityRuntime, discover_enabled_servers
+
+    script = tmp_path / "slow_server.py"
+    script.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
+    servers = McpRegistry()
+    servers.register(
+        McpServerDefinition(
+            id="slow",
+            transport="stdio",
+            command=sys.executable,
+            args=[str(script)],
+            enabled=True,
+            startup_timeout_seconds=1,
+        )
+    )
+    runtime = CapabilityRuntime()
+    runtime.mcp_servers = servers
+    runtime.mcp_provider = McpProvider(servers)
+    started = time.monotonic()
+    results = await discover_enabled_servers(runtime)
+    elapsed = time.monotonic() - started
+    assert results["slow"].startswith("unavailable")
+    assert runtime.server_health["slow"] == "unavailable"
+    assert elapsed < 15  # 受 startup_timeout 约束，不得拖住启动

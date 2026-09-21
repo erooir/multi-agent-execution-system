@@ -19,6 +19,8 @@ from . import engine
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import asyncio
+
     from agno.os import AgentOS
 
     from .capabilities.facade import validate_registered_skills
@@ -29,6 +31,15 @@ async def lifespan(app: FastAPI):
     # 启动期只读校验：已存 Agent/Workflow 不得引用未注册技能。
     validate_registered_skills(store)
     engine.recover_interrupted()
+    # 后台自动发现 enabled:true 的 MCP Server 并注册其工具；不阻塞 API 启动，
+    # 失败的 Server 标 unavailable，本地能力不受影响。测试环境默认关闭。
+    discovery = None
+    if os.environ.get("WORKBENCH_MCP_AUTODISCOVERY", "on") != "off":
+        from .capabilities.facade import capability_runtime, discover_enabled_servers
+
+        capability_runtime()
+        discovery = asyncio.create_task(discover_enabled_servers(), name="mcp-autodiscovery")
+    app.state.mcp_discovery = discovery
     # The registered Workflow is the same object engine._drive actually executes.
     # Never mount private_app: native model/registry execution must not bypass RBAC/budget.
     runtime = AgentOS(
@@ -40,9 +51,10 @@ async def lifespan(app: FastAPI):
     app.state.agent_os = runtime
     app.state.private_agentos_app = runtime.get_app()
     yield
-    import asyncio
-
     tasks = list(engine.TASKS.values()) + list(engine.EVALUATION_TASKS.values())
+    if discovery is not None and not discovery.done():
+        discovery.cancel()
+        tasks.append(discovery)
     for task in tasks:
         task.cancel()
     if tasks:

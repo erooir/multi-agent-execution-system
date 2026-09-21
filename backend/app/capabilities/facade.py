@@ -58,6 +58,32 @@ def capability_runtime() -> CapabilityRuntime:
     return _RUNTIME
 
 
+async def discover_enabled_servers(runtime: CapabilityRuntime | None = None) -> dict[str, str]:
+    """启动期自动发现 enabled:true 的 MCP Server 并注册其 allowlist 工具。
+
+    每个 server 受 min(startup_timeout_seconds, 20s) 上限约束；失败时标
+    unavailable（依赖它的 Skill 随之标 degraded），平台照常启动。
+    """
+    import asyncio
+
+    runtime = runtime or capability_runtime()
+    results: dict[str, str] = {}
+    for server in runtime.mcp_servers.list():
+        if not server.enabled:
+            continue
+        try:
+            async with asyncio.timeout(min(float(server.startup_timeout_seconds), 20.0)):
+                discovered = await runtime.mcp_provider.discover(server.id)
+            for definition in runtime.mcp_provider.to_tool_definitions(server.id, discovered):
+                runtime.tools.upsert(definition)
+            runtime.server_health[server.id] = "ready"
+            results[server.id] = f"ready({len(discovered)})"
+        except Exception as error:  # noqa: BLE001 - 单个 MCP 失败不得影响平台启动
+            runtime.server_health[server.id] = "unavailable"
+            results[server.id] = f"unavailable:{getattr(error, 'code', type(error).__name__)}"
+    return results
+
+
 def validate_registered_skills(store) -> None:
     """启动期只读校验：已存 Agent/Workflow 引用的 Skill 必须都已注册。"""
     runtime = capability_runtime()

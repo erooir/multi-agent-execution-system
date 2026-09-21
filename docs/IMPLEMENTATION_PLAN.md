@@ -78,3 +78,9 @@ After client feedback: production identity and tenant isolation, deployment pack
 - 新增三个 Skill（recipe，node_kinds [retrieve, analyze]，evidence_required:true）：aviation_weather（METAR+TAF）、airport_lookup（OurAirports）、literature_search（OpenAlex+Crossref）；规划提示词目录 `_skill_catalog_text()` 自动包含。
 - engine：外部来源证据（无 document_id 的 origin=external 条目）只进 `run["external_references"]`，不混入必须能定位 chunk 的 `run["evidence"]` 引用池，报告防伪造引用校验不受影响。
 - 验证：`uv run pytest` 134 项全部通过（新增 19）；`uv run ruff check backend` 通过；前端 `npm run build` 与 `npm test`（20 项）通过，未改动前端代码；uvicorn 冒烟确认 bootstrap 出现 9 技能/15 工具/2 MCP，aviation-local 健康检查经真实子进程 ready，工具与技能测试接口行为符合 drill/live 语义。
+
+## MCP 修复：结果规范化 + 启动自动发现（2026-09-21，dev/analysis-and-changes 分支）
+- 问题 1（结果未规范化）：根因是当前 mcp SDK 的 CallToolResult 字段为 `structured_content`/`is_error`（snake_case），Provider 此前读 `structuredContent`/`isError` 恒为 None/False，导致 fastmcp 信封原样进入 data。修复 `providers/mcp.py`：兼容两种字段名；解包优先级为 structured content（含 fastmcp 对非标量返回值的 `{"result": ...}` 包装，字符串值再尝试 JSON 解析）→ content JSON 文本 → 非 JSON 时 ToolResult(data={}, text=原文) 不丢结果；is_error 报 tool_failed。载荷中的 evidence/text 由 ToolRuntime 既有规范化提升到顶层。
+- 问题 2（启动不发现）：`facade.discover_enabled_servers()` 在启动时对 enabled:true 的 MCP Server 逐个发现+注册（单 server 上限 min(startup_timeout_seconds, 20s)），失败标 unavailable（依赖 Skill 随之 degraded），平台照常启动；`main.py` lifespan 以后台任务执行，不阻塞 API；关停时取消该任务。测试环境经 `backend/tests/conftest.py` 默认置 `WORKBENCH_MCP_AUTODISCOVERY=off`，避免 TestClient 反复拉子进程。
+- 新增测试 4 项：fastmcp 桩验证三种解包形态（结构化 dict / JSON 文本 / 非 JSON 回退）与 evidence/text 顶层提升；启动路径自动注册（桩）；启动超时不阻塞并标 unavailable。更新 2 项旧断言以匹配解包后的真实载荷。
+- 验证：`uv run pytest` 138 项全部通过；`uv run ruff check backend` 通过。真实冒烟（8124 端口，admin 登录）：bootstrap 中 aviation-local status=ready 且 /api/tools 直接含 mcp.aviation-local.lookup_airport/nearby_airports（无需手动 refresh）；POST /api/tools/mcp.aviation-local.lookup_airport/test（live，ZBAA）返回 data 为真实载荷（airports/count/snapshot_date=2026-09-21）、顶层 evidence 非空、trace.provider=mcp。进程已关闭，无残留子进程。

@@ -8,15 +8,17 @@ MCP Server 只负责连接与发现；发现的工具经 tool_allowlist 过滤�
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from typing import Any
 
-from ..contracts import ExecutionContext, McpServerDefinition, ToolDefinition
+from ..contracts import ExecutionContext, McpServerDefinition, ToolDefinition, ToolResult
 from ..errors import (
     CAPABILITY_DISABLED,
     MCP_CONNECTION_FAILED,
     PERMISSION_DENIED,
     PROVIDER_UNAVAILABLE,
+    TOOL_FAILED,
     TOOL_TIMEOUT,
     CapabilityError,
 )
@@ -124,7 +126,13 @@ class McpProvider:
 
     async def call(
         self, server_id: str, tool_name: str, arguments: dict[str, Any]
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | ToolResult:
+        """调用 MCP 工具并把 SDK 信封解包为规范化载荷。
+
+        优先取 structuredContent（dict 直接作为 data）；否则尝试把文本内容解析为
+        JSON（对象直接作为 data，其他 JSON 值包为 {"result": ...}）；都不是时返回
+        ToolResult(data={}, text=原文)，不丢结果也不报错。isError 报 tool_failed。
+        """
         server = self.servers.get(server_id)
         if server.tool_allowlist and tool_name not in server.tool_allowlist:
             raise CapabilityError(
@@ -138,15 +146,38 @@ class McpProvider:
             raise CapabilityError(
                 TOOL_TIMEOUT, f"MCP 工具 {tool_name} 调用超时"
             ) from error
-        structured = getattr(result, "structuredContent", None)
+        structured = getattr(result, "structured_content", None)
+        if structured is None:
+            structured = getattr(result, "structuredContent", None)
+        is_error = getattr(result, "is_error", None)
+        if is_error is None:
+            is_error = getattr(result, "isError", False)
         text = "\n".join(
             getattr(item, "text", "") for item in (result.content or []) if getattr(item, "text", None)
         )
-        return {
-            "structured": structured,
-            "content": text,
-            "is_error": bool(getattr(result, "isError", False)),
-        }
+        if is_error:
+            raise CapabilityError(TOOL_FAILED, f"MCP 工具 {tool_name} 返回错误：{text[:500]}")
+        if isinstance(structured, dict):
+            # fastmcp 对非对象返回值包一层 {"result": ...}；字符串可能是 JSON 文本。
+            inner = structured.get("result") if set(structured) == {"result"} else None
+            if isinstance(inner, str):
+                return self._unwrap_text(inner)
+            return structured
+        if structured is not None:
+            return {"result": structured}
+        return self._unwrap_text(text)
+
+    @staticmethod
+    def _unwrap_text(text: str) -> dict[str, Any] | ToolResult:
+        """无结构化内容时：JSON 文本解析为 data；非 JSON 原文作 text、data 为空。"""
+        stripped = text.strip()
+        if not stripped:
+            return {}
+        try:
+            parsed = json.loads(stripped)
+        except ValueError:
+            return ToolResult(status="completed", data={}, text=text)
+        return parsed if isinstance(parsed, dict) else {"result": parsed}
 
     async def invoke(
         self, definition: ToolDefinition, arguments: dict[str, Any], context: ExecutionContext
