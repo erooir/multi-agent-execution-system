@@ -21,7 +21,6 @@ import {
   History,
   LoaderCircle,
   Play,
-  Plus,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -91,58 +90,11 @@ function useRecord(path: string | null) {
   return { value, error, setValue };
 }
 export function RunsPage(p: PageProps) {
-  const [project, setProject] = useProject();
-  const [selected, setSelected] = useState<string | null>(
-      p.selectedId && !p.selectedId.startsWith("workflow:")
-        ? p.selectedId
-        : null,
-    ),
-    [creating, setCreating] = useState(
-      Boolean(p.selectedId?.startsWith("workflow:")),
-    ),
-    [workflow, setWorkflow] = useState(
-      p.selectedId?.startsWith("workflow:")
-        ? p.selectedId.slice(9)
-        : p.data.workflows?.find(
-            (w: any) =>
-              w.status === "published" &&
-              w.category ===
-                p.data.projects?.find((x: any) => x.id === project)?.category,
-          )?.id ||
-            p.data.workflows?.find((w: any) => w.status === "published")?.id ||
-            "",
-    ),
-    [prompt, setPrompt] = useState(""),
-    [mode, setMode] = useState(p.data.system?.default_mode || "rehearsal"),
-    [docIds, setDocIds] = useState<string[]>([]),
-    [file, setFile] = useState<File | null>(null),
-    [visibility, setVisibility] = useState("external"),
-    [keepInLibrary, setKeepInLibrary] = useState(false),
-    [uploads, setUploads] = useState<{ id: string; name: string }[]>([]),
+  const [selected, setSelected] = useState<string | null>(p.selectedId || null),
     [filter, setFilter] = useState("all");
   const { value: run, error } = useRecord(
-      selected ? `/runs/${selected}` : null,
-    ),
-    task = useTask(p);
-  const uploadAttachment = async () => {
-    const body = new FormData();
-    body.append("file", file!);
-    body.append("project_id", project);
-    body.append("visibility", visibility);
-    body.append("temporary", keepInLibrary ? "false" : "true");
-    const doc = await api("/documents/upload", { method: "POST", body });
-    setUploads((list) => [...list, { id: doc.id, name: doc.name }]);
-    setDocIds((ids) => [...ids, doc.id]);
-    setFile(null);
-    return doc;
-  };
-  useEffect(() => {
-    if (!creating || !workflow) return;
-    const w = (p.data.workflows || []).find((x: any) => x.id === workflow);
-    if (!w) return;
-    setPrompt(w.source_prompt || "");
-    setMode(w.preferred_mode || p.data.system?.default_mode || "rehearsal");
-  }, [workflow, creating]);
+    selected ? `/runs/${selected}` : null,
+  );
   const items = (p.data.runs || []).filter(
     (r: any) => filter === "all" || r.status === filter,
   );
@@ -152,16 +104,6 @@ export function RunsPage(p: PageProps) {
         eyebrow="EXECUTION CENTER"
         title="运行中心"
         detail="查看节点执行、证据来源和模型用量，支持取消、重试与人工审核。"
-        actions={
-          <button
-            className="button primary"
-            disabled={!p.canEdit}
-            onClick={() => setCreating(true)}
-          >
-            <Plus size={17} />
-            发起研究任务
-          </button>
-        }
       />
       {selected ? (
         <>
@@ -274,180 +216,233 @@ export function RunsPage(p: PageProps) {
           </Panel>
         </>
       )}
-      {creating && (
-        <Modal title="发起研究任务" onClose={() => setCreating(false)} wide>
-          <div className="form-grid">
-            <Field label="研究流程">
-              <select
-                value={workflow}
-                onChange={(e) => setWorkflow(e.target.value)}
-              >
-                <option value="">选择流程</option>
-                {(p.data.workflows || []).map((w: any) => (
-                  <option
-                    key={w.id}
-                    value={w.id}
-                    disabled={w.status !== "published"}
-                  >
-                    {w.name} · {w.status === "published" ? "已发布" : "草稿"}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="研究项目">
-              <select
-                value={project}
-                onChange={(e) => {
-                  setProject(e.target.value);
-                  setDocIds([]);
-                }}
-              >
-                <option value="">选择项目</option>
-                {(p.data.projects || []).map((x: any) => (
-                  <option key={x.id} value={x.id}>
-                    {x.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
-          <Field label="研究需求">
-            <textarea
-              rows={4}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="明确研究对象、需要回答的问题和报告要求"
-            />
-          </Field>
-          <Field label="执行模式">
-            <select value={mode} onChange={(e) => setMode(e.target.value)}>
-              <option value="rehearsal">
-                本地演练 · 真实本地检索 + 确定性报告
-              </option>
-              <option value="live">真实模型 · DeepSeek（受预算限制）</option>
-            </select>
-          </Field>
-          <details className="doc-selection">
-            <summary>指定参考资料（未选时由流程检索当前项目资料）</summary>
-            <div className="checkbox-grid">
-              {(p.data.documents || [])
-                .filter((d: any) => d.project_id === project)
-                .map((d: any) => (
-                  <label key={d.id} className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={docIds.includes(d.id)}
-                      onChange={(e) =>
-                        setDocIds(
-                          e.target.checked
-                            ? [...docIds, d.id]
-                            : docIds.filter((id) => id !== d.id),
-                        )
-                      }
-                    />
-                    {d.name}
-                    {d.visibility === "local" && <small>本地限定</small>}
-                  </label>
-                ))}
-            </div>
-          </details>
-          <Field
-            label="上传参考资料"
-            hint="上传后自动加入本次任务的指定资料，由文档解析节点处理后交给下游分析。仅限本地的资料不会发送给外部模型。"
-          >
-            <div className="upload-inline">
-              <input
-                type="file"
-                aria-label="选择要上传的资料"
-                accept=".txt,.md,.csv,.pdf,.docx,.png,.jpg,.jpeg,.webp"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
-              />
-              <select
-                aria-label="资料使用范围"
-                value={visibility}
-                onChange={(e) => setVisibility(e.target.value)}
-              >
-                <option value="external">允许外部模型使用</option>
-                <option value="local">仅限本地检索</option>
-              </select>
-              <ActionButton
-                className="button small"
-                disabled={!file || !project}
-                onClick={() =>
-                  task(async () => {
-                    await uploadAttachment();
-                  }, "资料已上传并附加到本次任务")
-                }
-              >
-                上传并附加
-              </ActionButton>
-            </div>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={keepInLibrary}
-                onChange={(e) => setKeepInLibrary(e.target.checked)}
-              />
-              保存到项目资料库（不勾选则仅本次任务使用，不进入资料库检索）
-            </label>
-            {uploads.length > 0 && (
-              <div className="uploaded-chips">
-                {uploads.map((u) => (
-                  <span className="uploaded-chip" key={u.id}>
-                    {u.name}
-                    <button
-                      type="button"
-                      aria-label={`移除 ${u.name}`}
-                      onClick={() => {
-                        setUploads((list) => list.filter((x) => x.id !== u.id));
-                        setDocIds((ids) => ids.filter((id) => id !== u.id));
-                      }}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-          </Field>
-          <InlineMessage>
-            {mode === "live"
-              ? `实际调用将计入统一预算。当前预算余量 ¥ ${Number(p.data.budget?.remaining_cny || 0).toFixed(2)}。本地限定资料不会外发。`
-              : "演练不调用模型、不产生 API 费用；其结论仅用于验证流程，将在运行和报告中明确标识。"}
-          </InlineMessage>
-          <div className="modal-actions">
-            <button className="button" onClick={() => setCreating(false)}>
-              取消
-            </button>
-            <ActionButton
-              className="button primary"
-              disabled={!workflow || !project || !prompt.trim()}
-              onClick={() =>
-                task(async () => {
-                  let ids = docIds;
-                  if (file) {
-                    const doc = await uploadAttachment();
-                    ids = [...ids, doc.id];
-                  }
-                  const r = await post("/runs", {
-                    workflow_id: workflow,
-                    project_id: project,
-                    prompt,
-                    mode,
-                    document_ids: ids.length ? ids : undefined,
-                  });
-                  setCreating(false);
-                  setSelected(r.id);
-                }, "研究任务已提交")
-              }
-            >
-              <Play size={15} />
-              开始运行
-            </ActionButton>
-          </div>
-        </Modal>
-      )}
     </>
+  );
+}
+
+export function WorkflowRunLauncher({
+  page,
+  initialWorkflowId,
+  onStarted,
+}: {
+  page: PageProps;
+  initialWorkflowId?: string;
+  onStarted: (run: RecordData) => void;
+}) {
+  const [project, setProject] = useProject();
+  const [workflow, setWorkflow] = useState(
+      initialWorkflowId ||
+        page.data.workflows?.find(
+          (w: any) =>
+            w.status === "published" &&
+            w.category ===
+              page.data.projects?.find((x: any) => x.id === project)?.category,
+        )?.id ||
+        page.data.workflows?.find((w: any) => w.status === "published")?.id ||
+        "",
+    ),
+    [prompt, setPrompt] = useState(""),
+    [mode, setMode] = useState(page.data.system?.default_mode || "rehearsal"),
+    [docIds, setDocIds] = useState<string[]>([]),
+    [file, setFile] = useState<File | null>(null),
+    [visibility, setVisibility] = useState("external"),
+    [keepInLibrary, setKeepInLibrary] = useState(false),
+    [uploads, setUploads] = useState<{ id: string; name: string }[]>([]);
+  const task = useTask(page);
+  const uploadAttachment = async () => {
+    const body = new FormData();
+    body.append("file", file!);
+    body.append("project_id", project);
+    body.append("visibility", visibility);
+    body.append("temporary", keepInLibrary ? "false" : "true");
+    const doc = await api("/documents/upload", { method: "POST", body });
+    setUploads((list) => [...list, { id: doc.id, name: doc.name }]);
+    setDocIds((ids) => [...ids, doc.id]);
+    setFile(null);
+    return doc;
+  };
+  useEffect(() => {
+    if (!workflow) return;
+    const selected = (page.data.workflows || []).find(
+      (item: any) => item.id === workflow,
+    );
+    if (!selected) return;
+    setPrompt(selected.source_prompt || "");
+    setMode(
+      selected.preferred_mode || page.data.system?.default_mode || "rehearsal",
+    );
+  }, [workflow]);
+  return (
+    <div className="workflow-run-launcher">
+      <div className="form-grid">
+        <Field label="研究流程">
+          <select
+            aria-label="复用研究流程"
+            value={workflow}
+            onChange={(event) => setWorkflow(event.target.value)}
+          >
+            <option value="">选择已发布流程</option>
+            {(page.data.workflows || []).map((item: any) => (
+              <option
+                key={item.id}
+                value={item.id}
+                disabled={item.status !== "published"}
+              >
+                {item.name} · {item.status === "published" ? "已发布" : "草稿"}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="研究项目">
+          <select
+            value={project}
+            onChange={(event) => {
+              setProject(event.target.value);
+              setDocIds([]);
+            }}
+          >
+            <option value="">选择项目</option>
+            {(page.data.projects || []).map((item: any) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </div>
+      <Field label="研究需求">
+        <textarea
+          rows={4}
+          value={prompt}
+          onChange={(event) => setPrompt(event.target.value)}
+          placeholder="明确研究对象、需要回答的问题和报告要求"
+        />
+      </Field>
+      <Field label="执行模式">
+        <select value={mode} onChange={(event) => setMode(event.target.value)}>
+          <option value="rehearsal">
+            本地演练 · 真实本地检索 + 确定性报告
+          </option>
+          <option value="live">真实模型 · DeepSeek（受预算限制）</option>
+        </select>
+      </Field>
+      <details className="doc-selection">
+        <summary>指定参考资料（未选时由流程检索当前项目资料）</summary>
+        <div className="checkbox-grid">
+          {(page.data.documents || [])
+            .filter((document: any) => document.project_id === project)
+            .map((document: any) => (
+              <label key={document.id} className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={docIds.includes(document.id)}
+                  onChange={(event) =>
+                    setDocIds(
+                      event.target.checked
+                        ? [...docIds, document.id]
+                        : docIds.filter((id) => id !== document.id),
+                    )
+                  }
+                />
+                {document.name}
+                {document.visibility === "local" && <small>本地限定</small>}
+              </label>
+            ))}
+        </div>
+      </details>
+      <Field
+        label="上传参考资料"
+        hint="上传后自动加入本次任务的指定资料，由文档解析节点处理后交给下游分析。仅限本地的资料不会发送给外部模型。"
+      >
+        <div className="upload-inline">
+          <input
+            type="file"
+            aria-label="选择要上传的资料"
+            accept=".txt,.md,.csv,.pdf,.docx,.png,.jpg,.jpeg,.webp"
+            onChange={(event) => setFile(event.target.files?.[0] || null)}
+          />
+          <select
+            aria-label="资料使用范围"
+            value={visibility}
+            onChange={(event) => setVisibility(event.target.value)}
+          >
+            <option value="external">允许外部模型使用</option>
+            <option value="local">仅限本地检索</option>
+          </select>
+          <ActionButton
+            className="button small"
+            disabled={!file || !project}
+            onClick={() =>
+              task(async () => {
+                await uploadAttachment();
+              }, "资料已上传并附加到本次任务")
+            }
+          >
+            上传并附加
+          </ActionButton>
+        </div>
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={keepInLibrary}
+            onChange={(event) => setKeepInLibrary(event.target.checked)}
+          />
+          保存到项目资料库（不勾选则仅本次任务使用，不进入资料库检索）
+        </label>
+        {uploads.length > 0 && (
+          <div className="uploaded-chips">
+            {uploads.map((upload) => (
+              <span className="uploaded-chip" key={upload.id}>
+                {upload.name}
+                <button
+                  type="button"
+                  aria-label={`移除 ${upload.name}`}
+                  onClick={() => {
+                    setUploads((list) =>
+                      list.filter((item) => item.id !== upload.id),
+                    );
+                    setDocIds((ids) => ids.filter((id) => id !== upload.id));
+                  }}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      </Field>
+      <InlineMessage>
+        {mode === "live"
+          ? `实际调用将计入统一预算。当前预算余量 ¥ ${Number(page.data.budget?.remaining_cny || 0).toFixed(2)}。本地限定资料不会外发。`
+          : "演练不调用模型、不产生 API 费用；其结论仅用于验证流程，将在运行和报告中明确标识。"}
+      </InlineMessage>
+      <div className="task-launch-actions">
+        <ActionButton
+          className="button primary"
+          disabled={!page.canEdit || !workflow || !project || !prompt.trim()}
+          onClick={async () => {
+            const run = await task(async () => {
+              let ids = docIds;
+              if (file) {
+                const document = await uploadAttachment();
+                ids = [...ids, document.id];
+              }
+              return post("/runs", {
+                workflow_id: workflow,
+                project_id: project,
+                prompt,
+                mode,
+                document_ids: ids.length ? ids : undefined,
+              });
+            }, "研究任务已提交");
+            if (run) onStarted(run);
+          }}
+        >
+          <Play size={15} />
+          开始运行
+        </ActionButton>
+      </div>
+    </div>
   );
 }
 function normalizeProgress(value: any) {

@@ -58,6 +58,7 @@ import {
   ReportsPage,
   EvaluationsPage,
   SystemPage,
+  WorkflowRunLauncher,
 } from "./ExecutionPages";
 const navigation: { id: PageId; label: string; icon: any; group: string }[] = [
   { id: "overview", label: "工作台", icon: LayoutDashboard, group: "研究空间" },
@@ -294,18 +295,6 @@ function Workspace() {
             <strong>{navigation.find((x) => x.id === page)?.label}</strong>
           </div>
           <div className="topbar-right">
-            <select
-              className="global-project-select"
-              aria-label="当前研究项目"
-              value={activeProject}
-              onChange={(e) => setActiveProject(e.target.value)}
-            >
-              {(data.projects || []).map((x: any) => (
-                <option key={x.id} value={x.id}>
-                  {x.name}
-                </option>
-              ))}
-            </select>
             <span className="local-tag">
               <span className="status-dot" />
               服务就绪
@@ -367,7 +356,7 @@ function Workspace() {
           notify={notify}
           onRun={(id) => {
             setWorkflow(null);
-            go("runs", `workflow:${id}`);
+            go("overview", `workflow:${id}`);
           }}
         />
       )}
@@ -625,10 +614,14 @@ function Overview({
   canEdit,
   go,
   editWorkflow,
+  selectedId,
 }: PageProps) {
   const [project, setProject] = useProject();
   const [prompt, setPrompt] = useState(""),
     [mode, setMode] = useState(data.system?.default_mode || "rehearsal"),
+    [launchMode, setLaunchMode] = useState<"new" | "existing">(
+      selectedId?.startsWith("workflow:") ? "existing" : "new",
+    ),
     [job, setJob] = useState<RecordData | null>(null);
   const runs = data.runs || [],
     active = runs.filter((r: any) => ["running", "queued"].includes(r.status)),
@@ -702,60 +695,104 @@ function Overview({
             <Sparkles size={21} />
           </div>
           <div>
-            <h2>创建研究任务</h2>
-            <p>
-              描述情报需求与交付目标，为你规划可编辑的检索、分析和报告流程。
-            </p>
+            <h2>发起研究任务</h2>
+            <p>创建新的研究流程，或复用已发布流程直接执行。</p>
           </div>
-          <span className="prompt-number">自然语言编排</span>
+          <span className="prompt-number">两种发起方式</span>
         </div>
-        <textarea
-          aria-label="研究任务描述"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="例如：对比民用航空复合材料的技术路线、适航认证进展与产业应用，输出附带来源的专题情报简报…"
-          rows={3}
-        />
-        <div className="prompt-tools">
-          <div className="prompt-options">
-            <select
-              aria-label="研究项目"
-              value={project}
-              onChange={(e) => setProject(e.target.value)}
-            >
-              <option value="">选择研究项目</option>
-              {(data.projects || []).map((p: any) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="执行模式"
-              value={mode}
-              onChange={(e) => setMode(e.target.value)}
-            >
-              <option value="rehearsal">本地演练</option>
-              <option value="live">真实模型 · 计费</option>
-            </select>
-          </div>
-          <ActionButton
-            className="button primary"
-            disabled={!canEdit || !project || job?.status === "running"}
-            onClick={create}
+        <div className="launch-tabs" role="tablist" aria-label="发起方式">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={launchMode === "new"}
+            className={launchMode === "new" ? "active" : ""}
+            onClick={() => setLaunchMode("new")}
           >
-            生成研究流程
-            <ArrowRight size={17} />
-          </ActionButton>
+            新建研究流程
+            <small>按需求生成可编辑模板</small>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={launchMode === "existing"}
+            className={launchMode === "existing" ? "active" : ""}
+            onClick={() => setLaunchMode("existing")}
+          >
+            复用现有流程
+            <small>选择已发布模板并运行</small>
+          </button>
         </div>
-        <div className="prompt-disclaimer">
-          <ModeBadge mode={mode} />
-          <span>
-            {mode === "rehearsal"
-              ? "使用本地规则规划，检索真实本地资料；不调用外部模型。"
-              : "使用 DeepSeek，通过统一预算网关调用；仅外发允许联网的资料。"}
-          </span>
-        </div>
+        {launchMode === "new" ? (
+          <>
+            <textarea
+              aria-label="研究任务描述"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="例如：对比民用航空复合材料的技术路线、适航认证进展与产业应用，输出附带来源的专题情报简报…"
+              rows={3}
+            />
+            <div className="prompt-tools">
+              <div className="prompt-options">
+                <select
+                  aria-label="研究项目"
+                  value={project}
+                  onChange={(e) => setProject(e.target.value)}
+                >
+                  <option value="">选择研究项目</option>
+                  {(data.projects || []).map((p: any) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label="执行模式"
+                  value={mode}
+                  onChange={(e) => setMode(e.target.value)}
+                >
+                  <option value="rehearsal">本地演练</option>
+                  <option value="live">真实模型 · 计费</option>
+                </select>
+              </div>
+              <ActionButton
+                className="button primary"
+                disabled={!canEdit || !project || job?.status === "running"}
+                onClick={create}
+              >
+                生成并编辑流程
+                <ArrowRight size={17} />
+              </ActionButton>
+            </div>
+            <div className="prompt-disclaimer">
+              <ModeBadge mode={mode} />
+              <span>
+                {mode === "rehearsal"
+                  ? "先使用本地规则生成流程模板；检查、发布后可从“复用现有流程”发起运行。"
+                  : "先使用 DeepSeek 生成流程模板；模型请求经过统一预算网关。"}
+              </span>
+            </div>
+          </>
+        ) : (
+          <WorkflowRunLauncher
+            key={selectedId || "workflow-launcher"}
+            page={{
+              data,
+              refresh,
+              notify,
+              canEdit,
+              canReview: false,
+              go,
+              editWorkflow,
+              selectedId,
+            }}
+            initialWorkflowId={
+              selectedId?.startsWith("workflow:")
+                ? selectedId.slice("workflow:".length)
+                : undefined
+            }
+            onStarted={(run) => go("runs", run.id)}
+          />
+        )}
       </section>
       <div className="metrics-grid">
         {[

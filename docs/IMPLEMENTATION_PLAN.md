@@ -105,3 +105,9 @@ After client feedback: production identity and tenant isolation, deployment pack
 - 前端工作流编辑器新增“智能体自主决策 / 直接执行固定技能”选择；Skill 下拉按所选 Agent 权限过滤，自主模式明确提示 skill_id/config 只是初始建议。
 - 新增回归：业务 Agent 第一次跳过 Skill 后自动修复、中文大城市任务拆成 Beijing/Shanghai 并多次调用 airport_lookup、工作流节点只看到已授权 Skill 且记录 Agent→Skill→Tool 轨迹。
 - 验证：后端 145 项测试全部通过（仅 Starlette 上游弃用警告），Ruff 通过；前端生产构建与 20 项测试通过。Agno `Function.from_callable` 冒烟确认所有授权 Skill callable 均生成正确 properties/required schema。
+
+## 研究任务入口整合（2026-09-24）
+- 工作台的首要操作统一为“发起研究任务”，并列提供“新建研究流程”（按需求生成可编辑模板）和“复用现有流程”（选择已发布模板直接运行）两种明确路径；复用路径保留项目、执行模式、指定资料与临时上传能力。
+- 运行中心移除发起入口与创建弹窗，只负责运行列表、执行详情、取消、重试和审核跟踪；流程卡片及流程画布的“运行”操作统一跳转到工作台并预选对应流程。
+- 移除页面顶部不会改变页面数据范围的全局专题下拉框，项目选择保留在真正消费项目上下文的任务、资料等表单中。
+- 验证：前端 `npm test` 20 项全部通过；`npm run build`（TypeScript + Vite 生产构建）通过。

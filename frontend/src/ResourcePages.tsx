@@ -1697,7 +1697,7 @@ export function WorkflowsPage(p: PageProps) {
                       disabled={!p.canEdit}
                       onClick={() =>
                         w.status === "published"
-                          ? p.go("runs", `workflow:${w.id}`)
+                          ? p.go("overview", `workflow:${w.id}`)
                           : p.editWorkflow(w)
                       }
                     >

@@ -1072,6 +1072,50 @@ tbody tr:hover {
   resize: vertical;
   color: var(--text-secondary);
 }
+.launch-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 20px;
+}
+.launch-tabs button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  color: var(--text-secondary);
+  text-align: left;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.launch-tabs button:hover {
+  border-color: var(--border-strong);
+}
+.launch-tabs button.active {
+  color: var(--text-primary);
+  background: var(--surface-3);
+  border-color: var(--accent-border);
+}
+.launch-tabs small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.workflow-run-launcher {
+  display: grid;
+  gap: 14px;
+  padding-top: 18px;
+}
+.workflow-run-launcher .field {
+  margin: 0;
+}
+.task-launch-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 2px;
+}
 .prompt-panel > textarea::placeholder {
   color: var(--text-muted);
 }
@@ -3475,18 +3519,9 @@ tbody tr:hover {
   }
 }
 
-.global-project-select {
-  max-width: 225px;
-  height: 31px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  border-color: var(--border) !important;
-  background: var(--surface-1) !important;
-}
 @media (max-width: 760px) {
-  .global-project-select {
-    max-width: 150px;
-    font-size: 13px;
+  .launch-tabs {
+    grid-template-columns: 1fr;
   }
   .local-tag {
     display: none;
@@ -3947,11 +3982,6 @@ td {
 }
 .topbar-right {
   gap: 18px;
-}
-.global-project-select {
-  max-width: 260px;
-  height: 42px;
-  font-size: 15px;
 }
 .local-tag {
   font-size: 13px;
@@ -4640,10 +4670,6 @@ td {
   .topbar-right {
     gap: 12px;
   }
-  .global-project-select {
-    max-width: 205px;
-    font-size: 15px;
-  }
   .breadcrumb {
     font-size: 14px;
     gap: 6px;
@@ -4859,9 +4885,6 @@ td {
   }
 }
 @media (max-width: 480px) {
-  .global-project-select {
-    max-width: 150px;
-  }
   .topbar-right {
     gap: 7px;
   }
@@ -5362,11 +5385,6 @@ details > summary:hover {
 }
 .notification-button > span {
   background: var(--accent);
-}
-.global-project-select {
-  border-color: var(--border) !important;
-  background: var(--surface-input) !important;
-  color: var(--text-secondary);
 }
 .app-footer {
   border-top-color: var(--border-subtle);
