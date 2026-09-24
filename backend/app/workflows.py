@@ -38,19 +38,27 @@ def validate_workflow(workflow: dict) -> dict:
             errors.append(f"节点 {node['id']} 配置必须为对象")
             continue
         skill_id = data.get("skill_id")
-        if skill_id and (
-            data["kind"] not in {"parse", "retrieve"}
-            or skill_id
-            not in {
-                "knowledge_search",
-                "graph_query",
-                "document_parse",
-                "ocr",
-                "semantic_search",
-                "multimodal",
-            }
-        ):
-            errors.append(f"节点 {node['id']} 的技能绑定无效，技能仅可绑定解析/检索节点")
+        execution_strategy = data.get("execution_strategy")
+        if execution_strategy not in {None, "direct_skill", "agent"}:
+            errors.append(f"节点 {node['id']} 的 execution_strategy 无效")
+        if execution_strategy == "agent" and data["kind"] != "retrieve":
+            errors.append(f"节点 {node['id']} 当前仅检索节点支持业务智能体执行")
+        if execution_strategy == "agent" and not data.get("agent_id"):
+            errors.append(f"节点 {node['id']} 使用智能体执行但未绑定智能体")
+        if skill_id:
+            invalid = data["kind"] not in {"parse", "retrieve"}
+            if not invalid:
+                from .capabilities.facade import capability_runtime
+
+                registry = capability_runtime().skills
+                if skill_id not in registry:
+                    invalid = True
+                else:
+                    manifest = registry.get(skill_id)
+                    if manifest.node_kinds and data["kind"] not in manifest.node_kinds:
+                        invalid = True
+            if invalid:
+                errors.append(f"节点 {node['id']} 的技能绑定无效，技能仅可绑定解析/检索节点")
         for key in ("min_evidence", "limit", "count", "batch_size"):
             if key in config and (
                 not isinstance(config[key], int)
@@ -65,8 +73,14 @@ def validate_workflow(workflow: dict) -> dict:
             or any(not isinstance(v, str) for v in config["items"])
         ):
             errors.append(f"节点 {node['id']} 的 items 必须为 1 至 10 个字符串")
-        if data.get("agent_id") and not store.get("agents", data["agent_id"]):
-            errors.append(f"节点 {node['id']} 引用了不存在的智能体")
+        if data.get("agent_id"):
+            agent = store.get("agents", data["agent_id"])
+            if not agent:
+                errors.append(f"节点 {node['id']} 引用了不存在的智能体")
+            elif skill_id and skill_id not in agent.get("skill_ids", []):
+                errors.append(
+                    f"节点 {node['id']} 的技能 {skill_id} 未授权给智能体 {agent.get('name', agent['id'])}"
+                )
     seen_edges = set()
     for edge in edges:
         if (
@@ -161,7 +175,16 @@ def save_workflow(data: dict, workflow_id: str | None = None) -> dict:
     if previous:
         snapshot(previous)
     result = deepcopy(previous or {})
-    for key in ("name", "description", "category", "project_id", "nodes", "edges"):
+    for key in (
+        "name",
+        "description",
+        "category",
+        "project_id",
+        "nodes",
+        "edges",
+        "source_prompt",
+        "preferred_mode",
+    ):
         if key in data:
             result[key] = deepcopy(data[key])
     result.update(

@@ -11,7 +11,20 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Resp
 from fastapi.responses import FileResponse, StreamingResponse
 
 from . import engine, reports, workflows
-from .auth import get_current_user, login, logout, register, require_roles
+from .auth import (
+    create_user,
+    get_current_user,
+    list_users,
+    login,
+    logout,
+    register,
+    require_roles,
+    update_user,
+)
+from .capabilities.contracts import ExecutionContext
+from .capabilities.errors import CapabilityError
+from .capabilities.facade import capability_runtime
+from .capabilities.status import skill_summaries
 from .config import get_settings, save_settings
 from .knowledge import knowledge
 from .model_gateway import model_gateway
@@ -84,15 +97,83 @@ async def auth_logout(request: Request, response: Response):
     return logout(request, response)
 
 
+@router.get("/users")
+def list_users_route(user: dict = admin):
+    return list_users()
+
+
+@router.post("/users", status_code=201)
+def create_user_route(body: dict, user: dict = admin):
+    return create_user(body, user)
+
+
+@router.put("/users/{item_id}")
+def update_user_route(item_id: str, body: dict, user: dict = admin):
+    return update_user(item_id, body, user)
+
+
 def system_info():
     status = model_gateway.config_status()
     status.update(engine.runtime_status())
     status["runtime_mode"] = "local-connected"
     status["default_mode"] = get_settings()["default_mode"]
-    status["skills"] = knowledge.skills()
+    status["skills"] = skill_summaries(
+        capability_runtime().skills,
+        knowledge,
+        tools=capability_runtime().tools,
+        server_health=capability_runtime().server_health,
+    )
     embedding = getattr(knowledge, "embedding_status", None)
     status["embedding_status"] = embedding() if callable(embedding) else embedding or "按需加载本地嵌入模型"
     return status
+
+
+def tool_summaries() -> list[dict]:
+    return [
+        {
+            "id": tool.id,
+            "name": tool.name,
+            "version": tool.version,
+            "provider": tool.provider,
+            "read_only": tool.read_only,
+            "network": tool.network,
+            "data_egress": tool.data_egress,
+            "timeout_seconds": tool.timeout_seconds,
+            "requires_confirmation": tool.requires_confirmation,
+            "input_schema": tool.input_schema,
+        }
+        for tool in capability_runtime().tools.list()
+    ]
+
+
+def mcp_server_summaries() -> list[dict]:
+    runtime = capability_runtime()
+    return [
+        {
+            "id": server.id,
+            "transport": server.transport,
+            "enabled": server.enabled,
+            "status": runtime.server_health.get(server.id, "unknown" if server.enabled else "disabled"),
+            "tool_allowlist": server.tool_allowlist,
+            "roots": server.roots,
+            "startup_timeout_seconds": server.startup_timeout_seconds,
+            "call_timeout_seconds": server.call_timeout_seconds,
+        }
+        for server in runtime.mcp_servers.list()
+    ]
+
+
+def capability_stats(skills: list[dict], tools: list[dict], servers: list[dict]) -> dict:
+    enabled_servers = {server["id"] for server in servers if server.get("enabled")}
+    healthy_tools = sum(
+        1 for tool in tools if tool["provider"] != "mcp" or tool["id"].split(".")[1] in enabled_servers
+    )
+    return {
+        "skills": len(skills),
+        "tools": len(tools),
+        "mcp_servers": len(servers),
+        "healthy_tools": healthy_tools,
+    }
 
 
 @router.get("/bootstrap")
@@ -118,8 +199,16 @@ def bootstrap(user: dict = read):
         }
         for r in store.list("runs")[:60]
     ]
-    result["documents"] = [safe_document(d) for d in store.list("documents")]
-    result["skills"] = knowledge.skills()
+    result["documents"] = [safe_document(d) for d in store.list("documents") if not d.get("temporary")]
+    result["skills"] = skill_summaries(
+        capability_runtime().skills,
+        knowledge,
+        tools=capability_runtime().tools,
+        server_health=capability_runtime().server_health,
+    )
+    result["tools"] = tool_summaries()
+    result["mcp_servers"] = mcp_server_summaries()
+    result["capability_stats"] = capability_stats(result["skills"], result["tools"], result["mcp_servers"])
     result["stats"] = {
         "projects": len(result["projects"]),
         "agents": len(result["agents"]),
@@ -201,9 +290,9 @@ def agent_data(body: dict, previous=None):
     )
     if not str(item.get("name", "")).strip():
         raise HTTPException(400, "智能体名称不能为空")
-    if item.get("role", "writer") not in {"planner", "retriever", "writer", "coordinator"}:
+    if item.get("role", "writer") not in {"planner", "retriever", "writer", "coordinator", "parser"}:
         raise HTTPException(400, "智能体角色无效")
-    valid_skills = {s["id"] for s in knowledge.skills()}
+    valid_skills = set(capability_runtime().skills.ids())
     if not isinstance(item.get("skill_ids", []), list) or any(
         s not in valid_skills for s in item.get("skill_ids", [])
     ):
@@ -259,35 +348,142 @@ async def test_agent(item_id: str, body: dict, user: dict = edit):
             "mode": mode,
         }
     elif mode == "live":
-        result = await model_gateway.complete(
-            message, system=str(agent.get("instructions", ""))[:10000], purpose="agent_test", max_tokens=1200
-        )
-        result["mode"] = mode
+        from .capabilities.runtime.agent import run_agent_test
+
+        try:
+            result = await run_agent_test(agent, message, "live")
+        except CapabilityError as error:
+            raise HTTPException(400, str(error)) from error
     else:
         raise HTTPException(400, "模式无效")
     audit("agent.test", item_id, user, {"mode": mode})
     return result
 
 
+def _skill_test_context(body: dict, mode: str, user: dict) -> ExecutionContext:
+    document_ids = body.get("document_ids") or ([body["document_id"]] if body.get("document_id") else [])
+    visibility = (
+        "local"
+        if any((store.get("documents", doc_id) or {}).get("visibility") == "local" for doc_id in document_ids)
+        else "external"
+    )
+    return ExecutionContext(
+        mode="live" if mode == "live" else "drill",
+        network_policy="allow",
+        user_id=user["username"],
+        project_id=body.get("project_id"),
+        document_ids=list(document_ids),
+        data_visibility=visibility,
+    )
+
+
 @router.get("/skills")
 def skills(user: dict = read):
-    return knowledge.skills()
+    return skill_summaries(
+        capability_runtime().skills,
+        knowledge,
+        tools=capability_runtime().tools,
+        server_health=capability_runtime().server_health,
+    )
 
 
 @router.post("/skills/{item_id}/test")
 async def test_skill(item_id: str, body: dict, user: dict = edit):
-    body.setdefault("mode", get_settings()["default_mode"])
-    result = await knowledge.execute(item_id, body)
-    audit("skill.test", item_id, user, {"mode": body.get("mode", "rehearsal")})
-    return result
+    runtime = capability_runtime()
+    if item_id not in runtime.skills:
+        raise HTTPException(404, "技能不存在")
+    mode = body.get("mode", get_settings()["default_mode"])
+    mode = "live" if mode == "real" else mode
+    if mode not in {"live", "rehearsal"}:
+        raise HTTPException(400, "模式无效")
+    context = _skill_test_context(body, mode, user)
+    result = await runtime.skill_runtime.execute(item_id, dict(body), context)
+    audit("skill.test", item_id, user, {"mode": mode, "status": result.status})
+    response = {key: value for key, value in result.data.items() if key != "steps"}
+    response.update(
+        skill_id=item_id,
+        status=result.status,
+        evidence=result.evidence,
+        text=result.text,
+        trace=result.trace.model_dump(),
+        error=result.error.model_dump() if result.error else None,
+    )
+    return response
+
+
+@router.get("/tools")
+def list_tools(user: dict = read):
+    return tool_summaries()
+
+
+@router.post("/tools/{item_id}/test")
+async def test_tool(item_id: str, body: dict, user: dict = edit):
+    runtime = capability_runtime()
+    if item_id not in runtime.tools:
+        raise HTTPException(404, "工具不存在")
+    mode = body.get("mode", get_settings()["default_mode"])
+    mode = "live" if mode == "real" else mode
+    if mode not in {"live", "rehearsal"}:
+        raise HTTPException(400, "模式无效")
+    arguments = (
+        body.get("input")
+        if isinstance(body.get("input"), dict)
+        else {key: value for key, value in body.items() if key not in {"mode", "input"}}
+    )
+    context = _skill_test_context(body, mode, user)
+    result = await runtime.tool_runtime.invoke(item_id, arguments, context)
+    audit("tool.test", item_id, user, {"mode": mode, "status": result.status})
+    return result.model_dump()
+
+
+@router.get("/mcp-servers")
+def list_mcp_servers(user: dict = read):
+    return mcp_server_summaries()
+
+
+@router.get("/mcp-servers/{item_id}/health")
+async def mcp_server_health(item_id: str, user: dict = read):
+    runtime = capability_runtime()
+    if item_id not in runtime.mcp_servers:
+        raise HTTPException(404, "MCP 服务不存在")
+    health = await runtime.mcp_provider.health(item_id)
+    runtime.server_health[item_id] = health["status"]
+    return health
+
+
+@router.post("/mcp-servers/{item_id}/refresh")
+async def refresh_mcp_server(item_id: str, user: dict = admin):
+    runtime = capability_runtime()
+    if item_id not in runtime.mcp_servers:
+        raise HTTPException(404, "MCP 服务不存在")
+    try:
+        discovered = await runtime.mcp_provider.discover(item_id)
+        runtime.server_health[item_id] = "ready"
+    except CapabilityError as error:
+        runtime.server_health[item_id] = "unavailable"
+        raise HTTPException(503, f"{error.code}: {error}") from error
+    definitions = runtime.mcp_provider.to_tool_definitions(item_id, discovered)
+    for definition in definitions:
+        runtime.tools.upsert(definition)
+    audit("mcp.refresh", item_id, user, {"tools": len(definitions)})
+    return {"server_id": item_id, "discovered": discovered, "registered": [d.id for d in definitions]}
+
+
+@router.get("/capability-events")
+def capability_events(run_id: str | None = None, user: dict = read):
+    events = capability_runtime().audit.events()
+    if run_id:
+        events = [event for event in events if event.get("run_id") == run_id]
+    return events[-200:]
 
 
 @router.get("/documents")
-def documents(project_id: str | None = None, user: dict = read):
+def documents(project_id: str | None = None, include_temporary: bool = False, user: dict = read):
     return [
         safe_document(d)
         for d in store.list("documents")
-        if not project_id or d.get("project_id") == project_id
+        if (not project_id or d.get("project_id") == project_id)
+        and (include_temporary or not d.get("temporary"))
     ]
 
 
@@ -296,18 +492,26 @@ async def upload_document(
     file: Annotated[UploadFile, File()],
     project_id: Annotated[str, Form()],
     visibility: Annotated[str, Form()] = "local",
+    temporary: Annotated[str, Form()] = "false",
     user: dict = edit,
 ):
     required("projects", project_id)
     if visibility not in {"external", "local"}:
         raise HTTPException(400, "资料可见性必须为 external 或 local")
+    if temporary not in {"true", "false"}:
+        raise HTTPException(400, "temporary 必须为 true 或 false")
     content = await file.read(20 * 1024 * 1024 + 1)
     if len(content) > 20 * 1024 * 1024:
         raise HTTPException(413, "单个文件不能超过 20 MB")
     item = await asyncio.to_thread(
-        knowledge.ingest, file.filename or "upload.txt", content, project_id, visibility
+        knowledge.ingest, file.filename or "upload.txt", content, project_id, visibility, temporary == "true"
     )
-    audit("document.upload", item["id"], user, {"visibility": visibility, "size": len(content)})
+    audit(
+        "document.upload",
+        item["id"],
+        user,
+        {"visibility": visibility, "size": len(content), "temporary": temporary == "true"},
+    )
     return safe_document(item)
 
 
@@ -407,11 +611,27 @@ def restore_workflow(item_id: str, body: dict, user: dict = edit):
     return item
 
 
-@router.post("/plan", status_code=201)
+@router.delete("/workflows/{item_id}")
+def delete_workflow(item_id: str, user: dict = edit):
+    required("workflows", item_id)
+    for version in store.list("workflow_versions"):
+        if version.get("workflow_id") == item_id:
+            store.delete("workflow_versions", version["id"])
+    store.delete("workflows", item_id)
+    audit("workflow.delete", item_id, user)
+    return {"deleted": True}
+
+
+@router.post("/plan", status_code=202)
 async def plan(body: dict, user: dict = edit):
-    item = await engine.plan(body)
-    audit("workflow.plan", item["id"], user, {"mode": body.get("mode", "rehearsal")})
-    return item
+    job = engine.start_plan(body, user)
+    audit("workflow.plan", job["id"], user, {"mode": body.get("mode", "rehearsal")})
+    return job
+
+
+@router.get("/planning/{item_id}")
+def planning_job(item_id: str, user: dict = read):
+    return required("planning_jobs", item_id)
 
 
 @router.post("/runs", status_code=201)

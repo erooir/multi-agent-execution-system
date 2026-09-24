@@ -7,6 +7,7 @@ import io
 import re
 import threading
 from copy import deepcopy
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from .storage import store
@@ -76,6 +77,26 @@ def _citations(evidence: list[dict]) -> list[dict]:
     for item in evidence:
         chunk_id = item.get("id")
         if not chunk_id or chunk_id in seen:
+            continue
+        if item.get("origin") == "external":
+            source_uri = str(item.get("source_uri", ""))
+            parsed = urlparse(source_uri)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                raise ValueError("外部引用缺少有效来源地址，拒绝保存伪造证据")
+            seen.add(chunk_id)
+            citations.append(
+                {
+                    "id": chunk_id,
+                    "origin": "external",
+                    "source_uri": source_uri,
+                    "source_title": item.get("source_title") or "外部公开来源",
+                    "document_name": item.get("source_title") or "外部公开来源",
+                    "location": item.get("location", ""),
+                    "text": item.get("text", ""),
+                    "retrieved_at": item.get("retrieved_at", ""),
+                    "visibility": "external",
+                }
+            )
             continue
         chunk = store.get("chunks", chunk_id)
         if not chunk or chunk.get("document_id") != item.get("document_id"):
@@ -225,7 +246,9 @@ def _with_sources(report: dict) -> str:
     if report.get("citations"):
         content += "\n\n## 引用资料索引\n"
         for index, citation in enumerate(report["citations"], 1):
-            content += f"\n{index}. [{citation['id']}] {citation['document_name']} — {citation['location']}\n"
+            title = citation.get("document_name") or citation.get("source_title") or "未知来源"
+            uri = f" — {citation['source_uri']}" if citation.get("source_uri") else ""
+            content += f"\n{index}. [{citation['id']}] {title} — {citation.get('location', '')}{uri}\n"
     return content + "\n"
 
 

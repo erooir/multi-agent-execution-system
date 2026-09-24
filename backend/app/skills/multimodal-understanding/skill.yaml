@@ -1,0 +1,34 @@
+id: multimodal
+version: 2.0.0
+name: 多模态理解
+description: 通过预算网关分析获准外发的图片，需要支持视觉的模型
+execution_mode: recipe
+allowed_tools:
+  - model.vision.analyze
+node_kinds: [parse, retrieve]
+input_schema:
+  type: object
+  properties:
+    document_id: {type: string}
+    document_ids: {type: array, items: {type: string}}
+    query: {type: string}
+    mode: {type: string}
+    project_id: {type: string}
+output_schema:
+  type: object
+  properties:
+    text: {type: string}
+    usage: {type: object}
+    document_id: {type: string}
+  required: [text, document_id]
+evidence_required: false
+requires_documents: true
+side_effect: external_model_call
+recipe:
+  - tool: model.vision.analyze
+    args:
+      document_id: "{input.document_id}"
+      document_ids: "{input.document_ids}"
+      query: "{input.query}"
+      mode: "{input.mode}"
+      project_id: "{input.project_id}"

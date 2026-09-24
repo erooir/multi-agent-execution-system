@@ -1,0 +1,68 @@
+tools:
+  - id: local.knowledge.keyword_search
+    version: 1.0.0
+    name: 本地关键词检索
+    provider: local
+    entrypoint: backend.app.capabilities.tools.knowledge:keyword_search
+    input_schema:
+      type: object
+      properties:
+        query: {type: string}
+        project_id: {type: string}
+        document_ids: {type: array, items: {type: string}}
+        limit: {type: integer}
+    output_schema:
+      type: object
+      properties:
+        evidence: {type: array}
+        count: {type: integer}
+        method: {type: string}
+      required: [evidence, count, method]
+    read_only: true
+    network: none
+    data_egress: none
+    timeout_seconds: 15
+    requires_confirmation: false
+
+  - id: local.knowledge.semantic_search
+    version: 1.0.0
+    name: 本地语义检索
+    provider: local
+    entrypoint: backend.app.capabilities.tools.knowledge:semantic_search
+    input_schema:
+      type: object
+      properties:
+        query: {type: string}
+        project_id: {type: string}
+        document_ids: {type: array, items: {type: string}}
+        limit: {type: integer}
+    output_schema:
+      type: object
+      properties:
+        evidence: {type: array}
+        count: {type: integer}
+        method: {type: string}
+      required: [evidence, count, method]
+    read_only: true
+    network: none
+    data_egress: none
+    timeout_seconds: 120
+    requires_confirmation: false
+
+  - id: local.embedding.prepare
+    version: 1.0.0
+    name: 本地 embedding 模型准备
+    provider: local
+    entrypoint: backend.app.capabilities.tools.knowledge:embedding_prepare
+    input_schema:
+      type: object
+    output_schema:
+      type: object
+      properties:
+        embedding: {type: object}
+      required: [embedding]
+    read_only: true
+    network: none
+    data_egress: none
+    timeout_seconds: 600
+    requires_confirmation: false

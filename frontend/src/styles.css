@@ -1072,6 +1072,50 @@ tbody tr:hover {
   resize: vertical;
   color: var(--text-secondary);
 }
+.launch-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 20px;
+}
+.launch-tabs button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  color: var(--text-secondary);
+  text-align: left;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.launch-tabs button:hover {
+  border-color: var(--border-strong);
+}
+.launch-tabs button.active {
+  color: var(--text-primary);
+  background: var(--surface-3);
+  border-color: var(--accent-border);
+}
+.launch-tabs small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.workflow-run-launcher {
+  display: grid;
+  gap: 14px;
+  padding-top: 18px;
+}
+.workflow-run-launcher .field {
+  margin: 0;
+}
+.task-launch-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 2px;
+}
 .prompt-panel > textarea::placeholder {
   color: var(--text-muted);
 }
@@ -1413,6 +1457,20 @@ tbody tr:hover {
 }
 .modal .doc-selection {
   margin: 18px 0 22px;
+}
+.upload-inline {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.upload-inline input[type="file"] {
+  flex: 1;
+  min-width: 220px;
+  font-size: 13px;
+}
+.upload-inline select {
+  min-width: 170px;
 }
 .evidence-results {
   display: grid;
@@ -1808,6 +1866,36 @@ tbody tr:hover {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 23px;
+  align-items: start;
+}
+.execution-grid > .panel {
+  max-height: calc(100vh - 320px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.uploaded-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.uploaded-chip {
+  align-items: center;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 13px;
+  gap: 6px;
+  padding: 5px 12px;
+}
+.uploaded-chip button {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0;
 }
 .timeline {
   padding: 4px 24px 24px;
@@ -3431,18 +3519,9 @@ tbody tr:hover {
   }
 }
 
-.global-project-select {
-  max-width: 225px;
-  height: 31px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  border-color: var(--border) !important;
-  background: var(--surface-1) !important;
-}
 @media (max-width: 760px) {
-  .global-project-select {
-    max-width: 150px;
-    font-size: 13px;
+  .launch-tabs {
+    grid-template-columns: 1fr;
   }
   .local-tag {
     display: none;
@@ -3903,11 +3982,6 @@ td {
 }
 .topbar-right {
   gap: 18px;
-}
-.global-project-select {
-  max-width: 260px;
-  height: 42px;
-  font-size: 15px;
 }
 .local-tag {
   font-size: 13px;
@@ -4596,10 +4670,6 @@ td {
   .topbar-right {
     gap: 12px;
   }
-  .global-project-select {
-    max-width: 205px;
-    font-size: 15px;
-  }
   .breadcrumb {
     font-size: 14px;
     gap: 6px;
@@ -4815,9 +4885,6 @@ td {
   }
 }
 @media (max-width: 480px) {
-  .global-project-select {
-    max-width: 150px;
-  }
   .topbar-right {
     gap: 7px;
   }
@@ -5318,11 +5385,6 @@ details > summary:hover {
 }
 .notification-button > span {
   background: var(--accent);
-}
-.global-project-select {
-  border-color: var(--border) !important;
-  background: var(--surface-input) !important;
-  color: var(--text-secondary);
 }
 .app-footer {
   border-top-color: var(--border-subtle);
@@ -6313,4 +6375,60 @@ a:focus-visible {
 }
 .handle-label {
   right: -46px;
+}
+
+.skill-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 14px 0 4px;
+}
+.checkbox-label small.muted {
+  display: block;
+  margin-left: 0;
+  font-size: 12px;
+}
+.trace-view {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 14px 0;
+}
+.node-trace {
+  margin: 6px 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-1);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.trace-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+.trace-row code {
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-primary, inherit);
+}
+.trace-row.error {
+  color: var(--text-secondary);
+}
+.trace-layer {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  text-transform: uppercase;
 }

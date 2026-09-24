@@ -1,0 +1,5 @@
+id,ident,type,name,latitude_deg,longitude_deg,elevation_ft,continent,iso_country,iso_region,municipality,scheduled_service,icao_code,iata_code,gps_code,local_code,home_link,wikipedia_link,keywords
+1,"ZBAA","large_airport","Beijing Capital International Airport",40.077349,116.596702,116,"AS","CN","CN-11","Beijing","yes","ZBAA","PEK","ZBAA",,,,
+2,"ZBAD","large_airport","Beijing Daxing International Airport",39.5098,116.4105,150,"AS","CN","CN-11","Beijing","yes","ZBAD","PKX","ZBAD",,,,
+3,"ZSPD","large_airport","Shanghai Pudong International Airport",31.1434,121.8083,13,"AS","CN","CN-31","Shanghai","yes","ZSPD","PVG","ZSPD",,,,
+4,"OLD0","closed","Abandoned Strip",40.5,116.5,,"AS","CN","CN-11","Beijing","no",,,,,,,

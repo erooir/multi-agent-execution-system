@@ -1,0 +1,26 @@
+id: graph_query
+version: 2.0.0
+name: 图谱查询
+description: 查询本地 SQLite 中登记的实体和关系
+execution_mode: recipe
+allowed_tools:
+  - local.graph.query
+node_kinds: [retrieve, analyze]
+input_schema:
+  type: object
+  properties:
+    query: {type: string}
+    project_id: {type: string}
+output_schema:
+  type: object
+  properties:
+    nodes: {type: array}
+    edges: {type: array}
+  required: [nodes, edges]
+evidence_required: false
+side_effect: none
+recipe:
+  - tool: local.graph.query
+    args:
+      query: "{input.query}"
+      project_id: "{input.project_id}"

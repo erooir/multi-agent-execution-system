@@ -1,0 +1,28 @@
+id: document_parse
+version: 2.0.0
+name: 文档解析
+description: 解析 PDF、DOCX、TXT、Markdown、CSV、JSON 为可定位片段
+execution_mode: recipe
+allowed_tools:
+  - local.document.read_chunks
+node_kinds: [parse]
+input_schema:
+  type: object
+  properties:
+    document_ids: {type: array, items: {type: string}}
+    project_id: {type: string}
+  required: [document_ids]
+output_schema:
+  type: object
+  properties:
+    evidence: {type: array}
+    count: {type: integer}
+  required: [evidence, count]
+evidence_required: true
+requires_documents: true
+side_effect: none
+recipe:
+  - tool: local.document.read_chunks
+    args:
+      document_ids: "{input.document_ids}"
+      project_id: "{input.project_id}"

@@ -45,6 +45,27 @@ def test_ingest_retrieval_isolation_and_source_locations(local):
     assert not knowledge.search("复合材料")
 
 
+def test_temporary_documents_only_searchable_when_explicitly_selected(local):
+    knowledge, database = local
+    knowledge.ingest("常驻资料.md", "常规关键词：复合材料回收工艺。".encode(), "test-project", "external")
+    temporary = knowledge.ingest(
+        "临时资料.md",
+        "临时关键词：一次性上传的验证记录。".encode(),
+        "test-project",
+        "external",
+        temporary=True,
+    )
+    assert temporary["temporary"] is True
+    hits = knowledge.search("临时关键词", "test-project")
+    assert not [hit for hit in hits if hit["document_id"] == temporary["id"]]
+    hits = knowledge.search("临时关键词", "test-project", document_ids=[temporary["id"]])
+    assert hits and hits[0]["document_id"] == temporary["id"]
+    regular = knowledge.search("常规关键词", "test-project")
+    assert regular and all(
+        not database.get("documents", hit["document_id"]).get("temporary") for hit in regular
+    )
+
+
 @pytest.mark.parametrize(
     "name", ["../escape.txt", "..\\escape.txt", "C:\\escape.txt", "/tmp/a.txt", "x:y.txt", "x\x00.txt"]
 )
@@ -124,12 +145,28 @@ def test_semantic_ranks_vectors_not_keyword_scores(local, monkeypatch):
 def test_local_image_never_reaches_gateway(local, monkeypatch):
     from PIL import Image
 
-    knowledge = local[0]
+    from backend.app.capabilities import (
+        AuditLog,
+        ExecutionContext,
+        SkillRuntime,
+        ToolRuntime,
+        load_default_registries,
+    )
+
+    knowledge, database = local
     image = io.BytesIO()
     Image.new("RGB", (50, 50), "white").save(image, format="PNG")
     document = knowledge.ingest("本地.png", image.getvalue(), "test-project", "local")
-    with pytest.raises(ValueError, match="禁止发送"):
-        asyncio.run(knowledge.execute("multimodal", {"document_ids": [document["id"]], "mode": "live"}))
+    skills, tools, _ = load_default_registries()
+    runtime = SkillRuntime(skills, ToolRuntime(tools, audit=AuditLog()))
+    context = ExecutionContext(mode="live", network_policy="allow")
+    result = asyncio.run(
+        runtime.execute("multimodal", {"document_ids": [document["id"]], "mode": "live"}, context)
+    )
+    assert result.status == "blocked"
+    assert result.error.code == "data_egress_blocked"
+    assert "禁止发送" in result.error.message
+    assert any(a["action"] == "model.blocked_local_document" for a in database.list("audits"))
 
 
 def test_seed_idempotent_30_runnable_samples_and_graph(local, monkeypatch):
@@ -143,7 +180,8 @@ def test_seed_idempotent_30_runnable_samples_and_graph(local, monkeypatch):
     }
     seeds.seed_all()
     assert before == {kind: len(database.list(kind)) for kind in before}
-    assert before["agents"] == 4 and before["workflows"] == 6 and before["samples"] == 30
+    assert before["agents"] == 5 and before["workflows"] == 6 and before["samples"] == 30
+    assert any(agent["role"] == "parser" for agent in database.list("agents"))
     assert before["documents"] == 10
     for workflow in database.list("workflows"):
         result = workflows.validate_workflow(workflow)
@@ -189,6 +227,29 @@ def test_report_rejects_fabricated_citation(local):
         reports.create_report(
             {"id": "r", "project_id": "test-project"}, "正文", [{"id": "fiction", "document_id": "none"}]
         )
+
+
+def test_report_accepts_controlled_external_citation(local):
+    _, database = local
+    citation = {
+        "id": "ourairports:ZBAA",
+        "origin": "external",
+        "visibility": "external",
+        "source_uri": "https://ourairports.com/airports/ZBAA/",
+        "source_title": "Beijing Capital International Airport",
+        "location": "Beijing, CN",
+        "text": "Beijing Capital International Airport（ZBAA）",
+        "retrieved_at": "OurAirports 快照 2026-01-15",
+    }
+    report = reports.create_report(
+        {"id": "external-run", "project_id": "test-project", "mode": "live"},
+        "机场要素来自受控外部工具 [ourairports:ZBAA]。",
+        [citation],
+    )
+
+    saved = database.get("reports", report["id"])
+    assert saved["citations"][0]["origin"] == "external"
+    assert saved["citations"][0]["source_uri"].startswith("https://ourairports.com/")
 
 
 def test_seed_migration_keeps_history_and_user_edits(local):

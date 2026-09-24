@@ -20,15 +20,51 @@ import {
   Network,
   Play,
   Plus,
+  RefreshCw,
   Search,
+  Server,
   ShieldCheck,
   Sparkles,
   Trash2,
   Upload,
   Workflow,
+  Wrench,
 } from "lucide-react";
-import { api, post, put, remove, time, type RecordData } from "./api";
-import { type PageProps, categoryNames, roleNames } from "./types";
+import {
+  api,
+  post,
+  put,
+  remove,
+  testSkill,
+  testTool,
+  mcpHealth,
+  mcpRefresh,
+  time,
+  type RecordData,
+} from "./api";
+import {
+  type CapabilityErrorInfo,
+  type CapabilityTrace,
+  type PageProps,
+  type SkillSummary,
+  type ToolSummary,
+  categoryNames,
+  roleNames,
+} from "./types";
+import {
+  capabilityErrorText,
+  capabilityStatusText,
+  collectToolInput,
+  egressNames,
+  flattenTrace,
+  mcpHealthText,
+  networkNames,
+  nodeKindNames,
+  providerNames,
+  skillToolSummary,
+  toolHealth,
+  toolInputFields,
+} from "./capabilities";
 import {
   ActionButton,
   Badge,
@@ -694,7 +730,9 @@ export function EvidenceCard({
           {String(index + 1).padStart(2, "0")}
         </span>
         <div>
-          <strong>{r.document_name || r.source || "来源文档"}</strong>
+          <strong>
+            {r.document_name || r.source_title || r.source || "来源文档"}
+          </strong>
           <small>{r.location || r.id}</small>
         </div>
         {r.score !== undefined && (
@@ -826,7 +864,13 @@ export function AgentsPage(p: PageProps) {
                 value={edit.role}
                 onChange={(e) => setEdit({ ...edit, role: e.target.value })}
               >
-                {["planner", "retriever", "writer", "coordinator"].map((k) => (
+                {[
+                  "planner",
+                  "parser",
+                  "retriever",
+                  "writer",
+                  "coordinator",
+                ].map((k) => (
                   <option key={k} value={k}>
                     {roleNames[k]}
                   </option>
@@ -854,25 +898,34 @@ export function AgentsPage(p: PageProps) {
           </Field>
           <Field label="启用技能">
             <div className="checkbox-grid">
-              {(p.data.skills || []).map((s: any) => (
-                <label className="checkbox-label" key={s.id}>
-                  <input
-                    type="checkbox"
-                    checked={(edit.skill_ids || []).includes(s.id)}
-                    onChange={(e) =>
-                      setEdit({
-                        ...edit,
-                        skill_ids: e.target.checked
-                          ? [...(edit.skill_ids || []), s.id]
-                          : (edit.skill_ids || []).filter(
-                              (id: string) => id !== s.id,
-                            ),
-                      })
-                    }
-                  />
-                  {s.name}
-                </label>
-              ))}
+              {(p.data.skills || []).map((s: any) => {
+                const summary = skillToolSummary(s, p.data.tools || []);
+                return (
+                  <label className="checkbox-label" key={s.id}>
+                    <input
+                      type="checkbox"
+                      checked={(edit.skill_ids || []).includes(s.id)}
+                      onChange={(e) =>
+                        setEdit({
+                          ...edit,
+                          skill_ids: e.target.checked
+                            ? [...(edit.skill_ids || []), s.id]
+                            : (edit.skill_ids || []).filter(
+                                (id: string) => id !== s.id,
+                              ),
+                        })
+                      }
+                    />
+                    <span>
+                      {s.name}
+                      <small className="muted">
+                        授权 {summary.count} 个工具 · 外发：
+                        {summary.egressText}
+                      </small>
+                    </span>
+                  </label>
+                );
+              })}
             </div>
           </Field>
           <label className="checkbox-label">
@@ -947,6 +1000,16 @@ export function AgentsPage(p: PageProps) {
               <div className="result-text">
                 {result.text || JSON.stringify(result, null, 2)}
               </div>
+              {result.note && <InlineMessage>{result.note}</InlineMessage>}
+              {Array.isArray(result.tool_calls) &&
+                result.tool_calls.length > 0 && (
+                  <p className="muted">
+                    本次模型实际调用能力 {result.tool_calls.length} 次
+                    {result.skills?.length
+                      ? `，涉及技能：${result.skills.join("、")}`
+                      : ""}
+                  </p>
+                )}
               {result.usage && <JsonView value={result.usage} />}
             </div>
           )}
@@ -955,23 +1018,119 @@ export function AgentsPage(p: PageProps) {
     </>
   );
 }
-export function SkillsPage(p: PageProps) {
+export function TraceView({
+  trace,
+  error,
+  indent = 0,
+}: {
+  trace?: CapabilityTrace | null;
+  error?: CapabilityErrorInfo | null;
+  indent?: number;
+}) {
+  const rows = flattenTrace(trace);
+  if (!rows.length && !error) return null;
+  return (
+    <div className="trace-view">
+      {rows.map((row, i) => (
+        <div
+          className="trace-row"
+          key={`${row.tool_id}-${i}`}
+          style={{ paddingLeft: (row.depth + indent) * 24 }}
+        >
+          <span className="trace-layer">Tool</span>
+          <code>{row.tool_id}</code>
+          {row.provider && (
+            <Badge>{providerNames[row.provider] || row.provider}</Badge>
+          )}
+          {row.status && <Badge status={row.status} />}
+          {typeof row.duration_ms === "number" && (
+            <span className="muted">{row.duration_ms} ms</span>
+          )}
+        </div>
+      ))}
+      {error && (
+        <div className="trace-row error" style={{ paddingLeft: indent * 24 }}>
+          <Badge status="failed">{capabilityErrorText(error.code)}</Badge>
+          <span className="muted">{error.message}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+export function SkillTraceHeader({
+  skillId,
+  status,
+  durationMs,
+}: {
+  skillId: string;
+  status?: string;
+  durationMs?: number;
+}) {
+  return (
+    <div className="trace-row">
+      <span className="trace-layer">Skill</span>
+      <code>{skillId}</code>
+      {status && <Badge status={status}>{capabilityStatusText(status)}</Badge>}
+      {typeof durationMs === "number" && (
+        <span className="muted">{durationMs} ms</span>
+      )}
+    </div>
+  );
+}
+function SkillTestResult({ result }: { result: any }) {
+  return (
+    <div className="test-result">
+      <div className="report-mode">
+        <Badge status={result.status}>
+          {capabilityStatusText(result.status)}
+        </Badge>
+        {result.trace?.duration_ms !== undefined && (
+          <span className="muted">耗时 {result.trace.duration_ms} ms</span>
+        )}
+      </div>
+      {result.status === "dry_run" && (
+        <InlineMessage>
+          {result.data?.note || "演练模式仅完成预检，未发起实际调用。"}
+        </InlineMessage>
+      )}
+      {result.error && (
+        <InlineMessage error>
+          {capabilityErrorText(result.error.code)}：{result.error.message}
+        </InlineMessage>
+      )}
+      <div className="node-trace">
+        <SkillTraceHeader
+          skillId={result.skill_id}
+          status={result.status}
+          durationMs={result.trace?.duration_ms}
+        />
+        <TraceView trace={result.trace} indent={1} />
+      </div>
+      {result.text && <div className="result-text">{result.text}</div>}
+      {result.evidence?.length > 0 && (
+        <p className="muted">返回 {result.evidence.length} 条证据</p>
+      )}
+      <details className="metric-details">
+        <summary>完整响应</summary>
+        <JsonView value={result} />
+      </details>
+    </div>
+  );
+}
+function SkillsTab({ p }: { p: PageProps }) {
   const [project, setProject] = useProject();
-  const [selected, setSelected] = useState<any>(null),
+  const [selected, setSelected] = useState<SkillSummary | null>(null),
     [query, setQuery] = useState("民用航空复合材料"),
     [document, setDocument] = useState(""),
     [mode, setMode] = useState(p.data.system?.default_mode || "rehearsal"),
     [result, setResult] = useState<any>(null);
   const task = useTask(p);
+  const toolName = (id: string) =>
+    p.data.tools?.find((t) => t.id === id)?.name || id;
   return (
     <>
-      <SectionTitle
-        eyebrow="SKILLS & TOOLS"
-        title="技能工具箱"
-        detail="连接知识检索、文档解析与多模态能力；通过实际测试验证可用性。"
-      />
       <div className="skills-grid">
-        {(p.data.skills || []).map((s: any, i: number) => (
+        {(p.data.skills || []).map((s, i) => (
           <Panel key={s.id} className="skill-card">
             <div className="card-top">
               <div className="skill-icon">
@@ -989,6 +1148,28 @@ export function SkillsPage(p: PageProps) {
             <p className="card-description">
               {s.description || "在流程节点中调用此技能完成指定任务。"}
             </p>
+            <div className="skill-meta">
+              <span>版本 {s.version || "—"}</span>
+              <span>
+                {s.execution_mode === "agent" ? "智能体执行" : "固定流程"}
+              </span>
+              <span>
+                适用节点：
+                {(s.node_kinds || [])
+                  .map((k) => nodeKindNames[k] || k)
+                  .join("、") || "未限定"}
+              </span>
+              <span>{s.evidence_required ? "要求返回证据" : "不强制证据"}</span>
+              {s.requires_documents && <span>需要显式选择上传资料</span>}
+            </div>
+            {(s.allowed_tools || []).length > 0 && (
+              <div className="agent-skills">
+                {s.allowed_tools!.map((id) => (
+                  <Badge key={id}>{toolName(id)}</Badge>
+                ))}
+              </div>
+            )}
+            {s.note && <p className="muted">{s.note}</p>}
             <div className="skill-id">{s.id}</div>
             <button
               className="button small"
@@ -1062,7 +1243,7 @@ export function SkillsPage(p: PageProps) {
               onClick={() =>
                 task(async () =>
                   setResult(
-                    await post(`/skills/${selected.id}/test`, {
+                    await testSkill(selected.id, {
                       query,
                       prompt: query,
                       project_id: project,
@@ -1078,12 +1259,287 @@ export function SkillsPage(p: PageProps) {
               运行技能
             </ActionButton>
           </div>
-          {result !== null && (
-            <div className="test-result">
-              <JsonView value={result} />
-            </div>
-          )}
+          {result !== null && <SkillTestResult result={result} />}
         </Modal>
+      )}
+    </>
+  );
+}
+function ToolTestModal({
+  tool,
+  p,
+  onClose,
+}: {
+  tool: ToolSummary;
+  p: PageProps;
+  onClose: () => void;
+}) {
+  const fields = toolInputFields(tool.input_schema);
+  const [values, setValues] = useState<Record<string, string | boolean>>({}),
+    [mode, setMode] = useState(p.data.system?.default_mode || "rehearsal"),
+    [result, setResult] = useState<any>(null);
+  const task = useTask(p);
+  return (
+    <Modal title={`${tool.name} · 工具测试`} onClose={onClose} wide>
+      <p className="muted">
+        参数按工具的输入约束（input_schema）生成，提交前由后端再次校验。
+      </p>
+      {fields.length ? (
+        fields.map((field) =>
+          field.kind === "boolean" ? (
+            <label className="checkbox-label" key={field.name}>
+              <input
+                type="checkbox"
+                checked={Boolean(values[field.name])}
+                onChange={(e) =>
+                  setValues({ ...values, [field.name]: e.target.checked })
+                }
+              />
+              {field.name}
+              {field.required && <small>必填</small>}
+            </label>
+          ) : (
+            <Field
+              key={field.name}
+              label={`${field.name}${field.required ? "（必填）" : ""}`}
+              hint={field.array ? "多个取值用逗号分隔" : field.description}
+            >
+              <input
+                type={field.kind === "number" ? "number" : "text"}
+                value={String(values[field.name] ?? "")}
+                onChange={(e) =>
+                  setValues({ ...values, [field.name]: e.target.value })
+                }
+              />
+            </Field>
+          ),
+        )
+      ) : (
+        <InlineMessage>该工具无需输入参数。</InlineMessage>
+      )}
+      <div className="modal-actions">
+        <select
+          value={mode}
+          onChange={(e) => setMode(e.target.value)}
+          aria-label="测试模式"
+        >
+          <option value="rehearsal">本地演练</option>
+          <option value="live">真实执行</option>
+        </select>
+        <ActionButton
+          className="button primary"
+          disabled={!p.canEdit}
+          onClick={() =>
+            task(async () =>
+              setResult(
+                await testTool(tool.id, collectToolInput(fields, values), mode),
+              ),
+            )
+          }
+        >
+          <Play size={15} />
+          运行工具
+        </ActionButton>
+      </div>
+      {result && (
+        <div className="test-result">
+          <div className="report-mode">
+            <Badge status={result.status}>
+              {capabilityStatusText(result.status)}
+            </Badge>
+            {result.trace?.duration_ms !== undefined && (
+              <span className="muted">耗时 {result.trace.duration_ms} ms</span>
+            )}
+          </div>
+          {result.status === "dry_run" && (
+            <InlineMessage>
+              {result.data?.note || "演练模式仅完成预检，未发起网络/模型调用。"}
+            </InlineMessage>
+          )}
+          {result.error && (
+            <InlineMessage error>
+              {capabilityErrorText(result.error.code)}：{result.error.message}
+            </InlineMessage>
+          )}
+          <TraceView trace={result.trace} />
+          {result.text && <div className="result-text">{result.text}</div>}
+          <details className="metric-details" open>
+            <summary>返回数据</summary>
+            <JsonView value={result.data ?? {}} />
+          </details>
+        </div>
+      )}
+    </Modal>
+  );
+}
+function ToolsTab({ p }: { p: PageProps }) {
+  const [selected, setSelected] = useState<ToolSummary | null>(null);
+  return (
+    <>
+      <div className="skills-grid">
+        {(p.data.tools || []).map((t) => {
+          const health = toolHealth(t, p.data.mcp_servers || []);
+          return (
+            <Panel key={t.id} className="skill-card">
+              <div className="card-top">
+                <div className="skill-icon">
+                  <Wrench size={22} />
+                </div>
+                <Badge>{providerNames[t.provider] || t.provider}</Badge>
+              </div>
+              <h2>{t.name}</h2>
+              <div className="skill-meta">
+                <span>{t.read_only === false ? "可写" : "只读"}</span>
+                <span>{networkNames[t.network || "none"]}</span>
+                <span>外发：{egressNames[t.data_egress || "none"]}</span>
+                {t.requires_confirmation && <span>需人工确认</span>}
+                <span>超时 {t.timeout_seconds ?? "—"} 秒</span>
+              </div>
+              <div className="agent-skills">
+                <Badge status={health.status}>{health.label}</Badge>
+              </div>
+              <div className="skill-id">{t.id}</div>
+              <button className="button small" onClick={() => setSelected(t)}>
+                测试工具
+                <ArrowRight size={14} />
+              </button>
+            </Panel>
+          );
+        })}
+      </div>
+      {selected && (
+        <ToolTestModal
+          tool={selected}
+          p={p}
+          onClose={() => setSelected(null)}
+        />
+      )}
+    </>
+  );
+}
+function McpServersTab({ p }: { p: PageProps }) {
+  const [health, setHealth] = useState<Record<string, any>>({}),
+    [refreshed, setRefreshed] = useState<Record<string, any>>({});
+  const task = useTask(p);
+  const isAdmin = p.data.user?.role === "admin";
+  return (
+    <div className="skills-grid">
+      {(p.data.mcp_servers || []).map((server) => {
+        const h = health[server.id];
+        const status = mcpHealthText(h);
+        const discovered = refreshed[server.id]?.discovered?.length;
+        return (
+          <Panel key={server.id} className="skill-card">
+            <div className="card-top">
+              <div className="skill-icon">
+                <Server size={22} />
+              </div>
+              <Badge status={server.enabled ? "ready" : "pending"}>
+                {server.enabled ? "已启用" : "已禁用"}
+              </Badge>
+            </div>
+            <h2>{server.id}</h2>
+            <div className="skill-meta">
+              <span>
+                连接方式：
+                {server.transport === "stdio" ? "本地进程（stdio）" : "HTTP"}
+              </span>
+              <span>已允许 {(server.tool_allowlist || []).length} 个工具</span>
+              <span>
+                已发现 {discovered ?? (h?.status === "ready" ? h.tools : "—")}{" "}
+                个工具
+              </span>
+            </div>
+            {!server.enabled && (
+              <InlineMessage>
+                该服务在配置中登记为禁用，属于正常状态；启用后才能健康检查与发现工具。
+              </InlineMessage>
+            )}
+            {h && server.enabled && (
+              <InlineMessage error={status.status === "unavailable"}>
+                {status.label}
+              </InlineMessage>
+            )}
+            {refreshed[server.id] && (
+              <InlineMessage>
+                已重新发现并登记 {refreshed[server.id].registered?.length ?? 0}{" "}
+                个工具。
+              </InlineMessage>
+            )}
+            <div className="card-footer">
+              <ActionButton
+                className="button small"
+                onClick={() =>
+                  task(async () => {
+                    const result = await mcpHealth(server.id);
+                    setHealth((m) => ({ ...m, [server.id]: result }));
+                  })
+                }
+              >
+                <ShieldCheck size={14} />
+                健康检查
+              </ActionButton>
+              {isAdmin && (
+                <ActionButton
+                  className="button small"
+                  onClick={() =>
+                    task(async () => {
+                      const result = await mcpRefresh(server.id);
+                      setRefreshed((m) => ({ ...m, [server.id]: result }));
+                    }, "MCP 工具已重新发现")
+                  }
+                >
+                  <RefreshCw size={14} />
+                  刷新发现
+                </ActionButton>
+              )}
+            </div>
+          </Panel>
+        );
+      })}
+      {!p.data.mcp_servers?.length && <Empty title="尚未登记 MCP 服务" />}
+    </div>
+  );
+}
+export function SkillsPage(p: PageProps) {
+  const [tab, setTab] = useState("skills");
+  const stats = p.data.capability_stats;
+  return (
+    <>
+      <SectionTitle
+        eyebrow="SKILLS & TOOLS"
+        title="技能工具箱"
+        detail="技能编排工具、工具由本地 / HTTP / MCP 提供方执行；通过实际测试验证可用性。"
+      />
+      <div className="toolbar">
+        <div className="tabs">
+          {[
+            ["skills", `技能 ${stats?.skills ?? p.data.skills?.length ?? 0}`],
+            ["tools", `工具 ${stats?.tools ?? p.data.tools?.length ?? 0}`],
+            [
+              "mcp",
+              `MCP 服务 ${stats?.mcp_servers ?? p.data.mcp_servers?.length ?? 0}`,
+            ],
+          ].map(([id, n]) => (
+            <button
+              key={id}
+              className={tab === id ? "active" : ""}
+              onClick={() => setTab(id)}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+        {stats && (
+          <span className="muted">健康工具 {stats.healthy_tools} 个</span>
+        )}
+      </div>
+      {tab === "skills" ? (
+        <SkillsTab p={p} />
+      ) : tab === "tools" ? (
+        <ToolsTab p={p} />
+      ) : (
+        <McpServersTab p={p} />
       )}
     </>
   );
@@ -1219,12 +1675,29 @@ export function WorkflowsPage(p: PageProps) {
                     >
                       <Copy size={16} />
                     </ActionButton>
+                    <ActionButton
+                      className="icon-button danger"
+                      disabled={!p.canEdit}
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            `删除流程“${w.name}”？已产生的运行记录会保留执行快照，不受影响。`,
+                          )
+                        )
+                          return task(
+                            () => remove(`/workflows/${w.id}`),
+                            "流程已删除",
+                          );
+                      }}
+                    >
+                      <Trash2 size={16} />
+                    </ActionButton>
                     <button
                       className="button primary small"
                       disabled={!p.canEdit}
                       onClick={() =>
                         w.status === "published"
-                          ? p.go("runs", `workflow:${w.id}`)
+                          ? p.go("overview", `workflow:${w.id}`)
                           : p.editWorkflow(w)
                       }
                     >

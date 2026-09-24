@@ -41,6 +41,22 @@ export const post = (path: string, body: unknown = {}) =>
 export const put = (path: string, body: unknown = {}) =>
   api(path, { method: "PUT", body: JSON.stringify(body) });
 export const remove = (path: string) => api(path, { method: "DELETE" });
+// Skill / Tool / MCP 三层能力 API
+export const testSkill = (id: string, body: unknown) =>
+  post(`/skills/${encodeURIComponent(id)}/test`, body);
+export const testTool = (
+  id: string,
+  input: Record<string, unknown>,
+  mode: string,
+) => post(`/tools/${encodeURIComponent(id)}/test`, { input, mode });
+export const mcpHealth = (id: string) =>
+  api(`/mcp-servers/${encodeURIComponent(id)}/health`);
+export const mcpRefresh = (id: string) =>
+  post(`/mcp-servers/${encodeURIComponent(id)}/refresh`);
+export const capabilityEvents = (runId?: string) =>
+  api(
+    `/capability-events${runId ? `?run_id=${encodeURIComponent(runId)}` : ""}`,
+  );
 export const money = (v: unknown) => Number(v || 0).toFixed(4);
 export const time = (v: any) =>
   v
@@ -75,4 +91,9 @@ export const statusNames: Record<string, string> = {
   success: "成功",
   passed: "通过",
   done: "已完成",
+  dry_run: "演练预检",
+  blocked: "已拦截",
+  timeout: "超时",
+  disabled: "已禁用",
+  degraded: "已降级",
 };

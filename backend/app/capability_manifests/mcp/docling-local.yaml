@@ -1,0 +1,10 @@
+# Docling MCP 配置清单（本期仅登记，不安装、不接入、不启动）。
+id: docling-local
+transport: stdio
+command: uvx
+args: ["--from", "docling-mcp==1.2.0", "docling-mcp-server", "--transport", "stdio"]
+enabled: false
+tool_allowlist: [convert_document]
+roots: ["${AUTHORIZED_TEMP_ROOT}"]
+startup_timeout_seconds: 20
+call_timeout_seconds: 90

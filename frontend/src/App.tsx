@@ -38,6 +38,7 @@ import {
   Empty,
   Field,
   InlineMessage,
+  Modal,
   ModeBadge,
   Panel,
   SectionTitle,
@@ -57,6 +58,7 @@ import {
   ReportsPage,
   EvaluationsPage,
   SystemPage,
+  WorkflowRunLauncher,
 } from "./ExecutionPages";
 const navigation: { id: PageId; label: string; icon: any; group: string }[] = [
   { id: "overview", label: "工作台", icon: LayoutDashboard, group: "研究空间" },
@@ -293,18 +295,6 @@ function Workspace() {
             <strong>{navigation.find((x) => x.id === page)?.label}</strong>
           </div>
           <div className="topbar-right">
-            <select
-              className="global-project-select"
-              aria-label="当前研究项目"
-              value={activeProject}
-              onChange={(e) => setActiveProject(e.target.value)}
-            >
-              {(data.projects || []).map((x: any) => (
-                <option key={x.id} value={x.id}>
-                  {x.name}
-                </option>
-              ))}
-            </select>
             <span className="local-tag">
               <span className="status-dot" />
               服务就绪
@@ -366,7 +356,7 @@ function Workspace() {
           notify={notify}
           onRun={(id) => {
             setWorkflow(null);
-            go("runs", `workflow:${id}`);
+            go("overview", `workflow:${id}`);
           }}
         />
       )}
@@ -624,23 +614,64 @@ function Overview({
   canEdit,
   go,
   editWorkflow,
+  selectedId,
 }: PageProps) {
   const [project, setProject] = useProject();
   const [prompt, setPrompt] = useState(""),
-    [mode, setMode] = useState(data.system?.default_mode || "rehearsal");
+    [mode, setMode] = useState(data.system?.default_mode || "rehearsal"),
+    [launchMode, setLaunchMode] = useState<"new" | "existing">(
+      selectedId?.startsWith("workflow:") ? "existing" : "new",
+    ),
+    [job, setJob] = useState<RecordData | null>(null);
   const runs = data.runs || [],
     active = runs.filter((r: any) => ["running", "queued"].includes(r.status)),
     pending = runs.filter((r: any) => r.status === "waiting_review");
+  useEffect(() => {
+    if (!job || job.status !== "running") return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const current = await api(`/planning/${job.id}`);
+        if (cancelled) return;
+        setJob(current);
+        if (current.status === "completed" && current.workflow_id) {
+          await refresh();
+          const workflows = await api("/workflows");
+          const created = (workflows || []).find(
+            (w: any) => w.id === current.workflow_id,
+          );
+          if (created) {
+            setJob(null);
+            editWorkflow(created);
+            notify("研究流程已生成，可在画布中检查并调整");
+          }
+        }
+      } catch (e) {
+        if (!cancelled)
+          setJob((j: any) =>
+            j ? { ...j, status: "failed", error: (e as Error).message } : j,
+          );
+      }
+    };
+    const t = setInterval(poll, 800);
+    poll();
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [job?.id, job?.status]);
   const create = async () => {
     if (!prompt.trim()) {
       notify("请先描述你的研究任务", true);
       return;
     }
     try {
-      const w = await post("/plan", { prompt, project_id: project, mode });
-      await refresh();
-      editWorkflow(w);
-      notify("研究流程已生成，可在画布中检查并调整");
+      const started = await post("/plan", {
+        prompt,
+        project_id: project,
+        mode,
+      });
+      setJob(started);
     } catch (e) {
       notify((e as Error).message, true);
     }
@@ -664,60 +695,104 @@ function Overview({
             <Sparkles size={21} />
           </div>
           <div>
-            <h2>创建研究任务</h2>
-            <p>
-              描述情报需求与交付目标，为你规划可编辑的检索、分析和报告流程。
-            </p>
+            <h2>发起研究任务</h2>
+            <p>创建新的研究流程，或复用已发布流程直接执行。</p>
           </div>
-          <span className="prompt-number">自然语言编排</span>
+          <span className="prompt-number">两种发起方式</span>
         </div>
-        <textarea
-          aria-label="研究任务描述"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="例如：对比民用航空复合材料的技术路线、适航认证进展与产业应用，输出附带来源的专题情报简报…"
-          rows={3}
-        />
-        <div className="prompt-tools">
-          <div className="prompt-options">
-            <select
-              aria-label="研究项目"
-              value={project}
-              onChange={(e) => setProject(e.target.value)}
-            >
-              <option value="">选择研究项目</option>
-              {(data.projects || []).map((p: any) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="执行模式"
-              value={mode}
-              onChange={(e) => setMode(e.target.value)}
-            >
-              <option value="rehearsal">本地演练</option>
-              <option value="live">真实模型 · 计费</option>
-            </select>
-          </div>
-          <ActionButton
-            className="button primary"
-            disabled={!canEdit || !project}
-            onClick={create}
+        <div className="launch-tabs" role="tablist" aria-label="发起方式">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={launchMode === "new"}
+            className={launchMode === "new" ? "active" : ""}
+            onClick={() => setLaunchMode("new")}
           >
-            生成研究流程
-            <ArrowRight size={17} />
-          </ActionButton>
+            新建研究流程
+            <small>按需求生成可编辑模板</small>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={launchMode === "existing"}
+            className={launchMode === "existing" ? "active" : ""}
+            onClick={() => setLaunchMode("existing")}
+          >
+            复用现有流程
+            <small>选择已发布模板并运行</small>
+          </button>
         </div>
-        <div className="prompt-disclaimer">
-          <ModeBadge mode={mode} />
-          <span>
-            {mode === "rehearsal"
-              ? "使用本地规则规划，检索真实本地资料；不调用外部模型。"
-              : "使用 DeepSeek，通过统一预算网关调用；仅外发允许联网的资料。"}
-          </span>
-        </div>
+        {launchMode === "new" ? (
+          <>
+            <textarea
+              aria-label="研究任务描述"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="例如：对比民用航空复合材料的技术路线、适航认证进展与产业应用，输出附带来源的专题情报简报…"
+              rows={3}
+            />
+            <div className="prompt-tools">
+              <div className="prompt-options">
+                <select
+                  aria-label="研究项目"
+                  value={project}
+                  onChange={(e) => setProject(e.target.value)}
+                >
+                  <option value="">选择研究项目</option>
+                  {(data.projects || []).map((p: any) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label="执行模式"
+                  value={mode}
+                  onChange={(e) => setMode(e.target.value)}
+                >
+                  <option value="rehearsal">本地演练</option>
+                  <option value="live">真实模型 · 计费</option>
+                </select>
+              </div>
+              <ActionButton
+                className="button primary"
+                disabled={!canEdit || !project || job?.status === "running"}
+                onClick={create}
+              >
+                生成并编辑流程
+                <ArrowRight size={17} />
+              </ActionButton>
+            </div>
+            <div className="prompt-disclaimer">
+              <ModeBadge mode={mode} />
+              <span>
+                {mode === "rehearsal"
+                  ? "先使用本地规则生成流程模板；检查、发布后可从“复用现有流程”发起运行。"
+                  : "先使用 DeepSeek 生成流程模板；模型请求经过统一预算网关。"}
+              </span>
+            </div>
+          </>
+        ) : (
+          <WorkflowRunLauncher
+            key={selectedId || "workflow-launcher"}
+            page={{
+              data,
+              refresh,
+              notify,
+              canEdit,
+              canReview: false,
+              go,
+              editWorkflow,
+              selectedId,
+            }}
+            initialWorkflowId={
+              selectedId?.startsWith("workflow:")
+                ? selectedId.slice("workflow:".length)
+                : undefined
+            }
+            onStarted={(run) => go("runs", run.id)}
+          />
+        )}
       </section>
       <div className="metrics-grid">
         {[
@@ -835,9 +910,35 @@ function Overview({
           <div className="readiness-row">
             <div>
               <Boxes size={18} />
-              <span>技能工具</span>
+              <span>技能</span>
             </div>
-            <strong>{data.skills?.length || 0} 项</strong>
+            <strong>
+              {data.capability_stats?.skills ?? data.skills?.length ?? 0} 项
+            </strong>
+          </div>
+          <div className="readiness-row">
+            <div>
+              <Zap size={18} />
+              <span>工具（健康 / 全部）</span>
+            </div>
+            <strong>
+              {data.capability_stats
+                ? `${data.capability_stats.healthy_tools} / ${data.capability_stats.tools}`
+                : (data.tools?.length ?? 0)}{" "}
+              个
+            </strong>
+          </div>
+          <div className="readiness-row">
+            <div>
+              <Network size={18} />
+              <span>MCP 服务</span>
+            </div>
+            <strong>
+              {data.capability_stats?.mcp_servers ??
+                data.mcp_servers?.length ??
+                0}{" "}
+              个
+            </strong>
           </div>
           <div className="readiness-row">
             <div>
@@ -892,6 +993,64 @@ function Overview({
           </button>
         ))}
       </div>
+      {job && (
+        <Modal
+          title="正在生成研究流程"
+          onClose={() => job.status !== "running" && setJob(null)}
+        >
+          <div className="prompt-disclaimer">
+            <ModeBadge mode={job.mode || mode} />
+            <span>
+              {job.mode === "live"
+                ? "真实模型规划：生成 → 硬规则校验 → 不通过则携带错误原因让模型修复。"
+                : "本地规则规划：不调用模型。"}
+            </span>
+          </div>
+          <div className="readiness-row">
+            <div>
+              {job.status === "running" ? (
+                <LoaderCircle size={18} className="spin" />
+              ) : job.status === "completed" ? (
+                <Check size={18} />
+              ) : (
+                <X size={18} />
+              )}
+              <span>{job.stage || "排队中"}</span>
+            </div>
+          </div>
+          {(job.attempts || []).length > 0 && (
+            <div className="log-list">
+              {job.attempts.map((a: any, i: number) => (
+                <div className="log-entry" key={i}>
+                  <span>第 {a.attempt} 次</span>
+                  <code>
+                    {a.status === "validated"
+                      ? `校验通过（${a.nodes} 个节点 / ${a.edges} 条连线）`
+                      : `校验未通过：${a.error}`}
+                  </code>
+                </div>
+              ))}
+            </div>
+          )}
+          {job.status === "failed" && (
+            <>
+              <InlineMessage error>
+                {job.error || "规划失败，未保存任何流程。"}
+              </InlineMessage>
+              <div className="modal-actions">
+                <button className="button" onClick={() => setJob(null)}>
+                  关闭
+                </button>
+              </div>
+            </>
+          )}
+          {job.status === "running" && (
+            <p className="muted">
+              正在规划，你可以看到每一次生成与校验的真实进展…
+            </p>
+          )}
+        </Modal>
+      )}
     </>
   );
 }

@@ -131,9 +131,11 @@ powershell -ExecutionPolicy Bypass -File scripts/stop.ps1
 
 项目根目录里的背景文档不会被自动扫描或索引。平台只读取显式上传的文件和预置合成资料。
 
-## 5. 六项技能的使用
+## 5. 技能与工具的使用
 
 进入“技能工具箱”，点击相应技能的“测试技能”，选择项目、输入查询，并按需要选择具体资料。解析、OCR、多模态必须选择资料。初次测试建议选择一份已知资料，便于核对结果。
+
+平台能力分为三层：技能（Skill，任务方法）、工具（Tool，原子操作）、MCP 服务（外部工具提供者）。“技能工具箱”页面内分为三个 Tab 分别展示与测试。当前共九项技能：
 
 | 技能 | 实际用途 | 当前边界 |
 | --- | --- | --- |
@@ -143,6 +145,11 @@ powershell -ExecutionPolicy Bypass -File scripts/stop.ps1
 | OCR 识别 | RapidOCR 在 CPU 上识别上传图片，保存文字、区域及置信度，并加入本地索引 | 支持图片；扫描 PDF 先转图片，低清或复杂图片需要人工校对 |
 | 语义检索 | 使用中文 BGE 模型在 CPU 上计算向量并检索本地片段 | 首次使用可能下载公开模型；模型不可用时明确报错，不会冒充关键词检索成功 |
 | 多模态理解 | 经预算网关把允许外发的图片交给视觉模型分析 | 需选择真实模型模式及 `external` 图片；外发图片上限为 8 MB，本地演练不模拟图像理解 |
+| 航空气象分析 | 获取指定机场的 METAR 实况与 TAF 预报（NOAA Aviation Weather） | 需联网且仅外发机场代码；演练模式只做预检不发起请求 |
+| 机场要素检索 | 在 OurAirports 离线快照中按代码/名称检索机场 | 快照有日期，不代表现时航行资料；演练模式真实执行 |
+| 科技文献检索 | 跨 OpenAlex 与 Crossref 检索文献线索 | 需联网且仅外发检索词；结果需人工核对原文 |
+
+OurAirports 快照位于 `.local/ourairports/`（不入库）。首次使用或更新快照请运行 `uv run python scripts/download_ourairports.py`，或手动下载 https://ourairports.com/data/airports.csv 等文件到该目录。“MCP 服务”Tab 中的 aviation-local 服务把同一机场查询能力以 MCP 协议暴露；Docling 服务仅登记配置（未启用、未安装）。
 
 预置的“合成资料 OCR 与图文理解测试”图片可用于比较 OCR 提取文字与多模态分析结果。文字中的编号、数量和年份均为虚构测试内容。
 

@@ -1,0 +1,22 @@
+tools:
+  - id: local.graph.query
+    version: 1.0.0
+    name: 本地图谱查询
+    provider: local
+    entrypoint: backend.app.capabilities.tools.graph:query
+    input_schema:
+      type: object
+      properties:
+        query: {type: string}
+        project_id: {type: string}
+    output_schema:
+      type: object
+      properties:
+        nodes: {type: array}
+        edges: {type: array}
+      required: [nodes, edges]
+    read_only: true
+    network: none
+    data_egress: none
+    timeout_seconds: 15
+    requires_confirmation: false

@@ -156,21 +156,29 @@ def _start_session(user: dict, response: Response, request: Request | None = Non
     return {"user": _public_user(user)}
 
 
+def _validate_password(password) -> str:
+    if not isinstance(password, str) or not 8 <= len(password) <= 128:
+        raise HTTPException(422, "密码须为8至128个字符")
+    return password
+
+
+def _validate_name(name) -> str:
+    if not isinstance(name, str):
+        raise HTTPException(422, "显示名须为文字")
+    name = name.strip()
+    if len(name) > 40 or not name.isprintable():
+        raise HTTPException(422, "显示名须为1至40个可打印字符")
+    return name
+
+
 def register(body: dict, response: Response, request: Request | None = None) -> dict:
     check_origin(request)
     _rate_limit(request, "register")
     if set(body) - {"username", "password", "name"}:
         raise HTTPException(422, "注册仅支持用户名、密码和显示名，不能指定角色或权限")
     username = _username(body.get("username"))
-    password = body.get("password")
-    if not isinstance(password, str) or not 8 <= len(password) <= 128:
-        raise HTTPException(422, "密码须为8至128个字符")
-    name = body.get("name", "")
-    if not isinstance(name, str):
-        raise HTTPException(422, "显示名须为文字")
-    name = name.strip() or username
-    if len(name) > 40 or not name.isprintable():
-        raise HTTPException(422, "显示名须为1至40个可打印字符")
+    password = _validate_password(body.get("password"))
+    name = _validate_name(body.get("name", "")) or username
     ensure_users()
     user = {
         "id": username,
@@ -246,3 +254,100 @@ def logout(request: Request, response: Response) -> dict:
         store.delete("sessions", hashlib.sha256(token.encode()).hexdigest())
     response.delete_cookie("workbench_session", path="/")
     return {"ok": True}
+
+
+def list_users() -> list[dict]:
+    ensure_users()
+    return sorted(
+        (
+            {**_public_user(user), "enabled": user.get("enabled", True), "created_at": user.get("created_at")}
+            for user in store.list("users")
+        ),
+        key=lambda user: user.get("created_at") or "",
+    )
+
+
+def create_user(body: dict, actor: dict) -> dict:
+    """Admin-managed account creation; never self-serve, never another admin."""
+    if set(body) - {"username", "password", "name", "role"}:
+        raise HTTPException(422, "仅支持用户名、密码、显示名和角色")
+    username = _username(body.get("username"))
+    password = _validate_password(body.get("password"))
+    name = _validate_name(body.get("name", "")) or username
+    role = body.get("role", "operator")
+    if role not in {"operator", "reviewer"}:
+        raise HTTPException(422, "只能创建研究员或审核员账号，管理员账号不能通过接口创建")
+    ensure_users()
+    user = {
+        "id": username,
+        "username": username,
+        "name": name,
+        "role": role,
+        "enabled": True,
+        "password_hash": _hash_password(password),
+    }
+    try:
+        with store.lock, store.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            _insert_record(conn, "users", user)
+    except sqlite3.IntegrityError:
+        raise HTTPException(409, "用户名已被使用") from None
+    store.audit("user.create", username, {"role": role}, actor["username"])
+    return {**_public_user(user), "enabled": True, "created_at": user.get("created_at")}
+
+
+def update_user(user_id: str, body: dict, actor: dict) -> dict:
+    if set(body) - {"name", "role", "enabled", "password"}:
+        raise HTTPException(422, "仅支持修改显示名、角色、启用状态和密码")
+    target = store.get("users", user_id)
+    if not target:
+        raise HTTPException(404, "用户不存在")
+    changes: dict = {}
+    if "name" in body:
+        name = _validate_name(body["name"])
+        if not name:
+            raise HTTPException(422, "显示名不能为空")
+        changes["name"] = name
+    if "role" in body:
+        if body["role"] not in {"admin", "operator", "reviewer"}:
+            raise HTTPException(422, "角色无效")
+        changes["role"] = body["role"]
+    if "enabled" in body:
+        if not isinstance(body["enabled"], bool):
+            raise HTTPException(422, "启用状态必须为布尔值")
+        changes["enabled"] = body["enabled"]
+    if "password" in body and body["password"] is not None:
+        changes["password_hash"] = _hash_password(_validate_password(body["password"]))
+    if not changes:
+        return {**_public_user(target), "enabled": target.get("enabled", True)}
+    demoting_self = actor["username"] == target["username"] and (
+        changes.get("enabled") is False or changes.get("role", target["role"]) != "admin"
+    )
+    if actor["username"] == target["username"] and actor["role"] == "admin" and demoting_self:
+        raise HTTPException(400, "不能停用或降级自己的管理员账号")
+    loses_admin = target["role"] == "admin" and (
+        changes.get("enabled") is False or ("role" in changes and changes["role"] != "admin")
+    )
+    if loses_admin:
+        remaining = [
+            user
+            for user in store.list("users")
+            if user["username"] != target["username"]
+            and user.get("role") == "admin"
+            and user.get("enabled", True)
+        ]
+        if not remaining:
+            raise HTTPException(400, "至少需要保留一个可用的管理员账号")
+    target.update(changes)
+    store.save("users", target)
+    if changes.get("enabled") is False or "password_hash" in changes:
+        for session in store.list("sessions"):
+            if session.get("username") == target["username"]:
+                store.delete("sessions", session["id"])
+    store.audit(
+        "user.update",
+        target["username"],
+        {key: ("已重置" if key == "password_hash" else value) for key, value in changes.items()},
+        actor["username"],
+    )
+    return {**_public_user(target), "enabled": target.get("enabled", True)}

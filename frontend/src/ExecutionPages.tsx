@@ -21,18 +21,19 @@ import {
   History,
   LoaderCircle,
   Play,
-  Plus,
   RefreshCw,
   Search,
   ShieldCheck,
   Square,
   Timer,
   Trash2,
+  UserPlus,
+  Users,
   X,
   Zap,
 } from "lucide-react";
 import { api, post, put, money, time, type RecordData } from "./api";
-import { type PageProps, categoryNames } from "./types";
+import { type PageProps, categoryNames, roleNames } from "./types";
 import {
   ActionButton,
   Badge,
@@ -45,7 +46,8 @@ import {
   Panel,
   SectionTitle,
 } from "./ui";
-import { EvidenceCard } from "./ResourcePages";
+import { EvidenceCard, TraceView, SkillTraceHeader } from "./ResourcePages";
+import { capabilityErrorText } from "./capabilities";
 function useTask(p: PageProps) {
   return async (fn: () => Promise<any>, message?: string) => {
     try {
@@ -88,35 +90,11 @@ function useRecord(path: string | null) {
   return { value, error, setValue };
 }
 export function RunsPage(p: PageProps) {
-  const [project, setProject] = useProject();
-  const [selected, setSelected] = useState<string | null>(
-      p.selectedId && !p.selectedId.startsWith("workflow:")
-        ? p.selectedId
-        : null,
-    ),
-    [creating, setCreating] = useState(
-      Boolean(p.selectedId?.startsWith("workflow:")),
-    ),
-    [workflow, setWorkflow] = useState(
-      p.selectedId?.startsWith("workflow:")
-        ? p.selectedId.slice(9)
-        : p.data.workflows?.find(
-            (w: any) =>
-              w.status === "published" &&
-              w.category ===
-                p.data.projects?.find((x: any) => x.id === project)?.category,
-          )?.id ||
-            p.data.workflows?.find((w: any) => w.status === "published")?.id ||
-            "",
-    ),
-    [prompt, setPrompt] = useState(""),
-    [mode, setMode] = useState(p.data.system?.default_mode || "rehearsal"),
-    [docIds, setDocIds] = useState<string[]>([]),
+  const [selected, setSelected] = useState<string | null>(p.selectedId || null),
     [filter, setFilter] = useState("all");
   const { value: run, error } = useRecord(
-      selected ? `/runs/${selected}` : null,
-    ),
-    task = useTask(p);
+    selected ? `/runs/${selected}` : null,
+  );
   const items = (p.data.runs || []).filter(
     (r: any) => filter === "all" || r.status === filter,
   );
@@ -126,16 +104,6 @@ export function RunsPage(p: PageProps) {
         eyebrow="EXECUTION CENTER"
         title="运行中心"
         detail="查看节点执行、证据来源和模型用量，支持取消、重试与人工审核。"
-        actions={
-          <button
-            className="button primary"
-            disabled={!p.canEdit}
-            onClick={() => setCreating(true)}
-          >
-            <Plus size={17} />
-            发起研究任务
-          </button>
-        }
       />
       {selected ? (
         <>
@@ -248,121 +216,273 @@ export function RunsPage(p: PageProps) {
           </Panel>
         </>
       )}
-      {creating && (
-        <Modal title="发起研究任务" onClose={() => setCreating(false)} wide>
-          <div className="form-grid">
-            <Field label="研究流程">
-              <select
-                value={workflow}
-                onChange={(e) => setWorkflow(e.target.value)}
-              >
-                <option value="">选择流程</option>
-                {(p.data.workflows || []).map((w: any) => (
-                  <option
-                    key={w.id}
-                    value={w.id}
-                    disabled={w.status !== "published"}
-                  >
-                    {w.name} · {w.status === "published" ? "已发布" : "草稿"}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="研究项目">
-              <select
-                value={project}
-                onChange={(e) => {
-                  setProject(e.target.value);
-                  setDocIds([]);
-                }}
-              >
-                <option value="">选择项目</option>
-                {(p.data.projects || []).map((x: any) => (
-                  <option key={x.id} value={x.id}>
-                    {x.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
-          <Field label="研究需求">
-            <textarea
-              rows={4}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="明确研究对象、需要回答的问题和报告要求"
-            />
-          </Field>
-          <Field label="执行模式">
-            <select value={mode} onChange={(e) => setMode(e.target.value)}>
-              <option value="rehearsal">
-                本地演练 · 真实本地检索 + 确定性报告
-              </option>
-              <option value="live">真实模型 · DeepSeek（受预算限制）</option>
-            </select>
-          </Field>
-          <details className="doc-selection">
-            <summary>指定参考资料（未选时由流程检索当前项目资料）</summary>
-            <div className="checkbox-grid">
-              {(p.data.documents || [])
-                .filter((d: any) => d.project_id === project)
-                .map((d: any) => (
-                  <label key={d.id} className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={docIds.includes(d.id)}
-                      onChange={(e) =>
-                        setDocIds(
-                          e.target.checked
-                            ? [...docIds, d.id]
-                            : docIds.filter((id) => id !== d.id),
-                        )
-                      }
-                    />
-                    {d.name}
-                    {d.visibility === "local" && <small>本地限定</small>}
-                  </label>
-                ))}
-            </div>
-          </details>
-          <InlineMessage>
-            {mode === "live"
-              ? `实际调用将计入统一预算。当前预算余量 ¥ ${Number(p.data.budget?.remaining_cny || 0).toFixed(2)}。本地限定资料不会外发。`
-              : "演练不调用模型、不产生 API 费用；其结论仅用于验证流程，将在运行和报告中明确标识。"}
-          </InlineMessage>
-          <div className="modal-actions">
-            <button className="button" onClick={() => setCreating(false)}>
-              取消
-            </button>
-            <ActionButton
-              className="button primary"
-              disabled={!workflow || !project || !prompt.trim()}
-              onClick={() =>
-                task(async () => {
-                  const r = await post("/runs", {
-                    workflow_id: workflow,
-                    project_id: project,
-                    prompt,
-                    mode,
-                    document_ids: docIds.length ? docIds : undefined,
-                  });
-                  setCreating(false);
-                  setSelected(r.id);
-                }, "研究任务已提交")
-              }
-            >
-              <Play size={15} />
-              开始运行
-            </ActionButton>
-          </div>
-        </Modal>
-      )}
     </>
+  );
+}
+
+export function WorkflowRunLauncher({
+  page,
+  initialWorkflowId,
+  onStarted,
+}: {
+  page: PageProps;
+  initialWorkflowId?: string;
+  onStarted: (run: RecordData) => void;
+}) {
+  const [project, setProject] = useProject();
+  const [workflow, setWorkflow] = useState(
+      initialWorkflowId ||
+        page.data.workflows?.find(
+          (w: any) =>
+            w.status === "published" &&
+            w.category ===
+              page.data.projects?.find((x: any) => x.id === project)?.category,
+        )?.id ||
+        page.data.workflows?.find((w: any) => w.status === "published")?.id ||
+        "",
+    ),
+    [prompt, setPrompt] = useState(""),
+    [mode, setMode] = useState(page.data.system?.default_mode || "rehearsal"),
+    [docIds, setDocIds] = useState<string[]>([]),
+    [file, setFile] = useState<File | null>(null),
+    [visibility, setVisibility] = useState("external"),
+    [keepInLibrary, setKeepInLibrary] = useState(false),
+    [uploads, setUploads] = useState<{ id: string; name: string }[]>([]);
+  const task = useTask(page);
+  const uploadAttachment = async () => {
+    const body = new FormData();
+    body.append("file", file!);
+    body.append("project_id", project);
+    body.append("visibility", visibility);
+    body.append("temporary", keepInLibrary ? "false" : "true");
+    const doc = await api("/documents/upload", { method: "POST", body });
+    setUploads((list) => [...list, { id: doc.id, name: doc.name }]);
+    setDocIds((ids) => [...ids, doc.id]);
+    setFile(null);
+    return doc;
+  };
+  useEffect(() => {
+    if (!workflow) return;
+    const selected = (page.data.workflows || []).find(
+      (item: any) => item.id === workflow,
+    );
+    if (!selected) return;
+    setPrompt(selected.source_prompt || "");
+    setMode(
+      selected.preferred_mode || page.data.system?.default_mode || "rehearsal",
+    );
+  }, [workflow]);
+  return (
+    <div className="workflow-run-launcher">
+      <div className="form-grid">
+        <Field label="研究流程">
+          <select
+            aria-label="复用研究流程"
+            value={workflow}
+            onChange={(event) => setWorkflow(event.target.value)}
+          >
+            <option value="">选择已发布流程</option>
+            {(page.data.workflows || []).map((item: any) => (
+              <option
+                key={item.id}
+                value={item.id}
+                disabled={item.status !== "published"}
+              >
+                {item.name} · {item.status === "published" ? "已发布" : "草稿"}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="研究项目">
+          <select
+            value={project}
+            onChange={(event) => {
+              setProject(event.target.value);
+              setDocIds([]);
+            }}
+          >
+            <option value="">选择项目</option>
+            {(page.data.projects || []).map((item: any) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </div>
+      <Field label="研究需求">
+        <textarea
+          rows={4}
+          value={prompt}
+          onChange={(event) => setPrompt(event.target.value)}
+          placeholder="明确研究对象、需要回答的问题和报告要求"
+        />
+      </Field>
+      <Field label="执行模式">
+        <select value={mode} onChange={(event) => setMode(event.target.value)}>
+          <option value="rehearsal">
+            本地演练 · 真实本地检索 + 确定性报告
+          </option>
+          <option value="live">真实模型 · DeepSeek（受预算限制）</option>
+        </select>
+      </Field>
+      <details className="doc-selection">
+        <summary>指定参考资料（未选时由流程检索当前项目资料）</summary>
+        <div className="checkbox-grid">
+          {(page.data.documents || [])
+            .filter((document: any) => document.project_id === project)
+            .map((document: any) => (
+              <label key={document.id} className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={docIds.includes(document.id)}
+                  onChange={(event) =>
+                    setDocIds(
+                      event.target.checked
+                        ? [...docIds, document.id]
+                        : docIds.filter((id) => id !== document.id),
+                    )
+                  }
+                />
+                {document.name}
+                {document.visibility === "local" && <small>本地限定</small>}
+              </label>
+            ))}
+        </div>
+      </details>
+      <Field
+        label="上传参考资料"
+        hint="上传后自动加入本次任务的指定资料，由文档解析节点处理后交给下游分析。仅限本地的资料不会发送给外部模型。"
+      >
+        <div className="upload-inline">
+          <input
+            type="file"
+            aria-label="选择要上传的资料"
+            accept=".txt,.md,.csv,.pdf,.docx,.png,.jpg,.jpeg,.webp"
+            onChange={(event) => setFile(event.target.files?.[0] || null)}
+          />
+          <select
+            aria-label="资料使用范围"
+            value={visibility}
+            onChange={(event) => setVisibility(event.target.value)}
+          >
+            <option value="external">允许外部模型使用</option>
+            <option value="local">仅限本地检索</option>
+          </select>
+          <ActionButton
+            className="button small"
+            disabled={!file || !project}
+            onClick={() =>
+              task(async () => {
+                await uploadAttachment();
+              }, "资料已上传并附加到本次任务")
+            }
+          >
+            上传并附加
+          </ActionButton>
+        </div>
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={keepInLibrary}
+            onChange={(event) => setKeepInLibrary(event.target.checked)}
+          />
+          保存到项目资料库（不勾选则仅本次任务使用，不进入资料库检索）
+        </label>
+        {uploads.length > 0 && (
+          <div className="uploaded-chips">
+            {uploads.map((upload) => (
+              <span className="uploaded-chip" key={upload.id}>
+                {upload.name}
+                <button
+                  type="button"
+                  aria-label={`移除 ${upload.name}`}
+                  onClick={() => {
+                    setUploads((list) =>
+                      list.filter((item) => item.id !== upload.id),
+                    );
+                    setDocIds((ids) => ids.filter((id) => id !== upload.id));
+                  }}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      </Field>
+      <InlineMessage>
+        {mode === "live"
+          ? `实际调用将计入统一预算。当前预算余量 ¥ ${Number(page.data.budget?.remaining_cny || 0).toFixed(2)}。本地限定资料不会外发。`
+          : "演练不调用模型、不产生 API 费用；其结论仅用于验证流程，将在运行和报告中明确标识。"}
+      </InlineMessage>
+      <div className="task-launch-actions">
+        <ActionButton
+          className="button primary"
+          disabled={!page.canEdit || !workflow || !project || !prompt.trim()}
+          onClick={async () => {
+            const run = await task(async () => {
+              let ids = docIds;
+              if (file) {
+                const document = await uploadAttachment();
+                ids = [...ids, document.id];
+              }
+              return post("/runs", {
+                workflow_id: workflow,
+                project_id: project,
+                prompt,
+                mode,
+                document_ids: ids.length ? ids : undefined,
+              });
+            }, "研究任务已提交");
+            if (run) onStarted(run);
+          }}
+        >
+          <Play size={15} />
+          开始运行
+        </ActionButton>
+      </div>
+    </div>
   );
 }
 function normalizeProgress(value: any) {
   const n = Number(value || 0);
   return Math.max(0, Math.min(100, Math.round(n > 0 && n < 1 ? n * 100 : n)));
+}
+// 节点输出中的能力调用链：payload.trace 层级展示，错误按稳定错误码呈现。
+function NodeCapabilityTrace({ run, step }: { run: any; step: any }) {
+  const payload = step.payload;
+  const trace = payload?.trace;
+  const error = payload?.error;
+  const failedCall = (run.capability_calls || []).find(
+    (c: any) => c.node_id === step.node_id && c.error_code,
+  );
+  if (!trace?.tool_calls?.length && !trace?.tool_id && !error && !failedCall)
+    return null;
+  return (
+    <div className="node-trace">
+      {payload?.skill_id && (
+        <SkillTraceHeader
+          skillId={payload.skill_id}
+          status={payload.status}
+          durationMs={trace?.duration_ms}
+        />
+      )}
+      <TraceView
+        trace={trace}
+        error={error}
+        indent={payload?.skill_id ? 1 : 0}
+      />
+      {!error && failedCall && (
+        <div className="trace-row error">
+          <Badge status="failed">
+            {capabilityErrorText(failedCall.error_code)}
+          </Badge>
+          <span className="muted">{failedCall.skill_id}</span>
+        </div>
+      )}
+    </div>
+  );
 }
 function RunDetail({
   run,
@@ -449,9 +569,14 @@ function RunDetail({
               disabled={!p.canReview}
               onClick={() =>
                 task(async () => {
+                  const approval = (p.data.approvals || []).find(
+                    (a: any) => a.run_id === run.id && a.status === "pending",
+                  );
                   if (run.report_id) {
                     const draft = await api(`/reports/${run.report_id}`);
-                    setReviewContent(draft.content || "");
+                    setReviewContent(draft.content || approval?.content || "");
+                  } else {
+                    setReviewContent(approval?.content || "");
                   }
                   setReview(true);
                 })
@@ -542,6 +667,7 @@ function RunDetail({
                 {active.error && (
                   <InlineMessage error>{active.error}</InlineMessage>
                 )}
+                <NodeCapabilityTrace run={run} step={active} />
                 <JsonView
                   value={
                     active.payload ?? {
@@ -962,6 +1088,19 @@ export function ReportsPage(p: PageProps) {
               >
                 <Download size={15} />
                 下载来源资料
+              </a>
+            </div>
+          )}
+          {report.citations[citationIndex].source_uri && (
+            <div className="modal-actions">
+              <a
+                className="button"
+                href={report.citations[citationIndex].source_uri}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <ExternalLink size={15} />
+                打开外部来源
               </a>
             </div>
           )}
@@ -1424,6 +1563,7 @@ export function SystemPage(p: PageProps) {
           }
         />
       )}
+      {p.data.user?.role === "admin" && <UsersPanel p={p} />}
       <Panel
         title="操作审计"
         detail="记录资源变更、执行、审批与系统操作。"
@@ -1546,6 +1686,251 @@ function SettingsForm({
           保存运行设置
         </ActionButton>
       </div>
+    </Panel>
+  );
+}
+
+function UsersPanel({ p }: { p: PageProps }) {
+  const [users, setUsers] = useState<any[] | null>(null),
+    [creating, setCreating] = useState(false),
+    [draft, setDraft] = useState({
+      username: "",
+      password: "",
+      name: "",
+      role: "operator",
+    }),
+    [editing, setEditing] = useState<any | null>(null),
+    [error, setError] = useState("");
+  const task = useTask(p);
+  const load = async () => setUsers(await api("/users"));
+  useEffect(() => {
+    load().catch((e) => setError(e.message));
+  }, []);
+  return (
+    <Panel
+      title="用户管理"
+      detail="仅管理员可见。注册入口只创建研究员账号，审核员由管理员在此创建。"
+      actions={
+        <button
+          className="button primary small"
+          onClick={() => {
+            setDraft({
+              username: "",
+              password: "",
+              name: "",
+              role: "operator",
+            });
+            setCreating(true);
+          }}
+        >
+          <UserPlus size={15} />
+          新建用户
+        </button>
+      }
+    >
+      {error && <InlineMessage error>{error}</InlineMessage>}
+      {users === null ? (
+        <Empty title="正在加载用户列表" />
+      ) : (
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>用户名</th>
+                <th>显示名</th>
+                <th>角色</th>
+                <th>状态</th>
+                <th>创建时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u: any) => (
+                <tr key={u.username}>
+                  <td>
+                    <code>{u.username}</code>
+                  </td>
+                  <td>{u.name}</td>
+                  <td>
+                    <Badge>{roleNames[u.role] || u.role}</Badge>
+                  </td>
+                  <td>
+                    <Badge status={u.enabled === false ? "pending" : "ready"}>
+                      {u.enabled === false ? "已停用" : "启用中"}
+                    </Badge>
+                  </td>
+                  <td className="muted">{time(u.created_at)}</td>
+                  <td>
+                    <div className="row-actions">
+                      <button
+                        className="text-button"
+                        onClick={() =>
+                          setEditing({
+                            username: u.username,
+                            name: u.name,
+                            role: u.role,
+                            password: "",
+                          })
+                        }
+                      >
+                        <Edit3 size={14} />
+                        编辑
+                      </button>
+                      {u.username !== p.data.user?.username && (
+                        <ActionButton
+                          className="text-button"
+                          onClick={() =>
+                            task(
+                              async () => {
+                                await put(`/users/${u.username}`, {
+                                  enabled: u.enabled === false,
+                                });
+                                await load();
+                              },
+                              u.enabled === false
+                                ? "账号已启用"
+                                : "账号已停用，会话已注销",
+                            )
+                          }
+                        >
+                          {u.enabled === false ? "启用" : "停用"}
+                        </ActionButton>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {creating && (
+        <Modal title="新建用户" onClose={() => setCreating(false)}>
+          <Field
+            label="用户名"
+            hint="3–32 位字母、数字或下划线，不区分大小写。"
+          >
+            <input
+              value={draft.username}
+              onChange={(e) => setDraft({ ...draft, username: e.target.value })}
+              placeholder="例如 reviewer_li"
+            />
+          </Field>
+          <Field label="显示名（选填）">
+            <input
+              value={draft.name}
+              maxLength={40}
+              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+            />
+          </Field>
+          <Field
+            label="初始密码"
+            hint="8–128 个字符，请线下告知对方并尽快修改。"
+          >
+            <input
+              type="password"
+              value={draft.password}
+              onChange={(e) => setDraft({ ...draft, password: e.target.value })}
+            />
+          </Field>
+          <Field label="角色" hint="管理员账号不能通过界面创建。">
+            <select
+              value={draft.role}
+              onChange={(e) => setDraft({ ...draft, role: e.target.value })}
+            >
+              <option value="operator">研究员 · 创建与运行任务</option>
+              <option value="reviewer">审核员 · 审阅与人工确认</option>
+            </select>
+          </Field>
+          <div className="modal-actions">
+            <button className="button" onClick={() => setCreating(false)}>
+              取消
+            </button>
+            <ActionButton
+              className="button primary"
+              disabled={!draft.username.trim() || draft.password.length < 8}
+              onClick={() =>
+                task(async () => {
+                  await post("/users", {
+                    username: draft.username.trim(),
+                    password: draft.password,
+                    name: draft.name.trim() || undefined,
+                    role: draft.role,
+                  });
+                  setCreating(false);
+                  await load();
+                }, "用户已创建")
+              }
+            >
+              创建用户
+            </ActionButton>
+          </div>
+        </Modal>
+      )}
+      {editing && (
+        <Modal
+          title={`编辑用户 · ${editing.username}`}
+          onClose={() => setEditing(null)}
+        >
+          <Field label="显示名">
+            <input
+              value={editing.name}
+              maxLength={40}
+              onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+            />
+          </Field>
+          <Field label="角色">
+            <select
+              value={editing.role}
+              onChange={(e) => setEditing({ ...editing, role: e.target.value })}
+            >
+              <option value="operator">研究员</option>
+              <option value="reviewer">审核员</option>
+              {editing.role === "admin" && (
+                <option value="admin">管理员</option>
+              )}
+            </select>
+          </Field>
+          <Field
+            label="重置密码"
+            hint="留空则不修改密码；重置后该用户的会话会被注销。"
+          >
+            <input
+              type="password"
+              value={editing.password}
+              onChange={(e) =>
+                setEditing({ ...editing, password: e.target.value })
+              }
+              placeholder="输入新密码（至少 8 位）"
+            />
+          </Field>
+          <div className="modal-actions">
+            <button className="button" onClick={() => setEditing(null)}>
+              取消
+            </button>
+            <ActionButton
+              className="button primary"
+              disabled={
+                !editing.name.trim() ||
+                (editing.password && editing.password.length < 8)
+              }
+              onClick={() =>
+                task(async () => {
+                  await put(`/users/${editing.username}`, {
+                    name: editing.name.trim(),
+                    role: editing.role,
+                    ...(editing.password ? { password: editing.password } : {}),
+                  });
+                  setEditing(null);
+                  await load();
+                }, "用户信息已更新")
+              }
+            >
+              保存修改
+            </ActionButton>
+          </div>
+        </Modal>
+      )}
     </Panel>
   );
 }

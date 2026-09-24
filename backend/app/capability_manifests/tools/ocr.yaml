@@ -1,0 +1,24 @@
+tools:
+  - id: local.ocr.rapidocr
+    version: 1.0.0
+    name: RapidOCR 本地识别
+    provider: local
+    entrypoint: backend.app.capabilities.tools.ocr:rapidocr
+    input_schema:
+      type: object
+      properties:
+        document_id: {type: string}
+        document_ids: {type: array, items: {type: string}}
+        project_id: {type: string}
+    output_schema:
+      type: object
+      properties:
+        text: {type: string}
+        evidence: {type: array}
+        region_count: {type: integer}
+      required: [text, evidence, region_count]
+    read_only: false
+    network: none
+    data_egress: none
+    timeout_seconds: 300
+    requires_confirmation: false

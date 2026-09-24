@@ -1,0 +1,31 @@
+id: ocr
+version: 2.0.0
+name: OCR 识别
+description: RapidOCR ONNX 在 CPU 上识别上传图片中的文字
+execution_mode: recipe
+allowed_tools:
+  - local.ocr.rapidocr
+node_kinds: [parse]
+input_schema:
+  type: object
+  properties:
+    document_id: {type: string}
+    document_ids: {type: array, items: {type: string}}
+    project_id: {type: string}
+output_schema:
+  type: object
+  properties:
+    text: {type: string}
+    evidence: {type: array}
+    region_count: {type: integer}
+    elapsed: {}
+  required: [text, evidence, region_count]
+evidence_required: false
+requires_documents: true
+side_effect: writes_ocr_chunks
+recipe:
+  - tool: local.ocr.rapidocr
+    args:
+      document_id: "{input.document_id}"
+      document_ids: "{input.document_ids}"
+      project_id: "{input.project_id}"

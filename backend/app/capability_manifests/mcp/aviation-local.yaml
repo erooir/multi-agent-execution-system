@@ -1,0 +1,10 @@
+# 本地航空数据 MCP Server：暴露 OurAirports 离线查询工具。
+id: aviation-local
+transport: stdio
+command: uv
+args: ["run", "python", "-m", "backend.app.mcp_servers.aviation_server"]
+enabled: true
+tool_allowlist: [lookup_airport, nearby_airports]
+roots: []
+startup_timeout_seconds: 30
+call_timeout_seconds: 30

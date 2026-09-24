@@ -1,0 +1,48 @@
+tools:
+  - id: research.openalex.search_works
+    version: 1.0.0
+    name: OpenAlex 文献检索
+    provider: http
+    entrypoint: backend.app.capabilities.tools.research:search_works
+    input_schema:
+      type: object
+      properties:
+        query: {type: string}
+        limit: {type: integer}
+      required: [query]
+    output_schema:
+      type: object
+      properties:
+        works: {type: array}
+        count: {type: integer}
+      required: [works, count]
+    read_only: true
+    network: required
+    allowed_hosts: ["api.openalex.org"]
+    data_egress: query
+    timeout_seconds: 15
+    requires_confirmation: false
+
+  - id: research.crossref.search_doi
+    version: 1.0.0
+    name: Crossref 文献检索
+    provider: http
+    entrypoint: backend.app.capabilities.tools.research:search_doi
+    input_schema:
+      type: object
+      properties:
+        query: {type: string}
+        limit: {type: integer}
+      required: [query]
+    output_schema:
+      type: object
+      properties:
+        works: {type: array}
+        count: {type: integer}
+      required: [works, count]
+    read_only: true
+    network: required
+    allowed_hosts: ["api.crossref.org"]
+    data_egress: query
+    timeout_seconds: 15
+    requires_confirmation: false

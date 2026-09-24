@@ -13,7 +13,7 @@ uv sync --frozen --python 3.12
 powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 ```
 
-Open http://127.0.0.1:8000 and choose **注册** to create an account, or sign in with an existing account. Registration creates a researcher account; privileged roles cannot be selected at registration. User records and salted password hashes persist locally. Existing accounts and sessions are migrated once without resetting their identity. The application is bound to the local machine and currently uses a shared workspace.
+Open http://127.0.0.1:8000 and choose **注册** to create an account, or sign in with an existing account. Registration creates a researcher account; privileged roles cannot be selected at registration. Administrators can create reviewer/researcher accounts and manage users (role, enable/disable, password reset) under **系统与审计 → 用户管理**. User records and salted password hashes persist locally. Existing accounts and sessions are migrated once without resetting their identity. The application is bound to the local machine and currently uses a shared workspace.
 
 Store your DeepSeek key in the Windows **user environment variable** `deepseek_api_key`. The backend reads it directly; never place it in source files, browser settings, or Git. The current default model is `deepseek-flash`. Model traffic is HTTPS to the official endpoint.
 

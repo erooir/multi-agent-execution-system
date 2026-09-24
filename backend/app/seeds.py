@@ -55,6 +55,9 @@ AGENTS = [
             "ocr",
             "semantic_search",
             "multimodal",
+            "airport_lookup",
+            "aviation_weather",
+            "literature_search",
         ],
     },
     {
@@ -64,6 +67,14 @@ AGENTS = [
         "description": "按照模板组织有来源的结论、限制与人工修改意见。",
         "instructions": "每条重要事实应有真实证据。不得伪造来源或未检索到的数字。合成资料须明确标注，保留不确定性与审核意见。",
         "skill_ids": ["document_parse"],
+    },
+    {
+        "id": "agent-parser",
+        "name": "文档解析智能体",
+        "role": "parser",
+        "description": "解析上传的文档与图片，抽取结构化要点并交给下游智能体处理。",
+        "instructions": "忠实整理上传资料的结构与要点，保留来源位置与证据标识。不补充资料之外的事实，无法解析时明确说明原因。仅本地资料禁止交给外部模型。",
+        "skill_ids": ["document_parse", "ocr", "multimodal"],
     },
     {
         "id": "agent-coordinator",
@@ -310,7 +321,7 @@ def _workflow(definition: tuple) -> dict:
     identity, category, name, description, items, report_template = definition
     specs = [
         ("start", "开始任务", "start", "agent-coordinator", {}),
-        ("parse", "解析目标与约束", "parse", "agent-planner", {}),
+        ("parse", "解析目标与约束", "parse", "agent-parser", {}),
         ("retrieve", "检索资料与证据", "retrieve", "agent-retriever", {"limit": 8}),
         ("condition", "检查证据是否充分", "condition", "agent-coordinator", {"min_evidence": 1}),
         ("batch", "批量整理研究维度", "batch", "agent-coordinator", {"items": items, "count": len(items)}),
@@ -385,6 +396,7 @@ def seed_all() -> None:
     with _seed_lock:
         if store.get("seed_state", DATASET_VERSION):
             _migrate_seed_workflows()
+            _migrate_seed_agents()
             _ensure_image_fixture(knowledge)
             return
         for project in PROJECTS:
@@ -512,12 +524,37 @@ def seed_all() -> None:
                         },
                     )
         _ensure_image_fixture(knowledge)
+        _migrate_seed_agents()
         store.save("seed_state", {"id": DATASET_VERSION, "synthetic": True, "sample_count": 30})
         store.audit(
             "seed.initialize",
             DATASET_VERSION,
-            {"projects": 3, "agents": 4, "workflows": 6, "samples": 30, "documents": 10},
+            {
+                "projects": 3,
+                "agents": len(store.list("agents")),
+                "workflows": 6,
+                "samples": 30,
+                "documents": 10,
+            },
         )
+
+
+def _migrate_seed_agents() -> None:
+    """补齐系统 Agent 及新增授权；不覆盖用户修改过的说明和提示词。"""
+    for agent in AGENTS:
+        current = store.get("agents", agent["id"])
+        if not current:
+            store.save("agents", {**agent, "model": "deepseek-flash", "enabled": True, "version": 1})
+            continue
+        missing = [
+            skill_id
+            for skill_id in agent.get("skill_ids", [])
+            if skill_id not in current.get("skill_ids", [])
+        ]
+        if missing:
+            current["skill_ids"] = [*current.get("skill_ids", []), *missing]
+            current["version"] = int(current.get("version", 1)) + 1
+            store.save("agents", current)
 
 
 def _migrate_seed_workflows() -> None:

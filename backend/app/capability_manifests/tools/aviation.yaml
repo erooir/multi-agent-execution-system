@@ -1,0 +1,120 @@
+tools:
+  - id: aviation.noaa.get_metar
+    version: 1.0.0
+    name: NOAA METAR 实况
+    provider: http
+    entrypoint: backend.app.capabilities.tools.aviation:get_metar
+    input_schema:
+      type: object
+      properties:
+        icao: {type: string}
+      required: [icao]
+    output_schema:
+      type: object
+      properties:
+        station: {type: string}
+        reports: {type: array}
+        count: {type: integer}
+      required: [reports, count]
+    read_only: true
+    network: required
+    allowed_hosts: ["aviationweather.gov"]
+    data_egress: query
+    timeout_seconds: 15
+    requires_confirmation: false
+
+  - id: aviation.noaa.get_taf
+    version: 1.0.0
+    name: NOAA TAF 预报
+    provider: http
+    entrypoint: backend.app.capabilities.tools.aviation:get_taf
+    input_schema:
+      type: object
+      properties:
+        icao: {type: string}
+      required: [icao]
+    output_schema:
+      type: object
+      properties:
+        station: {type: string}
+        reports: {type: array}
+        count: {type: integer}
+      required: [reports, count]
+    read_only: true
+    network: required
+    allowed_hosts: ["aviationweather.gov"]
+    data_egress: query
+    timeout_seconds: 15
+    requires_confirmation: false
+
+  - id: aviation.noaa.get_sigmet
+    version: 1.0.0
+    name: NOAA SIGMET/AIRMET 告警
+    provider: http
+    entrypoint: backend.app.capabilities.tools.aviation:get_sigmet
+    input_schema:
+      type: object
+      properties:
+        bbox: {type: string}
+    output_schema:
+      type: object
+      properties:
+        reports: {type: array}
+        count: {type: integer}
+      required: [reports, count]
+    read_only: true
+    network: required
+    allowed_hosts: ["aviationweather.gov"]
+    data_egress: query
+    timeout_seconds: 15
+    requires_confirmation: false
+
+  - id: aviation.ourairports.lookup_airport
+    version: 1.0.0
+    name: 机场查询（OurAirports 离线快照）
+    provider: local
+    entrypoint: backend.app.capabilities.tools.airports:lookup_airport
+    input_schema:
+      type: object
+      properties:
+        query: {type: string}
+        limit: {type: integer}
+      required: [query]
+    output_schema:
+      type: object
+      properties:
+        airports: {type: array}
+        count: {type: integer}
+        snapshot_date: {type: string}
+      required: [airports, count]
+    read_only: true
+    network: none
+    data_egress: none
+    timeout_seconds: 15
+    requires_confirmation: false
+
+  - id: aviation.ourairports.nearby_airports
+    version: 1.0.0
+    name: 附近机场（OurAirports 离线快照）
+    provider: local
+    entrypoint: backend.app.capabilities.tools.airports:nearby_airports
+    input_schema:
+      type: object
+      properties:
+        latitude: {type: number}
+        longitude: {type: number}
+        radius_km: {type: number}
+        limit: {type: integer}
+      required: [latitude, longitude]
+    output_schema:
+      type: object
+      properties:
+        airports: {type: array}
+        count: {type: integer}
+        snapshot_date: {type: string}
+      required: [airports, count]
+    read_only: true
+    network: none
+    data_egress: none
+    timeout_seconds: 15
+    requires_confirmation: false
