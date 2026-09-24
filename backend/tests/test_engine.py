@@ -231,9 +231,7 @@ async def test_dynamic_plan_uses_model_topology_and_rejects_bad_graph(isolated_e
 
 
 @pytest.mark.asyncio
-async def test_live_plan_repairs_document_skill_without_attachment_intent(
-    isolated_engine, monkeypatch
-):
+async def test_live_plan_repairs_document_skill_without_attachment_intent(isolated_engine, monkeypatch):
     import json
 
     bad = {
@@ -245,10 +243,7 @@ async def test_live_plan_repairs_document_skill_without_attachment_intent(
             {"id": "h", "kind": "review"},
             {"id": "e", "kind": "end"},
         ],
-        "edges": [
-            {"source": a, "target": b}
-            for a, b in zip(["s", "p", "r", "h"], ["p", "r", "h", "e"])
-        ],
+        "edges": [{"source": a, "target": b} for a, b in zip(["s", "p", "r", "h"], ["p", "r", "h", "e"])],
     }
     repaired = deepcopy(bad)
     repaired["name"] = "普通需求分析"
@@ -259,9 +254,7 @@ async def test_live_plan_repairs_document_skill_without_attachment_intent(
         return {"text": responses.pop(0)}
 
     monkeypatch.setattr(engine.model_gateway, "complete", fake_complete)
-    workflow = await engine.plan(
-        {"prompt": "给我检索一下当前大城市的机场状况。", "mode": "live"}
-    )
+    workflow = await engine.plan({"prompt": "给我检索一下当前大城市的机场状况。", "mode": "live"})
 
     parse = next(node for node in workflow["nodes"] if node["data"]["kind"] == "parse")
     assert "skill_id" not in parse["data"]
@@ -289,21 +282,15 @@ async def test_legacy_document_skill_without_selected_documents_is_skipped(isola
     assert parse_step["status"] == "completed"
     assert parse_step["payload"]["status"] == "skipped"
     assert "未选择上传资料" in parse_step["payload"]["reason"]
-    assert not any(
-        call["skill_id"] == "document_parse" for call in run.get("capability_calls", [])
-    )
+    assert not any(call["skill_id"] == "document_parse" for call in run.get("capability_calls", []))
 
 
 @pytest.mark.asyncio
-async def test_external_airport_references_drive_condition_analysis_and_report(
-    isolated_engine, monkeypatch
-):
+async def test_external_airport_references_drive_condition_analysis_and_report(isolated_engine, monkeypatch):
     from backend.app.capabilities.tools import airports as airport_tools
 
     store, _ = isolated_engine
-    monkeypatch.setenv(
-        "OURAIRPORTS_DIR", str(Path(__file__).parent / "fixtures" / "ourairports")
-    )
+    monkeypatch.setenv("OURAIRPORTS_DIR", str(Path(__file__).parent / "fixtures" / "ourairports"))
     airport_tools.reset_cache()
     workflow = store.get("workflows", "workflow-tech-trends")
     retrieve = next(node for node in workflow["nodes"] if node["data"]["kind"] == "retrieve")
@@ -333,15 +320,11 @@ async def test_external_airport_references_drive_condition_analysis_and_report(
 
 
 @pytest.mark.asyncio
-async def test_retrieve_node_runs_business_agent_over_authorized_skills(
-    isolated_engine, monkeypatch
-):
+async def test_retrieve_node_runs_business_agent_over_authorized_skills(isolated_engine, monkeypatch):
     from backend.app.capabilities.tools import airports as airport_tools
 
     store, _ = isolated_engine
-    monkeypatch.setenv(
-        "OURAIRPORTS_DIR", str(Path(__file__).parent / "fixtures" / "ourairports")
-    )
+    monkeypatch.setenv("OURAIRPORTS_DIR", str(Path(__file__).parent / "fixtures" / "ourairports"))
     airport_tools.reset_cache()
     run = store.save(
         "runs",

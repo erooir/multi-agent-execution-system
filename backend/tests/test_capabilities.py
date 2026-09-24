@@ -201,9 +201,7 @@ async def test_unknown_tool_returns_capability_not_found(env):
 async def test_local_data_blocked_from_network_tool(env):
     _, _, _, tool_runtime, _ = env
     context = ExecutionContext(mode="live", network_policy="allow", data_visibility="local")
-    result = await tool_runtime.invoke(
-        "model.vision.analyze", {"document_id": "doc_x"}, context
-    )
+    result = await tool_runtime.invoke("model.vision.analyze", {"document_id": "doc_x"}, context)
     assert result.status == "blocked"
     assert result.error.code == "data_egress_blocked"
 
@@ -366,9 +364,7 @@ async def test_skill_multimodal_blocks_local_document(env):
     buffer = io.BytesIO()
     Image.new("RGB", (20, 20), "white").save(buffer, format="PNG")
     document = knowledge.ingest("本地.png", buffer.getvalue(), "test-project", "local")
-    result = await skill_runtime.execute(
-        "multimodal", {"document_id": document["id"], "mode": "live"}, LIVE
-    )
+    result = await skill_runtime.execute("multimodal", {"document_id": document["id"], "mode": "live"}, LIVE)
     assert result.status == "blocked"
     assert result.error.code == "data_egress_blocked"
     assert "禁止发送" in result.error.message
@@ -404,9 +400,7 @@ async def test_skill_multimodal_live_uses_budget_gateway(env, monkeypatch):
         return {"text": "图片中是合成测试图案。", "usage": {"prompt_tokens": 1}, "model": "deepseek-flash"}
 
     monkeypatch.setattr(gateway_module.model_gateway, "complete", fake_complete)
-    result = await skill_runtime.execute(
-        "multimodal", {"document_id": document["id"], "mode": "live"}, LIVE
-    )
+    result = await skill_runtime.execute("multimodal", {"document_id": document["id"], "mode": "live"}, LIVE)
     assert result.status == "completed"
     assert result.data["text"] == "图片中是合成测试图案。"
     assert result.data["document_id"] == document["id"]
@@ -450,7 +444,7 @@ def test_build_tool_functions_call_through_runtime():
 
 # --------------------------------------------------------------------- MCP
 
-_FASTMCP_SERVER = '''
+_FASTMCP_SERVER = """
 from fastmcp import FastMCP
 
 mcp = FastMCP("fixture")
@@ -466,7 +460,7 @@ def hidden() -> str:
     return "不应被发现"
 
 mcp.run()
-'''
+"""
 
 
 @pytest.fixture

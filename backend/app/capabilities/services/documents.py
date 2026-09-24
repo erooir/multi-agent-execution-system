@@ -101,8 +101,7 @@ def extract_parts(suffix: str, content: bytes) -> list[tuple[str, str]]:
 
 def build_evidence(chunk: dict, score: float) -> dict:
     return {
-        key: chunk[key]
-        for key in ("id", "document_id", "document_name", "location", "text", "visibility")
+        key: chunk[key] for key in ("id", "document_id", "document_name", "location", "text", "visibility")
     } | {
         "score": round(score, 5),
         "project_id": chunk.get("project_id"),

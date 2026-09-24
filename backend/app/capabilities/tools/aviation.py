@@ -128,11 +128,7 @@ def get_sigmet_parse(payload: Any, arguments: dict) -> dict:
     reports = payload if isinstance(payload, list) else []
     entries = []
     for item in reports:
-        raw = (
-            item.get("rawAirSigmet")
-            or item.get("raw")
-            or json.dumps(item, ensure_ascii=False)[:400]
-        )
+        raw = item.get("rawAirSigmet") or item.get("raw") or json.dumps(item, ensure_ascii=False)[:400]
         entries.append(
             {
                 "id": item.get("airSigmetId"),

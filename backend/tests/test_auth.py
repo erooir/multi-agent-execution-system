@@ -301,9 +301,7 @@ def test_admin_manages_users(identity_app):
         )
         assert database.get("users", "root2") is None
 
-        updated = client.put(
-            "/api/users/reviewer_2", json={"name": "资深审核", "role": "operator"}
-        )
+        updated = client.put("/api/users/reviewer_2", json={"name": "资深审核", "role": "operator"})
         assert updated.status_code == 200
         assert updated.json()["name"] == "资深审核" and updated.json()["role"] == "operator"
 
@@ -339,9 +337,7 @@ def test_user_management_requires_admin(identity_app):
         _login(client, "operator")
         assert client.get("/api/users").status_code == 403
         assert (
-            client.post(
-                "/api/users", json={"username": "sneaky", "password": "sneaky-password"}
-            ).status_code
+            client.post("/api/users", json={"username": "sneaky", "password": "sneaky-password"}).status_code
             == 403
         )
         assert client.put("/api/users/reviewer", json={"enabled": False}).status_code == 403
@@ -360,7 +356,5 @@ def test_disabling_user_revokes_sessions(identity_app):
         _login(admin_client)
         admin_client.put("/api/users/temp_user", json={"enabled": False})
         assert not [
-            session
-            for session in database.list("sessions")
-            if session.get("username") == "temp_user"
+            session for session in database.list("sessions") if session.get("username") == "temp_user"
         ]

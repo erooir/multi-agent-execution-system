@@ -31,9 +31,7 @@ def read_chunks(
     knowledge = _knowledge_module.knowledge
     documents = _checked_documents(document_ids, project_id)
     evidence = [
-        build_evidence(chunk, 1.0)
-        for document in documents
-        for chunk in knowledge.chunks(document["id"])
+        build_evidence(chunk, 1.0) for document in documents for chunk in knowledge.chunks(document["id"])
     ]
     return {"evidence": evidence, "count": len(evidence)}
 

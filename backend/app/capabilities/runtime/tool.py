@@ -215,9 +215,7 @@ class ToolRuntime:
             result.trace.tool_version = definition.version
             result.trace.provider = definition.provider
         else:
-            raise CapabilityError(
-                TOOL_RESULT_INVALID, f"Tool {definition.id} 返回了无法规范化的结果类型"
-            )
+            raise CapabilityError(TOOL_RESULT_INVALID, f"Tool {definition.id} 返回了无法规范化的结果类型")
         try:
             validate_value(definition.output_schema, data, where=f"{definition.id}.output")
         except CapabilityError as error:

@@ -166,9 +166,7 @@ def mcp_server_summaries() -> list[dict]:
 def capability_stats(skills: list[dict], tools: list[dict], servers: list[dict]) -> dict:
     enabled_servers = {server["id"] for server in servers if server.get("enabled")}
     healthy_tools = sum(
-        1
-        for tool in tools
-        if tool["provider"] != "mcp" or tool["id"].split(".")[1] in enabled_servers
+        1 for tool in tools if tool["provider"] != "mcp" or tool["id"].split(".")[1] in enabled_servers
     )
     return {
         "skills": len(skills),
@@ -201,9 +199,7 @@ def bootstrap(user: dict = read):
         }
         for r in store.list("runs")[:60]
     ]
-    result["documents"] = [
-        safe_document(d) for d in store.list("documents") if not d.get("temporary")
-    ]
+    result["documents"] = [safe_document(d) for d in store.list("documents") if not d.get("temporary")]
     result["skills"] = skill_summaries(
         capability_runtime().skills,
         knowledge,
@@ -212,9 +208,7 @@ def bootstrap(user: dict = read):
     )
     result["tools"] = tool_summaries()
     result["mcp_servers"] = mcp_server_summaries()
-    result["capability_stats"] = capability_stats(
-        result["skills"], result["tools"], result["mcp_servers"]
-    )
+    result["capability_stats"] = capability_stats(result["skills"], result["tools"], result["mcp_servers"])
     result["stats"] = {
         "projects": len(result["projects"]),
         "agents": len(result["agents"]),
@@ -370,10 +364,7 @@ def _skill_test_context(body: dict, mode: str, user: dict) -> ExecutionContext:
     document_ids = body.get("document_ids") or ([body["document_id"]] if body.get("document_id") else [])
     visibility = (
         "local"
-        if any(
-            (store.get("documents", doc_id) or {}).get("visibility") == "local"
-            for doc_id in document_ids
-        )
+        if any((store.get("documents", doc_id) or {}).get("visibility") == "local" for doc_id in document_ids)
         else "external"
     )
     return ExecutionContext(
@@ -434,9 +425,11 @@ async def test_tool(item_id: str, body: dict, user: dict = edit):
     mode = "live" if mode == "real" else mode
     if mode not in {"live", "rehearsal"}:
         raise HTTPException(400, "模式无效")
-    arguments = body.get("input") if isinstance(body.get("input"), dict) else {
-        key: value for key, value in body.items() if key not in {"mode", "input"}
-    }
+    arguments = (
+        body.get("input")
+        if isinstance(body.get("input"), dict)
+        else {key: value for key, value in body.items() if key not in {"mode", "input"}}
+    )
     context = _skill_test_context(body, mode, user)
     result = await runtime.tool_runtime.invoke(item_id, arguments, context)
     audit("tool.test", item_id, user, {"mode": mode, "status": result.status})

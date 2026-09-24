@@ -22,9 +22,7 @@ def lookup_airport(query: str, limit: int = 8) -> dict:
 @mcp.tool()
 def nearby_airports(latitude: float, longitude: float, radius_km: float = 100.0, limit: int = 20) -> dict:
     """按经纬度与半径查询附近机场（OurAirports 离线快照）。"""
-    return airports.nearby_airports(
-        latitude=latitude, longitude=longitude, radius_km=radius_km, limit=limit
-    )
+    return airports.nearby_airports(latitude=latitude, longitude=longitude, radius_km=radius_km, limit=limit)
 
 
 if __name__ == "__main__":

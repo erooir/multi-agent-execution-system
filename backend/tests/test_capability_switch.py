@@ -44,17 +44,13 @@ async def test_document_skill_without_input_is_skipped_before_schema_validation(
     # 也不再用缺少 document_ids 的 schema 错误中断整条任务。
     next(n for n in workflow["nodes"] if n["id"] == "parse")["data"]["skill_id"] = "document_parse"
     store.save("workflows", workflow)
-    run = engine.create_run(
-        {"workflow_id": workflow["id"], "prompt": "无资料解析", "mode": "rehearsal"}
-    )
+    run = engine.create_run({"workflow_id": workflow["id"], "prompt": "无资料解析", "mode": "rehearsal"})
     run = await settle(run["id"])
     assert run["status"] == "waiting_review", run.get("error")
     parse = next(step for step in run["steps"] if step["kind"] == "parse")
     assert parse["payload"]["status"] == "skipped"
     assert "未选择上传资料" in parse["payload"]["reason"]
-    assert not any(
-        call["skill_id"] == "document_parse" for call in run.get("capability_calls", [])
-    )
+    assert not any(call["skill_id"] == "document_parse" for call in run.get("capability_calls", []))
 
 
 def test_plan_prompt_catalog_comes_from_registry():
@@ -209,9 +205,7 @@ def test_api_capability_endpoints(isolated_engine):
         assert skill_result["skill_id"] == "knowledge_search"
         assert skill_result["status"] == "completed"
         assert skill_result["trace"]["tool_calls"]
-        assert client.post(
-            "/api/skills/unknown_skill/test", json={"query": "x"}
-        ).status_code == 404
+        assert client.post("/api/skills/unknown_skill/test", json={"query": "x"}).status_code == 404
 
 
 def test_api_agent_live_test_uses_run_agent(isolated_engine, monkeypatch):

@@ -312,7 +312,6 @@ class ModelGateway:
                 "finish_reason": (transport.result.get("finish_reasons") or [None])[0],
             }
 
-
     @staticmethod
     def _bind_tool(name: str, binding, tool_calls: list):
         """把受控 callable 包成 Agno 工具并记录 Skill/Tool 分层调用。"""
@@ -361,7 +360,9 @@ class ModelGateway:
         run_id = getattr(context, "run_id", None)
         transport = MeteredTransport(self.ledger, "agent_run", run_id)
         tool_calls: list[dict] = []
-        tools = [self._bind_tool(name, binding, tool_calls) for name, binding in (tool_bindings or {}).items()]
+        tools = [
+            self._bind_tool(name, binding, tool_calls) for name, binding in (tool_bindings or {}).items()
+        ]
         async with (
             self.semaphore,
             httpx.AsyncClient(transport=transport, timeout=90, follow_redirects=False) as http_client,

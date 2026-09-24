@@ -175,7 +175,16 @@ def save_workflow(data: dict, workflow_id: str | None = None) -> dict:
     if previous:
         snapshot(previous)
     result = deepcopy(previous or {})
-    for key in ("name", "description", "category", "project_id", "nodes", "edges", "source_prompt", "preferred_mode"):
+    for key in (
+        "name",
+        "description",
+        "category",
+        "project_id",
+        "nodes",
+        "edges",
+        "source_prompt",
+        "preferred_mode",
+    ):
         if key in data:
             result[key] = deepcopy(data[key])
     result.update(

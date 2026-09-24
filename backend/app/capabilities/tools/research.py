@@ -42,10 +42,7 @@ def search_works_parse(payload: Any, arguments: dict) -> dict:
     works = payload.get("results", []) if isinstance(payload, dict) else []
     entries = []
     for work in works:
-        authors = [
-            a.get("author", {}).get("display_name", "")
-            for a in work.get("authorships", [])
-        ][:5]
+        authors = [a.get("author", {}).get("display_name", "") for a in work.get("authorships", [])][:5]
         source = ((work.get("primary_location") or {}).get("source") or {}).get("display_name")
         entries.append(
             {
@@ -84,9 +81,7 @@ def search_doi_parse(payload: Any, arguments: dict) -> dict:
     for item in items:
         title = (item.get("title") or [""])[0]
         published = (item.get("published") or {}).get("date-parts", [[None]])[0][0]
-        authors = [
-            f"{a.get('family', '')} {a.get('given', '')}".strip() for a in item.get("author", [])
-        ][:5]
+        authors = [f"{a.get('family', '')} {a.get('given', '')}".strip() for a in item.get("author", [])][:5]
         entries.append(
             {
                 "title": title,

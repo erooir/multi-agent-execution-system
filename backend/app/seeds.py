@@ -529,7 +529,13 @@ def seed_all() -> None:
         store.audit(
             "seed.initialize",
             DATASET_VERSION,
-            {"projects": 3, "agents": len(store.list("agents")), "workflows": 6, "samples": 30, "documents": 10},
+            {
+                "projects": 3,
+                "agents": len(store.list("agents")),
+                "workflows": 6,
+                "samples": 30,
+                "documents": 10,
+            },
         )
 
 
@@ -540,7 +546,11 @@ def _migrate_seed_agents() -> None:
         if not current:
             store.save("agents", {**agent, "model": "deepseek-flash", "enabled": True, "version": 1})
             continue
-        missing = [skill_id for skill_id in agent.get("skill_ids", []) if skill_id not in current.get("skill_ids", [])]
+        missing = [
+            skill_id
+            for skill_id in agent.get("skill_ids", [])
+            if skill_id not in current.get("skill_ids", [])
+        ]
         if missing:
             current["skill_ids"] = [*current.get("skill_ids", []), *missing]
             current["version"] = int(current.get("version", 1)) + 1

@@ -378,4 +378,5 @@ class Knowledge:
             "elapsed": elapsed,
         }
 
+
 knowledge = Knowledge()

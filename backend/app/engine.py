@@ -362,16 +362,10 @@ def _analysis_text(run: dict) -> str:
     return "\n\n".join(texts)
 
 
-def _run_context(
-    run: dict, node_id: str | None = None, agent: dict | None = None
-) -> ExecutionContext:
+def _run_context(run: dict, node_id: str | None = None, agent: dict | None = None) -> ExecutionContext:
     """从运行记录构造能力执行上下文：live 放行网络，rehearsal 只做本地真实执行。"""
     documents = [store.get("documents", doc_id) for doc_id in run.get("document_ids") or []]
-    visibility = (
-        "local"
-        if any(doc and doc.get("visibility") == "local" for doc in documents)
-        else "external"
-    )
+    visibility = "local" if any(doc and doc.get("visibility") == "local" for doc in documents) else "external"
     return ExecutionContext(
         run_id=run["id"],
         step_id=node_id,
@@ -738,9 +732,7 @@ async def _execute_node(run_id: str, node_id: str) -> dict:
                 fallback.update(
                     method="规则解析",
                     requirements=[
-                        p.strip()
-                        for p in run["prompt"].replace("；", "\n").splitlines()
-                        if p.strip()
+                        p.strip() for p in run["prompt"].replace("；", "\n").splitlines() if p.strip()
                     ],
                 )
             return fallback
@@ -878,11 +870,7 @@ async def _execute_node(run_id: str, node_id: str) -> dict:
             "items": results,
             "evidence_ids": [e["id"] for e in evidence],
             "excluded_local_evidence": len(
-                [
-                    item
-                    for item in run.get("evidence", [])
-                    if item not in evidence
-                ]
+                [item for item in run.get("evidence", []) if item not in evidence]
             ),
         }
     if kind == "review":
@@ -1129,11 +1117,9 @@ def _normalize_model_plan(response_text: str, prompt: str, data: dict) -> dict:
             (
                 a
                 for a in agents
-                if a.get("role") == role_for.get(node.get("kind"), "coordinator") and a.get("enabled", True)
-                and (
-                    not node.get("skill_id")
-                    or node.get("skill_id") in a.get("skill_ids", [])
-                )
+                if a.get("role") == role_for.get(node.get("kind"), "coordinator")
+                and a.get("enabled", True)
+                and (not node.get("skill_id") or node.get("skill_id") in a.get("skill_ids", []))
             ),
             None,
         )
@@ -1385,9 +1371,7 @@ async def _run_plan(job_id: str, data: dict) -> None:
         current = store.get("planning_jobs", job_id)
         attempts = current.get("attempts", [])
         if status == "invalid":
-            attempts = attempts + [
-                {"attempt": attempt, "status": "invalid", "error": str(detail)[:2000]}
-            ]
+            attempts = attempts + [{"attempt": attempt, "status": "invalid", "error": str(detail)[:2000]}]
             stage = f"第 {attempt} 次生成未通过硬规则校验，正在携带错误原因让模型参考修复"
         else:
             attempts = attempts + [
@@ -1404,9 +1388,7 @@ async def _run_plan(job_id: str, data: dict) -> None:
     try:
         if mode == "live":
             _update_planning_job(job_id, stage="模型正在拆解任务并生成流程草稿")
-            result = await _plan_model_loop(
-                prompt, data, max_repairs=PLAN_MAX_REPAIRS, on_progress=progress
-            )
+            result = await _plan_model_loop(prompt, data, max_repairs=PLAN_MAX_REPAIRS, on_progress=progress)
             result["description"] = "【真实模型规划】" + result["description"]
         else:
             _update_planning_job(job_id, stage="本地规则规划（不调用模型）")

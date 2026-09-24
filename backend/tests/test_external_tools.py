@@ -166,9 +166,7 @@ async def test_openalex_and_crossref(runtime):
     assert work["doi"] == "https://doi.org/10.0000/demo1"
     assert work["cited_by_count"] == 7
     assert openalex.evidence[0]["source_uri"] == "https://doi.org/10.0000/demo1"
-    crossref = await tool_runtime.invoke(
-        "research.crossref.search_doi", {"query": "城市空中交通"}, LIVE
-    )
+    crossref = await tool_runtime.invoke("research.crossref.search_doi", {"query": "城市空中交通"}, LIVE)
     assert crossref.status == "completed"
     assert crossref.data["works"][0]["doi"] == "10.0000/demo2"
 
@@ -254,9 +252,7 @@ def fixture_snapshot(monkeypatch):
 
 async def test_ourairports_lookup_fixture(runtime, fixture_snapshot):
     _, _, _, tool_runtime = runtime
-    result = await tool_runtime.invoke(
-        "aviation.ourairports.lookup_airport", {"query": "ZBAA"}, DRILL
-    )
+    result = await tool_runtime.invoke("aviation.ourairports.lookup_airport", {"query": "ZBAA"}, DRILL)
     assert result.status == "completed", result.error
     assert result.data["count"] == 1
     airport = result.data["airports"][0]
@@ -264,9 +260,7 @@ async def test_ourairports_lookup_fixture(runtime, fixture_snapshot):
     assert result.data["snapshot_date"] == "2026-01-15"
     assert "2026-01-15" in result.evidence[0]["retrieved_at"]
     # 名称模糊匹配；closed 机场不出现。
-    fuzzy = await tool_runtime.invoke(
-        "aviation.ourairports.lookup_airport", {"query": "beijing"}, DRILL
-    )
+    fuzzy = await tool_runtime.invoke("aviation.ourairports.lookup_airport", {"query": "beijing"}, DRILL)
     assert fuzzy.data["count"] == 2
     assert all(a["type"] != "closed" for a in fuzzy.data["airports"])
 
@@ -288,9 +282,7 @@ async def test_ourairports_missing_snapshot(runtime, monkeypatch, tmp_path):
     monkeypatch.setenv("OURAIRPORTS_DIR", str(tmp_path / "empty"))
     airport_tools.reset_cache()
     _, _, _, tool_runtime = runtime
-    result = await tool_runtime.invoke(
-        "aviation.ourairports.lookup_airport", {"query": "ZBAA"}, DRILL
-    )
+    result = await tool_runtime.invoke("aviation.ourairports.lookup_airport", {"query": "ZBAA"}, DRILL)
     assert result.status == "failed"
     assert result.error.code == "provider_unavailable"
     assert "download_ourairports" in result.error.message
@@ -428,13 +420,13 @@ def aviation_mcp_registry():
     return servers
 
 
-async def test_mcp_aviation_discover_call_health(aviation_mcp_registry):
+async def test_mcp_aviation_discover_call_health(aviation_mcp_registry, fixture_snapshot):
     provider = McpProvider(aviation_mcp_registry)
     discovered = await provider.discover("aviation-local")
     assert sorted(tool["name"] for tool in discovered) == ["lookup_airport", "nearby_airports"]
     health = await provider.health("aviation-local")
     assert health["status"] == "ready" and health["tools"] == 2
-    # 真实 stdio 调用（使用 .local 中的真实 OurAirports 快照）；结果已解包为真实载荷。
+    # 真实 stdio 调用，子进程继承测试夹具指向的小型合成快照；结果已解包为真实载荷。
     result = await provider.call("aviation-local", "lookup_airport", {"query": "ZBAA", "limit": 3})
     assert result["count"] >= 1
     assert result["airports"][0]["ident"] == "ZBAA"
@@ -444,7 +436,7 @@ async def test_mcp_aviation_discover_call_health(aviation_mcp_registry):
     assert caught.value.code == "permission_denied"
 
 
-async def test_mcp_tools_registered_and_invoked_via_runtime(aviation_mcp_registry):
+async def test_mcp_tools_registered_and_invoked_via_runtime(aviation_mcp_registry, fixture_snapshot):
     provider = McpProvider(aviation_mcp_registry)
     discovered = await provider.discover("aviation-local")
     _, tools, _ = load_default_registries()
@@ -510,7 +502,9 @@ def test_mcp_dependent_skill_degraded_when_server_down():
     summaries = {
         item["id"]: item
         for item in skill_summaries(
-            skills, knowledge_module.knowledge, tools=tools,
+            skills,
+            knowledge_module.knowledge,
+            tools=tools,
             server_health={"aviation-local": "unavailable"},
         )
     }
@@ -521,7 +515,7 @@ def test_mcp_dependent_skill_degraded_when_server_down():
 
 # ------------------------------------------------- MCP 结果规范化与启动发现
 
-_MCP_SHAPES_SERVER = '''
+_MCP_SHAPES_SERVER = """
 import json
 from fastmcp import FastMCP
 
@@ -543,7 +537,7 @@ def plain() -> str:
     return "这是一段普通文本，不是 JSON"
 
 mcp.run()
-'''
+"""
 
 
 @pytest.fixture

@@ -39,9 +39,7 @@ async def vision_analyze(
         store.audit("model.blocked_local_document", document["id"], {"skill": "multimodal"})
         raise CapabilityError(DATA_EGRESS_BLOCKED, "此资料仅限本地，禁止发送到外部模型")
     if mode == "rehearsal":
-        raise CapabilityError(
-            CAPABILITY_DISABLED, "多模态理解需要真实视觉模型；演练模式不模拟图像分析结果"
-        )
+        raise CapabilityError(CAPABILITY_DISABLED, "多模态理解需要真实视觉模型；演练模式不模拟图像分析结果")
     if "." + document["kind"] not in IMAGE_SUFFIXES:
         raise ValueError("多模态理解当前仅接受图片资料")
     content = knowledge.document_path(document["id"]).read_bytes()
@@ -56,9 +54,7 @@ async def vision_analyze(
         max_tokens=1500,
         images=[f"data:{_MIME[document['kind']]};base64,{base64.b64encode(content).decode('ascii')}"],
     )
-    store.audit(
-        "skill.multimodal", document["id"], {"model": result.get("model"), "visibility": "external"}
-    )
+    store.audit("skill.multimodal", document["id"], {"model": result.get("model"), "visibility": "external"})
     return {
         "text": result["text"],
         "usage": result.get("usage"),

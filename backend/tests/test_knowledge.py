@@ -47,9 +47,7 @@ def test_ingest_retrieval_isolation_and_source_locations(local):
 
 def test_temporary_documents_only_searchable_when_explicitly_selected(local):
     knowledge, database = local
-    knowledge.ingest(
-        "常驻资料.md", "常规关键词：复合材料回收工艺。".encode(), "test-project", "external"
-    )
+    knowledge.ingest("常驻资料.md", "常规关键词：复合材料回收工艺。".encode(), "test-project", "external")
     temporary = knowledge.ingest(
         "临时资料.md",
         "临时关键词：一次性上传的验证记录。".encode(),
@@ -162,7 +160,9 @@ def test_local_image_never_reaches_gateway(local, monkeypatch):
     skills, tools, _ = load_default_registries()
     runtime = SkillRuntime(skills, ToolRuntime(tools, audit=AuditLog()))
     context = ExecutionContext(mode="live", network_policy="allow")
-    result = asyncio.run(runtime.execute("multimodal", {"document_ids": [document["id"]], "mode": "live"}, context))
+    result = asyncio.run(
+        runtime.execute("multimodal", {"document_ids": [document["id"]], "mode": "live"}, context)
+    )
     assert result.status == "blocked"
     assert result.error.code == "data_egress_blocked"
     assert "禁止发送" in result.error.message

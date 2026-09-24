@@ -231,16 +231,12 @@ class SkillRuntime:
                 for name, schema in properties.items()
             )
             call_tool.__annotations__ = {
-                **{
-                    name: annotations.get(schema.get("type"), Any)
-                    for name, schema in properties.items()
-                },
+                **{name: annotations.get(schema.get("type"), Any) for name, schema in properties.items()},
                 "return": dict,
             }
             call_tool.__name__ = tool_id.replace(".", "_")
             call_tool.__doc__ = (
-                f"{definition.name}（{definition.id}）。"
-                f"输入 JSON Schema：{definition.input_schema}"
+                f"{definition.name}（{definition.id}）。输入 JSON Schema：{definition.input_schema}"
             )
             functions[tool_id] = call_tool
         return functions
@@ -293,15 +289,11 @@ class SkillRuntime:
                 + "每次调用后检查真实返回；空结果时可调整为更精确、符合数据源语言或代码格式的参数重试。"
                 + "不得调用未绑定工具，不得编造工具没有返回的数据。"
             )
-            raw = await self.agent_runner(
-                manifest, runtime_instructions, functions, skill_input, context
-            )
+            raw = await self.agent_runner(manifest, runtime_instructions, functions, skill_input, context)
         except CapabilityError as error:
             return self._failure(error)
         if not isinstance(raw, dict):
-            return self._failure(
-                CapabilityError(SCHEMA_VALIDATION_FAILED, "agent 执行器返回了非对象结果")
-            )
+            return self._failure(CapabilityError(SCHEMA_VALIDATION_FAILED, "agent 执行器返回了非对象结果"))
         completed = [(tool_id, result) for tool_id, result in observed if result.status == "completed"]
         if not completed:
             failed = next((result for _, result in reversed(observed) if result.error), None)

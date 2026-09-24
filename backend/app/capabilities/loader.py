@@ -46,17 +46,13 @@ def load_tools(tools_dir: Path = TOOLS_DIR) -> ToolRegistry:
     return registry
 
 
-def load_skills(
-    skills_dir: Path = SKILLS_DIR, tool_registry: ToolRegistry | None = None
-) -> SkillRegistry:
+def load_skills(skills_dir: Path = SKILLS_DIR, tool_registry: ToolRegistry | None = None) -> SkillRegistry:
     registry = SkillRegistry()
     for directory in sorted(path for path in skills_dir.iterdir() if path.is_dir()):
         manifest_path = directory / "skill.yaml"
         instructions_path = directory / "SKILL.md"
         if not manifest_path.is_file() or not instructions_path.is_file():
-            raise CapabilityError(
-                SCHEMA_VALIDATION_FAILED, f"{directory.name}: 缺少 skill.yaml 或 SKILL.md"
-            )
+            raise CapabilityError(SCHEMA_VALIDATION_FAILED, f"{directory.name}: 缺少 skill.yaml 或 SKILL.md")
         manifest = SkillManifest.model_validate(_read_yaml(manifest_path))
         manifest.instructions_path = str(instructions_path)
         assert_valid_schema(manifest.input_schema, where=f"{manifest.id}.input_schema")
@@ -81,8 +77,10 @@ def load_skills(
                         f"Skill {manifest.id} recipe[{index}] 引用了不存在的 Tool: {step.tool}",
                     )
                 for key, value in step.args.items():
-                    if isinstance(value, str) and "{" in value and not any(
-                        token in value for token in _TEMPLATE_PREFIXES
+                    if (
+                        isinstance(value, str)
+                        and "{" in value
+                        and not any(token in value for token in _TEMPLATE_PREFIXES)
                     ):
                         raise CapabilityError(
                             SCHEMA_VALIDATION_FAILED,

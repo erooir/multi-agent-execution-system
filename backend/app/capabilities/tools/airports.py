@@ -107,12 +107,17 @@ def lookup_airport(query: str = "", limit: int | None = None) -> dict:
     for row in rows:
         if row.get("type") == "closed":
             continue
-        codes = {row.get("ident", "").upper(), (row.get("icao_code") or "").upper(), (row.get("iata_code") or "").upper()}
+        codes = {
+            row.get("ident", "").upper(),
+            (row.get("icao_code") or "").upper(),
+            (row.get("iata_code") or "").upper(),
+        }
         if code in codes:
             exact.append(row)
-        elif needle in (row.get("name") or "").casefold() or needle in (
-            row.get("municipality") or ""
-        ).casefold():
+        elif (
+            needle in (row.get("name") or "").casefold()
+            or needle in (row.get("municipality") or "").casefold()
+        ):
             fuzzy.append(row)
     matched = (exact + fuzzy)[:limit]
     return {
@@ -162,7 +167,6 @@ def nearby_airports(
         ],
         "count": len(matched),
         "evidence": [
-            _evidence(snapshot_date, row, f"，距离 {round(distance, 1)} km")
-            for distance, row in matched
+            _evidence(snapshot_date, row, f"，距离 {round(distance, 1)} km") for distance, row in matched
         ],
     }

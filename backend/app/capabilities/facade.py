@@ -97,6 +97,8 @@ def validate_registered_skills(store) -> None:
         for node in workflow.get("nodes", []):
             skill_id = node.get("data", {}).get("skill_id")
             if skill_id and skill_id not in runtime.skills:
-                missing.append(f"工作流 {workflow.get('id')} 节点 {node.get('id')} 引用了未注册技能 {skill_id}")
+                missing.append(
+                    f"工作流 {workflow.get('id')} 节点 {node.get('id')} 引用了未注册技能 {skill_id}"
+                )
     if missing:
         raise RuntimeError("能力注册表缺少已登记的技能引用：" + "；".join(sorted(set(missing))))

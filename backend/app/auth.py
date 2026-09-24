@@ -326,8 +326,7 @@ def update_user(user_id: str, body: dict, actor: dict) -> dict:
     if actor["username"] == target["username"] and actor["role"] == "admin" and demoting_self:
         raise HTTPException(400, "不能停用或降级自己的管理员账号")
     loses_admin = target["role"] == "admin" and (
-        changes.get("enabled") is False
-        or ("role" in changes and changes["role"] != "admin")
+        changes.get("enabled") is False or ("role" in changes and changes["role"] != "admin")
     )
     if loses_admin:
         remaining = [

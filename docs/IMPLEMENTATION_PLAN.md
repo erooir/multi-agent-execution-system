@@ -111,3 +111,8 @@ After client feedback: production identity and tenant isolation, deployment pack
 - 运行中心移除发起入口与创建弹窗，只负责运行列表、执行详情、取消、重试和审核跟踪；流程卡片及流程画布的“运行”操作统一跳转到工作台并预选对应流程。
 - 移除页面顶部不会改变页面数据范围的全局专题下拉框，项目选择保留在真正消费项目上下文的任务、资料等表单中。
 - 验证：前端 `npm test` 20 项全部通过；`npm run build`（TypeScript + Vite 生产构建）通过。
+
+## GitHub Actions MCP 测试隔离修复（2026-09-24）
+- 根因：两项 aviation-local MCP stdio 集成测试直接读取本机忽略目录 `.local/ourairports/`；开发机有真实快照所以通过，干净的 GitHub Runner 没有运行数据而失败，并导致后续 Ruff 与前端构建步骤被跳过。
+- 修复：MCP 集成测试显式复用仓库内的小型合成 OurAirports fixture；MCP Provider 仅按白名单向 stdio 子进程传递 `WORKBENCH_DATA_DIR` 与 `OURAIRPORTS_DIR`（不继承密钥等其他环境），同时修复自定义运行数据目录被子进程忽略的潜在问题。测试继续覆盖真实 MCP 发现、调用、结果解包、运行时注册和 evidence 提升，不提交运行快照，也不访问网络。
+- 验证：在空 `WORKBENCH_DATA_DIR` 下，失败的两项 MCP 测试定向复测通过，完整后端 145 项测试通过；Ruff check 与 format check（backend/scripts 共 69 个文件）通过；前端 20 项测试及 TypeScript + Vite 生产构建通过。

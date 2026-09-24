@@ -119,9 +119,7 @@ def test_api_plan_is_async_and_parser_role_available(isolated_engine):
                 break
             time.sleep(0.05)
         assert job["status"] == "completed", job.get("error")
-        saved = next(
-            w for w in client.get("/api/workflows").json() if w["id"] == job["workflow_id"]
-        )
+        saved = next(w for w in client.get("/api/workflows").json() if w["id"] == job["workflow_id"])
         assert saved["source_prompt"] == "规划一个本地演练流程"
         assert saved["preferred_mode"] == "rehearsal"
 

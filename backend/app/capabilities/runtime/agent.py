@@ -42,9 +42,7 @@ def _merge_usage(items: list[dict]) -> dict:
                 merged[key] = (previous if isinstance(previous, (int, float)) else 0) + value
             elif isinstance(value, dict):
                 previous = merged.get(key, {})
-                merged[key] = _merge_usage(
-                    [previous if isinstance(previous, dict) else {}, value]
-                )
+                merged[key] = _merge_usage([previous if isinstance(previous, dict) else {}, value])
     return merged
 
 
@@ -170,8 +168,7 @@ async def run_business_agent(
     combined["cost_cny"] = sum(
         value
         for item in attempts
-        if isinstance((value := item.get("cost_cny", 0)), (int, float))
-        and not isinstance(value, bool)
+        if isinstance((value := item.get("cost_cny", 0)), (int, float)) and not isinstance(value, bool)
     )
     return combined, observed
 

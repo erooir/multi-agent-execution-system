@@ -44,9 +44,7 @@ class PolicyGate:
         if context.data_visibility == "local" and (
             tool.network != "none" or tool.data_egress in {"query", "raw"}
         ):
-            raise CapabilityError(
-                DATA_EGRESS_BLOCKED, f"本地限定资料禁止进入会外发的 Tool {tool.id}"
-            )
+            raise CapabilityError(DATA_EGRESS_BLOCKED, f"本地限定资料禁止进入会外发的 Tool {tool.id}")
         if tool.network == "required" and context.network_policy == "deny":
             raise CapabilityError(PERMISSION_DENIED, f"当前上下文禁止网络访问，无法调用 {tool.id}")
         if tool.requires_confirmation and not context.confirmed:

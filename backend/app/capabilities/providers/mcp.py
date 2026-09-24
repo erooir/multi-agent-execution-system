@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -24,6 +25,13 @@ from ..errors import (
 )
 from ..registry import McpRegistry
 
+_STDIO_ENV_ALLOWLIST = ("WORKBENCH_DATA_DIR", "OURAIRPORTS_DIR")
+
+
+def _stdio_environment() -> dict[str, str]:
+    """仅把本地 MCP 服务需要的数据目录配置传入子进程。"""
+    return {key: value for key in _STDIO_ENV_ALLOWLIST if (value := os.environ.get(key)) is not None}
+
 
 class McpProvider:
     def __init__(self, servers: McpRegistry):
@@ -38,7 +46,11 @@ class McpProvider:
                 from mcp import ClientSession, StdioServerParameters
                 from mcp.client.stdio import stdio_client
 
-                parameters = StdioServerParameters(command=server.command, args=server.args)
+                parameters = StdioServerParameters(
+                    command=server.command,
+                    args=server.args,
+                    env=_stdio_environment() or None,
+                )
                 async with (
                     stdio_client(parameters) as (read, write),
                     ClientSession(read, write) as session,
@@ -91,9 +103,7 @@ class McpProvider:
                 async with self._session(server) as session:
                     return await _list(session)
         except TimeoutError as error:
-            raise CapabilityError(
-                MCP_CONNECTION_FAILED, f"MCP Server {server.id} 启动发现超时"
-            ) from error
+            raise CapabilityError(MCP_CONNECTION_FAILED, f"MCP Server {server.id} 启动发现超时") from error
 
     async def health(self, server_id: str) -> dict:
         server = self.servers.get(server_id)
@@ -143,9 +153,7 @@ class McpProvider:
                 async with self._session(server) as session:
                     result = await session.call_tool(tool_name, arguments)
         except TimeoutError as error:
-            raise CapabilityError(
-                TOOL_TIMEOUT, f"MCP 工具 {tool_name} 调用超时"
-            ) from error
+            raise CapabilityError(TOOL_TIMEOUT, f"MCP 工具 {tool_name} 调用超时") from error
         structured = getattr(result, "structured_content", None)
         if structured is None:
             structured = getattr(result, "structuredContent", None)
@@ -186,7 +194,5 @@ class McpProvider:
         rest = definition.entrypoint.removeprefix("mcp://")
         server_id, _, tool_name = rest.partition("/")
         if not server_id or not tool_name:
-            raise CapabilityError(
-                PROVIDER_UNAVAILABLE, f"非法的 MCP entrypoint: {definition.entrypoint!r}"
-            )
+            raise CapabilityError(PROVIDER_UNAVAILABLE, f"非法的 MCP entrypoint: {definition.entrypoint!r}")
         return await self.call(server_id, tool_name, arguments)

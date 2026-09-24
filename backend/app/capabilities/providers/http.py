@@ -60,13 +60,9 @@ class HttpProvider:
         except CapabilityError:
             raise
         except Exception as error:
-            raise CapabilityError(
-                PROVIDER_UNAVAILABLE, f"HTTP 调用失败（{type(error).__name__}）"
-            ) from error
+            raise CapabilityError(PROVIDER_UNAVAILABLE, f"HTTP 调用失败（{type(error).__name__}）") from error
         if len(content) > self.max_response_bytes:
-            raise CapabilityError(
-                PROVIDER_UNAVAILABLE, f"HTTP 响应超过 {self.max_response_bytes} 字节上限"
-            )
+            raise CapabilityError(PROVIDER_UNAVAILABLE, f"HTTP 响应超过 {self.max_response_bytes} 字节上限")
         if response.status_code >= 400:
             raise CapabilityError(
                 PROVIDER_UNAVAILABLE, f"HTTP {response.status_code}：上游服务不可用或拒绝请求"

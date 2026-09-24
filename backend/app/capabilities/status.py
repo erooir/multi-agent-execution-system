@@ -47,9 +47,7 @@ def skill_summaries(skills: SkillRegistry, knowledge, tools=None, server_health=
             if health is not None and health != "ready":
                 status = "degraded"
                 note = f"依赖的 MCP 服务 {server_id} 当前不可用（{health}），其余本地能力不受影响"
-        execution = (
-            "external" if any(tool.network == "required" for tool in allowed) else "local"
-        )
+        execution = "external" if any(tool.network == "required" for tool in allowed) else "local"
         results.append(
             {
                 "id": manifest.id,
