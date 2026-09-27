@@ -2695,11 +2695,10 @@ tbody tr:hover {
   background: var(--surface-1);
 }
 .login-story {
-  padding: 0 62px 35px;
+  padding: 0 62px;
   background: var(--surface-2);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+  display: grid;
+  grid-template-rows: minmax(142px, 1fr) auto minmax(142px, 1fr);
   color: var(--text-primary);
   position: relative;
   overflow: hidden;
@@ -2718,6 +2717,8 @@ tbody tr:hover {
 }
 .login-story .brand {
   padding: 37px 0;
+  align-self: start;
+  justify-self: start;
 }
 .login-story .brand > strong {
   font-size: 18px;
@@ -2726,9 +2727,12 @@ tbody tr:hover {
   width: 39px;
   height: 39px;
 }
-.login-story > div:nth-child(2) {
+.login-story-content {
+  grid-row: 2;
+  justify-self: center;
+  width: fit-content;
+  max-width: 100%;
   z-index: 1;
-  margin-top: -20px;
 }
 .login-story .eyebrow {
   font-size: 13px;
@@ -2772,11 +2776,6 @@ tbody tr:hover {
   border-top: 1px dashed var(--border);
   margin: 0 22px 15px;
 }
-.login-story > small {
-  font-size: 13px;
-  letter-spacing: 2px;
-  color: var(--text-secondary);
-}
 .login-form {
   display: flex;
   flex-direction: column;
@@ -2800,6 +2799,10 @@ tbody tr:hover {
 .login-form > p {
   font-size: 13px;
   margin-top: 13px;
+}
+.login-heading,
+.login-description {
+  text-align: center;
 }
 .login-form form {
   margin-top: 35px;
@@ -4374,7 +4377,7 @@ td {
   grid-template-columns: 1.05fr 1fr;
 }
 .login-story {
-  padding: 0 60px 36px;
+  padding: 0 60px;
 }
 .login-story .brand {
   padding: 34px 0;
@@ -4404,10 +4407,6 @@ td {
 .login-flow > i {
   width: 40px;
   margin: 0 22px 18px;
-}
-.login-story > small {
-  font-size: 13px;
-  letter-spacing: 1px;
 }
 .login-form {
   max-width: 530px;
@@ -5240,6 +5239,24 @@ details > summary:hover {
 .modal-head h2 {
   color: var(--text-primary);
   font-weight: 600;
+}
+.logout-dialog {
+  margin: auto;
+  max-width: calc(100vw - 32px);
+  color: var(--text-primary);
+}
+.logout-dialog::backdrop {
+  background: #07080bcc;
+  backdrop-filter: blur(6px);
+}
+.logout-message {
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.8;
+}
+.logout-error {
+  margin-top: 16px;
+  color: var(--danger);
 }
 .modal-actions,
 .list-row {
@@ -6288,9 +6305,6 @@ tbody tr:hover {
 }
 .login-story p {
   color: var(--text-muted);
-}
-.login-story > small {
-  color: var(--text-faint);
 }
 .login-flow > span {
   color: var(--text-secondary);

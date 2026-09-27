@@ -45,6 +45,7 @@ import {
   ActionButton,
 } from "./ui";
 import WorkflowEditor from "./WorkflowEditor";
+import LogoutDialog from "./LogoutDialog";
 import { ProjectProvider, useProject } from "./ProjectContext";
 import {
   ProjectsPage,
@@ -96,7 +97,8 @@ function Workspace() {
       null,
     ),
     [connectionError, setConnectionError] = useState(""),
-    [mobileNav, setMobileNav] = useState(false);
+    [mobileNav, setMobileNav] = useState(false),
+    [logoutOpen, setLogoutOpen] = useState(false);
   const notify = useCallback(
     (text: string, error = false) => setToast({ text, error }),
     [],
@@ -265,15 +267,7 @@ function Workspace() {
               className="icon-button"
               aria-label="退出登录"
               title="退出登录"
-              onClick={async () => {
-                try {
-                  await post("/auth/logout");
-                  setUser(null);
-                  setData(null);
-                } catch (e) {
-                  notify((e as Error).message, true);
-                }
-              }}
+              onClick={() => setLogoutOpen(true)}
             >
               <LogOut size={16} />
             </button>
@@ -360,6 +354,22 @@ function Workspace() {
           }}
         />
       )}
+      {logoutOpen && (
+        <LogoutDialog
+          onClose={() => setLogoutOpen(false)}
+          onConfirm={async () => {
+            await post("/auth/logout");
+            setLogoutOpen(false);
+            setWorkflow(null);
+            setToast(null);
+            setMobileNav(false);
+            setSelectedId(undefined);
+            setPage("overview");
+            setUser(null);
+            setData(null);
+          }}
+        />
+      )}
       {toast && (
         <div role="status" className={`toast ${toast.error ? "error" : ""}`}>
           {toast.error ? <X size={18} /> : <Check size={18} />}
@@ -409,7 +419,7 @@ function Login({
             <small>航空情报平台</small>
           </div>
         </div>
-        <div>
+        <div className="login-story-content">
           <div className="eyebrow">AVIATION INTELLIGENCE</div>
           <h1>
             连接航空信息，
@@ -438,7 +448,6 @@ function Login({
             </span>
           </div>
         </div>
-        <small>航智 · 航空情报平台</small>
       </section>
       <section className="login-form">
         <div className="auth-tabs" role="tablist" aria-label="账号入口">
@@ -467,14 +476,14 @@ function Login({
             注册
           </button>
         </div>
-        <div className="eyebrow">
-          {registering ? "开启你的情报研究" : "欢迎回到航智"}
-        </div>
-        <h2>{registering ? "创建账号" : "登录航空情报平台"}</h2>
-        <p className="muted">
+        {registering && <div className="eyebrow">开启你的情报研究</div>}
+        <h2 className="login-heading">
+          {registering ? "创建账号" : "航空情报平台登录"}
+        </h2>
+        <p className="muted login-description">
           {registering
             ? "建立你的情报工作空间，开展研究与协作。"
-            : "继续你的情报检索、任务编排与专题研判。"}
+            : "继续情报检索、任务编排与专题研判"}
         </p>
         <form
           id="auth-panel"

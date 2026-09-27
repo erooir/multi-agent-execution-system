@@ -30,6 +30,11 @@ After client feedback: production identity and tenant isolation, deployment pack
 - 节点警告展示处理建议，点击“查看调用详情”切换至当前节点的调用记录，可查看全部节点、成功/失败结果、工具名称、耗时、原因和技术信息，并返回所选节点。原始调用结果保留，已有记录不迁移；不依据模型叙述推断 HTTP 状态码。
 - 验证：前端 32 项测试、TypeScript 与 Vite 生产构建、变更文件 Prettier 检查通过；新增 12 项回归覆盖节点真实失败、历史工具失败、替换/重试顺序、同工具不同技能包装、旧记录去重与错误建议。浏览器用已有任务验收黄色提示、当前节点自动筛选（10 次调用、6 次成功、4 次失败）、全部节点筛选（25 次）、技术信息展开和返回所选节点，无控制台错误。本次未执行付费模型调用，不修改执行引擎或预算逻辑。
 
+## 登录页布局与退出确认（2026-09-27，codex/agent-output-8000 分支）
+- 侧栏退出入口先弹出确认框，默认聚焦取消，支持 Esc 取消；仅确认后请求退出接口，提交期间防重复操作，失败保留登录和错误提示。
+- 登录页移除左下重复品牌和右侧欢迎语，标题改为“航空情报平台登录”，说明改为“继续情报检索、任务编排与专题研判”，标题与说明居中；左侧介绍内容整体居中，左上品牌保留。
+- 验证：既有前端 32 项测试、TypeScript 与 Vite 构建、Prettier 和 diff 检查通过。浏览器验证取消/Esc 保留登录、焦点返回退出入口、确认后回到登录页，以及登录/注册切换；测得左介绍块中心与左栏中心重合、右标题/说明为居中对齐、重复底部文字为零。窄屏沿用隐藏左栏的规则，短窗口由最小上下留白避免品牌重叠；无浏览器控制台错误。本次没有付费模型调用。
+
 ## Identity and interface refinement (2026-09-20)
 - User selected the name **航智 · 航空情报平台** and direction D, a dark collaboration workspace inspired by Linear, with direction C's clear workflow nodes inspired by Dify. The four original comparison mockups remain at `/style-options.html`; references and design boundaries are documented in `docs/DESIGN.md`.
 - Increase body, table and form text to 15–16 px, supporting text to at least 13 px. Apply the selected theme across authentication, navigation, resources, canvas, execution, review and settings while preserving readable report pages.
