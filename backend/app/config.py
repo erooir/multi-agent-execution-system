@@ -7,6 +7,8 @@ from .storage import DATA_DIR, store
 
 MODEL_ID = "deepseek-flash"
 BUDGET_LIMIT_CNY = 300.0
+DEFAULT_OUTPUT_TOKENS = 8000
+MAX_OUTPUT_TOKENS = 8000
 settings = SimpleNamespace(
     DATA_DIR=DATA_DIR,
     data_dir=DATA_DIR,
@@ -39,7 +41,9 @@ def get_settings() -> dict:
         "budget_limit_cny": min(float(saved.get("budget_limit_cny", BUDGET_LIMIT_CNY)), BUDGET_LIMIT_CNY),
         "default_mode": saved.get("default_mode", "rehearsal"),
         "max_concurrent_runs": 2,
-        "max_output_tokens": min(int(saved.get("max_output_tokens", 3000)), 6000),
+        "max_output_tokens": min(
+            int(saved.get("max_output_tokens", DEFAULT_OUTPUT_TOKENS)), MAX_OUTPUT_TOKENS
+        ),
         "request_timeout_seconds": 90,
         "key_configured": bool(get_api_key()),
         "deployment": "localhost",
@@ -57,8 +61,8 @@ def save_settings(data: dict) -> dict:
     if mode not in ("rehearsal", "live"):
         raise ValueError("执行模式不合法")
     output = int(data.get("max_output_tokens", old["max_output_tokens"]))
-    if not 256 <= output <= 6000:
-        raise ValueError("单次输出上限为256至6000 tokens")
+    if not 256 <= output <= MAX_OUTPUT_TOKENS:
+        raise ValueError(f"单次输出上限为256至{MAX_OUTPUT_TOKENS} tokens")
     store.save(
         "settings",
         {"id": "main", "budget_limit_cny": limit, "default_mode": mode, "max_output_tokens": output},

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import httpx
 
-from .config import MODEL_ID, get_api_key, get_settings
+from .config import MAX_OUTPUT_TOKENS, MODEL_ID, get_api_key, get_settings
 from .storage import DATA_DIR
 
 # Twice the verified 2026-09-20 CNY peak prices. Ignore cache/off-peak discounts.
@@ -157,8 +157,8 @@ class MeteredTransport(httpx.AsyncBaseTransport):
         if payload.get("model") != MODEL_ID or payload.get("stream"):
             raise RuntimeError("模型或流式请求不符合预算网关约束")
         output_cap = payload.get("max_tokens", payload.get("max_completion_tokens", 0))
-        if not isinstance(output_cap, int) or not 1 <= output_cap <= 6000:
-            raise RuntimeError("模型请求必须指定不超过6000 tokens的输出上限")
+        if not isinstance(output_cap, int) or not 1 <= output_cap <= MAX_OUTPUT_TOKENS:
+            raise RuntimeError(f"模型请求必须指定不超过{MAX_OUTPUT_TOKENS} tokens的输出上限")
         if self.ledger.budget()["accounting_violation"]:
             raise BudgetExceeded("计量异常，已停止所有模型调用")
         # UTF-8 bytes bound text BPE tokens; media conservatively reserves full context.
@@ -266,7 +266,7 @@ class ModelGateway:
                 id=MODEL_ID,
                 api_key=api_key,
                 async_client=client,
-                max_tokens=min(max(1, max_tokens), get_settings()["max_output_tokens"], 6000),
+                max_tokens=min(max(1, max_tokens), get_settings()["max_output_tokens"], MAX_OUTPUT_TOKENS),
                 use_thinking=False,
                 retries=0,
                 max_retries=0,
@@ -374,7 +374,7 @@ class ModelGateway:
                 id=MODEL_ID,
                 api_key=api_key,
                 async_client=client,
-                max_tokens=min(2000, get_settings()["max_output_tokens"], 6000),
+                max_tokens=min(get_settings()["max_output_tokens"], MAX_OUTPUT_TOKENS),
                 use_thinking=False,
                 retries=0,
                 max_retries=0,

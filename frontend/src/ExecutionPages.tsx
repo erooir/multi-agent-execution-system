@@ -1625,7 +1625,7 @@ function SettingsForm({
 }) {
   const [limit, setLimit] = useState(String(settings.budget_limit_cny || 300)),
     [mode, setMode] = useState(settings.default_mode || "rehearsal"),
-    [tokens, setTokens] = useState(String(settings.max_output_tokens || 2000));
+    [tokens, setTokens] = useState(String(settings.max_output_tokens || 8000));
   return (
     <Panel
       title="运行设置"
@@ -1658,7 +1658,7 @@ function SettingsForm({
             <input
               type="number"
               min="256"
-              max="6000"
+              max="8000"
               step="1"
               disabled={!admin}
               value={tokens}
@@ -1673,7 +1673,7 @@ function SettingsForm({
             Number(limit) <= 0 ||
             Number(limit) > 300 ||
             Number(tokens) < 256 ||
-            Number(tokens) > 6000
+            Number(tokens) > 8000
           }
           onClick={() =>
             onSave({

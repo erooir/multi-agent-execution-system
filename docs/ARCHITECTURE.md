@@ -29,7 +29,7 @@ All routes under `/api`. JSON collections are arrays (no envelope). Errors retur
 - POST /runs {workflow_id,project_id,prompt,mode,document_ids}; GET /runs; GET /runs/{id}; POST /runs/{id}/cancel; POST /runs/{id}/retry; POST /runs/{id}/review {decision:approve|reject,feedback,content?}; GET /runs/{id}/events SSE
 - GET /reports; GET /reports/{id}; PUT /reports/{id} {content,title}; GET /reports/{id}/versions; GET /reports/{id}/export?format=md|docx|html; POST /reports/{id}/restore {version}
 - GET /samples; POST /evaluations {sample_ids,mode,workflow_id?}; GET /evaluations; GET /evaluations/{id}
-- GET /audits; GET /settings; PUT /settings (admin, cannot increase budget beyond 300); GET /budget
+- GET /audits; GET /settings; PUT /settings (admin, cannot increase budget beyond 300; max_output_tokens accepts 256–8000 and defaults to 8000, preserving any saved lower limit); GET /budget
 - GET /health (unauthenticated, no secret details)
 
 ## Record fields
@@ -46,6 +46,8 @@ System: default_mode,runtime_mode,model,key_configured,agno_version,skills statu
 ## Gateway contract (root)
 `async model_gateway.complete(prompt, *, system='', purpose='general', run_id=None, max_tokens=2000, json_mode=False, images=None) -> dict` returns {text,usage,cost_cny,model}. Every request is a genuine Agno Agent using the restricted DeepSeek transport. For deterministic rehearsal do not call gateway. Await gateway, no other model paths.
 `model_gateway.budget() -> dict`. `model_gateway.config_status() -> dict` safe configuration only.
+
+`model_gateway.run_agent(...)` uses the configured `max_output_tokens` on every model turn, up to 8000; it has no separate 2000-token ceiling. `complete()` still honors a caller's explicit smaller output allowance (for example, a short parsing summary). The transport accepts at most 8000 output tokens and reserves their full conservative cost plus estimated input cost before each request. The cumulative CNY 300 cap, usage settlement, uncertain-charge retention and rejection of truncated output remain enforced.
 
 ## Knowledge contract (document service)
 `knowledge.seed()` idempotent via seeds module. `knowledge.ingest(filename,content:bytes,project_id,visibility) -> document`. `knowledge.search(query,project_id=None,document_ids=None,limit=6,semantic=False) -> evidence list`. `knowledge.chunks(document_id)`, `knowledge.remove(document_id)`, `knowledge.graph(project_id=None)`. Define module-level singleton knowledge. Vision uses gateway only, never raw model SDK.

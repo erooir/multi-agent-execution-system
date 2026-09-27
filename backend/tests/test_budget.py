@@ -120,6 +120,24 @@ async def test_transport_forbids_redirect_target(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_output_above_8000_is_blocked_before_reservation_or_network(tmp_path):
+    ledger = BudgetLedger(tmp_path / "budget.db")
+    transport = MeteredTransport(
+        ledger,
+        "test",
+        inner=httpx.MockTransport(lambda _: pytest.fail("oversized output must not reach network")),
+    )
+    async with httpx.AsyncClient(transport=transport) as client:
+        with pytest.raises(RuntimeError, match="8000"):
+            await client.post(
+                "https://api.deepseek.com/chat/completions",
+                json={"model": "deepseek-flash", "max_tokens": 8001},
+            )
+    assert ledger.budget()["request_count"] == 0
+    assert ledger.budget()["reserved_cny"] == 0
+
+
+@pytest.mark.asyncio
 async def test_compressed_response_decodes_once(tmp_path):
     import gzip
     import json
