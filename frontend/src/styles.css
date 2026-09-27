@@ -6432,3 +6432,169 @@ a:focus-visible {
   padding: 1px 6px;
   text-transform: uppercase;
 }
+
+/* Recovered tool failures are warnings; the original call outcome stays visible. */
+.badge.warning {
+  color: var(--warning);
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+}
+.timeline-item > .timeline-call-warning {
+  color: var(--warning);
+  flex-shrink: 0;
+}
+.call-notice {
+  padding: 16px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-1);
+  font-size: 15px;
+  line-height: 1.7;
+}
+.call-notice.warning {
+  color: var(--warning);
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+}
+.call-notice.error {
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+}
+.call-notice-heading,
+.call-detail-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.call-notice-heading strong {
+  flex: 1;
+  font-size: 16px;
+}
+.call-notice p {
+  margin: 8px 0;
+}
+.call-notice-advice {
+  margin: 12px 0;
+  color: var(--text-secondary);
+}
+.call-notice-advice strong {
+  color: var(--text-primary);
+}
+.call-details-title {
+  scroll-margin-top: 88px;
+  margin: 20px 0 14px;
+  font-size: 20px;
+}
+.call-details-title:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 5px;
+}
+.call-details {
+  padding: 24px;
+}
+.call-details-toolbar {
+  display: flex;
+  align-items: end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.call-details-toolbar .field {
+  min-width: 220px;
+  flex: 1;
+  margin: 0;
+}
+.call-details-note {
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.7;
+  margin: 18px 0;
+}
+.call-details-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+.call-detail-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-1);
+}
+.call-detail-card.warning {
+  border-left: 3px solid var(--warning);
+}
+.call-detail-card.failed {
+  border-left: 3px solid var(--danger);
+}
+.call-detail-heading h3 {
+  margin: 0;
+  flex: 1;
+  font-size: 16px;
+}
+.call-sequence,
+.call-detail-node,
+.call-technical-details,
+.call-detail-card .muted {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.call-detail-node {
+  margin: 8px 0 12px;
+}
+.call-tool-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.call-tool-list li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 9px 0;
+  font-size: 15px;
+}
+.call-tool-list li > span:first-child {
+  flex: 1;
+  min-width: 180px;
+}
+.call-detail-advice {
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.7;
+}
+.call-detail-advice p {
+  margin: 8px 0;
+}
+.call-technical-details {
+  margin-top: 12px;
+}
+.call-technical-details summary {
+  cursor: pointer;
+}
+.call-technical-details .json-view {
+  max-height: 280px;
+  margin-top: 10px;
+  font-size: 13px;
+}
+@media (max-width: 600px) {
+  .call-details {
+    padding: 16px;
+  }
+  .call-details-toolbar .field {
+    min-width: 0;
+    flex-basis: 100%;
+  }
+  .call-detail-card {
+    padding: 14px;
+  }
+  .call-detail-heading h3 {
+    flex-basis: calc(100% - 55px);
+  }
+}

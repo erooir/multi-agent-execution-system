@@ -43,6 +43,8 @@ Evidence: id,document_id,document_name,location,text,score. Source IDs must reso
 Budget: limit_cny,spent_cny,reserved_cny,remaining_cny,request_count,blocked_count,input_tokens,output_tokens,pricing_note. Values are conservative upper bound from official peak prices, labeled accordingly.
 System: default_mode,runtime_mode,model,key_configured,agno_version,skills status,embedding_status.
 
+The run UI derives non-blocking tool warnings from each node's final/current state and its chronological capability_calls; warnings are presentation only, not new persisted run states. It retains each failed call and only claims a later tool switch or successful retry when the recorded tool IDs and order support it. The call-details view filters the existing records by node and does not issue tool/model retries.
+
 ## Gateway contract (root)
 `async model_gateway.complete(prompt, *, system='', purpose='general', run_id=None, max_tokens=2000, json_mode=False, images=None) -> dict` returns {text,usage,cost_cny,model}. Every request is a genuine Agno Agent using the restricted DeepSeek transport. For deterministic rehearsal do not call gateway. Await gateway, no other model paths.
 `model_gateway.budget() -> dict`. `model_gateway.config_status() -> dict` safe configuration only.

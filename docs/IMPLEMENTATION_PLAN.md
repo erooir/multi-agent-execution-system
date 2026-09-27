@@ -25,6 +25,11 @@ After client feedback: production identity and tenant isolation, deployment pack
 - 预算传输层仍在每一轮发送前预留完整输出额度与输入费用，累计授权保持 300 元；截断仍失败并按 usage 结算，未知费用仍保留预留。解析摘要、规划和报告等调用方显式传入的较小额度保持其原有用途。
 - 验证：后端 155 项、前端 20 项测试通过，Ruff 检查和格式检查、前端构建通过。新增回归覆盖真实 Agno/SDK 搭配模拟 HTTP 时的 8000 参数、已有较小设置、足额费用预留、截断结算与超限阻断。本地服务已重启，`GET /api/settings` 与浏览器设置页均确认 8000；本次没有重试用户任务或发起付费调用。
 
+## 工具调用警告与详情展示（2026-09-27，codex/agent-output-8000 分支）
+- 将节点最终状态和单次工具调用结果分开展示：未使节点失败的历史调用错误显示黄色警告，节点实际失败保留红色。按真实调用顺序区分后续更换工具、同工具重试成功及尚未恢复，避免统一宣称已恢复。
+- 节点警告展示处理建议，点击“查看调用详情”切换至当前节点的调用记录，可查看全部节点、成功/失败结果、工具名称、耗时、原因和技术信息，并返回所选节点。原始调用结果保留，已有记录不迁移；不依据模型叙述推断 HTTP 状态码。
+- 验证：前端 32 项测试、TypeScript 与 Vite 生产构建、变更文件 Prettier 检查通过；新增 12 项回归覆盖节点真实失败、历史工具失败、替换/重试顺序、同工具不同技能包装、旧记录去重与错误建议。浏览器用已有任务验收黄色提示、当前节点自动筛选（10 次调用、6 次成功、4 次失败）、全部节点筛选（25 次）、技术信息展开和返回所选节点，无控制台错误。本次未执行付费模型调用，不修改执行引擎或预算逻辑。
+
 ## Identity and interface refinement (2026-09-20)
 - User selected the name **航智 · 航空情报平台** and direction D, a dark collaboration workspace inspired by Linear, with direction C's clear workflow nodes inspired by Dify. The four original comparison mockups remain at `/style-options.html`; references and design boundaries are documented in `docs/DESIGN.md`.
 - Increase body, table and form text to 15–16 px, supporting text to at least 13 px. Apply the selected theme across authentication, navigation, resources, canvas, execution, review and settings while preserving readable report pages.

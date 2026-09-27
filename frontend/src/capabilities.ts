@@ -21,7 +21,7 @@ export const capabilityErrorNames: Record<string, string> = {
   permission_denied: "权限不足，已被拦截",
   data_egress_blocked: "数据外发被策略拦截",
   confirmation_required: "需要人工确认后执行",
-  provider_unavailable: "执行提供方不可用",
+  provider_unavailable: "工具服务暂时不可用",
   mcp_connection_failed: "MCP 服务连接失败",
   tool_timeout: "工具调用超时",
   tool_result_invalid: "工具返回结果无效",

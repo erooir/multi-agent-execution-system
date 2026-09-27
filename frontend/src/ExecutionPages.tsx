@@ -1,10 +1,11 @@
 import { useProject } from "./ProjectContext";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { remarkReportCitations } from "./remarkReportCitations";
 import {
   Activity,
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   Check,
@@ -46,8 +47,17 @@ import {
   Panel,
   SectionTitle,
 } from "./ui";
-import { EvidenceCard, TraceView, SkillTraceHeader } from "./ResourcePages";
-import { capabilityErrorText } from "./capabilities";
+import { EvidenceCard } from "./ResourcePages";
+import {
+  capabilityErrorText,
+  capabilityStatusText,
+  providerNames,
+} from "./capabilities";
+import {
+  capabilityResolutionHint,
+  getNodeCallDiagnostics,
+  nodeCapabilityCalls,
+} from "./callDiagnostics";
 function useTask(p: PageProps) {
   return async (fn: () => Promise<any>, message?: string) => {
     try {
@@ -449,39 +459,192 @@ function normalizeProgress(value: any) {
   const n = Number(value || 0);
   return Math.max(0, Math.min(100, Math.round(n > 0 && n < 1 ? n * 100 : n)));
 }
-// 节点输出中的能力调用链：payload.trace 层级展示，错误按稳定错误码呈现。
-function NodeCapabilityTrace({ run, step }: { run: any; step: any }) {
-  const payload = step.payload;
-  const trace = payload?.trace;
-  const error = payload?.error;
-  const failedCall = (run.capability_calls || []).find(
-    (c: any) => c.node_id === step.node_id && c.error_code,
-  );
-  if (!trace?.tool_calls?.length && !trace?.tool_id && !error && !failedCall)
-    return null;
+function NodeCapabilityTrace({
+  run,
+  step,
+  onDetails,
+}: {
+  run: any;
+  step: any;
+  onDetails: () => void;
+}) {
+  const diagnostic = getNodeCallDiagnostics(run, step);
+  if (!diagnostic.calls.length && !diagnostic.severity) return null;
   return (
-    <div className="node-trace">
-      {payload?.skill_id && (
-        <SkillTraceHeader
-          skillId={payload.skill_id}
-          status={payload.status}
-          durationMs={trace?.duration_ms}
-        />
-      )}
-      <TraceView
-        trace={trace}
-        error={error}
-        indent={payload?.skill_id ? 1 : 0}
-      />
-      {!error && failedCall && (
-        <div className="trace-row error">
-          <Badge status="failed">
-            {capabilityErrorText(failedCall.error_code)}
-          </Badge>
-          <span className="muted">{failedCall.skill_id}</span>
+    <div
+      className={`call-notice ${diagnostic.severity || "neutral"}`}
+      role={diagnostic.severity === "error" ? "alert" : "status"}
+    >
+      <div className="call-notice-heading">
+        {diagnostic.severity && <AlertTriangle size={19} aria-hidden="true" />}
+        <strong>{diagnostic.title || "工具调用记录"}</strong>
+      </div>
+      <p>
+        本节点共调用 {diagnostic.calls.length} 次，{diagnostic.successes.length}{" "}
+        次成功，{diagnostic.failures.length} 次失败。
+      </p>
+      {diagnostic.severity && (
+        <div className="call-notice-advice">
+          <strong>处理建议</strong>
+          <p>{diagnostic.hint}</p>
         </div>
       )}
+      <button className="button small" onClick={onDetails}>
+        查看调用详情 <ArrowRight size={15} />
+      </button>
     </div>
+  );
+}
+
+function CallDetails({
+  run,
+  p,
+  nodeId,
+  onNodeChange,
+  onBack,
+}: {
+  run: any;
+  p: PageProps;
+  nodeId: string;
+  onNodeChange: (nodeId: string) => void;
+  onBack: (nodeId: string) => void;
+}) {
+  const calls = nodeCapabilityCalls(run, nodeId || undefined);
+  const steps = run.steps || [];
+  const nameOf = (kind: "skills" | "tools", id: string) =>
+    (p.data[kind] || []).find((item: any) => item.id === id)?.name || id;
+  return (
+    <Panel className="call-details">
+      <div className="call-details-toolbar">
+        <Field label="查看节点">
+          <select value={nodeId} onChange={(e) => onNodeChange(e.target.value)}>
+            <option value="">全部节点</option>
+            {steps.map((item: any) => (
+              <option key={item.node_id} value={item.node_id}>
+                {item.label || item.node_id}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <p className="muted">共 {calls.length} 次调用 · 按保存的记录顺序展示</p>
+        <button className="button" onClick={() => onBack(nodeId)}>
+          <ArrowLeft size={15} />
+          返回节点时间线
+        </button>
+      </div>
+      <p className="call-details-note">
+        失败记录会保留。黄色表示该次调用失败未使节点失败；后续成功不代表所有失败查询的信息都已补齐。
+      </p>
+      {calls.length ? (
+        <ol className="call-details-list">
+          {calls.map((call) => {
+            const parentStep = steps.find(
+              (item: any) => item.node_id === call.node_id,
+            );
+            const severity = parentStep
+              ? getNodeCallDiagnostics(run, parentStep).severity
+              : "error";
+            const badge = call.failed
+              ? severity === "warning"
+                ? "warning"
+                : "failed"
+              : call.status;
+            return (
+              <li
+                key={`${call.node_id}-${call.sequence}`}
+                className={`call-detail-card ${call.failed ? badge : ""}`}
+              >
+                <div className="call-detail-heading">
+                  <span className="call-sequence">#{call.sequence}</span>
+                  <h3>{nameOf("skills", call.skill_id) || "工具调用"}</h3>
+                  <Badge status={badge}>
+                    {call.failed
+                      ? "调用失败"
+                      : capabilityStatusText(call.status)}
+                  </Badge>
+                  {typeof call.duration_ms === "number" && (
+                    <span className="muted">耗时 {call.duration_ms} ms</span>
+                  )}
+                </div>
+                <p className="call-detail-node">
+                  所属节点：{parentStep?.label || call.node_id || "未记录"}
+                </p>
+                {call.tool_calls.length > 0 && (
+                  <ul className="call-tool-list">
+                    {call.tool_calls.map((tool: any, index: number) => {
+                      const failed =
+                        [
+                          "failed",
+                          "error",
+                          "blocked",
+                          "timeout",
+                          "unavailable",
+                        ].includes(tool.status) ||
+                        Boolean(
+                          tool.error_code ||
+                          tool.error?.code ||
+                          tool.error?.message,
+                        );
+                      return (
+                        <li key={`${tool.tool_id}-${index}`}>
+                          <span>{nameOf("tools", tool.tool_id)}</span>
+                          <span className="muted">
+                            {providerNames[tool.provider] || tool.provider}
+                          </span>
+                          <Badge status={failed ? badge : tool.status}>
+                            {capabilityStatusText(tool.status)}
+                          </Badge>
+                          {typeof tool.duration_ms === "number" && (
+                            <span className="muted">{tool.duration_ms} ms</span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                {call.failed && (
+                  <div className="call-detail-advice">
+                    <p>
+                      <strong>失败原因：</strong>
+                      {capabilityErrorText(call.error_code || "tool_failed")}
+                    </p>
+                    <p>
+                      <strong>处理建议：</strong>
+                      {capabilityResolutionHint(
+                        call.error_code || "tool_failed",
+                      )}
+                    </p>
+                  </div>
+                )}
+                <details className="call-technical-details">
+                  <summary>查看技术信息</summary>
+                  {call.failed && (
+                    <p>
+                      以下为已保存的调用记录；未记录的 HTTP
+                      状态码或网络原因无法进一步确认。
+                    </p>
+                  )}
+                  <JsonView
+                    value={{
+                      skill_id: call.skill_id,
+                      agent_id: call.agent_id,
+                      status: call.status,
+                      error_code: call.error_code || null,
+                      tool_calls: call.tool_calls,
+                    }}
+                  />
+                </details>
+              </li>
+            );
+          })}
+        </ol>
+      ) : (
+        <Empty
+          title="该节点暂无调用记录"
+          detail="工具开始执行后，实际调用及结果会显示在这里。"
+        />
+      )}
+    </Panel>
   );
 }
 function RunDetail({
@@ -495,6 +658,7 @@ function RunDetail({
 }) {
   const [tab, setTab] = useState("steps"),
     [step, setStep] = useState<string | null>(null),
+    [callNodeId, setCallNodeId] = useState(""),
     [review, setReview] = useState(false),
     [feedback, setFeedback] = useState(""),
     [decision, setDecision] = useState("approve"),
@@ -502,6 +666,16 @@ function RunDetail({
   const task = useTask(p),
     steps = run.steps || [],
     active = steps.find((s: any) => s.node_id === step);
+  const callHeading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (tab === "calls") {
+      callHeading.current?.focus({ preventScroll: true });
+      callHeading.current?.scrollIntoView({
+        block: "start",
+        behavior: "smooth",
+      });
+    }
+  }, [tab, callNodeId]);
   return (
     <>
       <Panel className="run-detail-summary">
@@ -604,6 +778,7 @@ function RunDetail({
       <div className="tabs content-tabs">
         {[
           ["steps", "节点时间线"],
+          ["calls", "调用详情"],
           ["evidence", `引用证据 ${run.evidence?.length || 0}`],
           ["logs", "执行日志"],
         ].map(([id, label]) => (
@@ -650,6 +825,13 @@ function RunDetail({
                       </small>
                     </div>
                     <Badge status={s.status} />
+                    {getNodeCallDiagnostics(run, s).severity === "warning" && (
+                      <AlertTriangle
+                        className="timeline-call-warning"
+                        size={17}
+                        aria-label="工具调用有警告"
+                      />
+                    )}
                     <ChevronRight size={14} />
                   </button>
                 ))
@@ -667,7 +849,14 @@ function RunDetail({
                 {active.error && (
                   <InlineMessage error>{active.error}</InlineMessage>
                 )}
-                <NodeCapabilityTrace run={run} step={active} />
+                <NodeCapabilityTrace
+                  run={run}
+                  step={active}
+                  onDetails={() => {
+                    setCallNodeId(active.node_id);
+                    setTab("calls");
+                  }}
+                />
                 <JsonView
                   value={
                     active.payload ?? {
@@ -684,6 +873,22 @@ function RunDetail({
               />
             )}
           </Panel>
+        </div>
+      ) : tab === "calls" ? (
+        <div>
+          <h2 className="call-details-title" ref={callHeading} tabIndex={-1}>
+            调用详情
+          </h2>
+          <CallDetails
+            run={run}
+            p={p}
+            nodeId={callNodeId}
+            onNodeChange={setCallNodeId}
+            onBack={(nodeId) => {
+              if (nodeId) setStep(nodeId);
+              setTab("steps");
+            }}
+          />
         </div>
       ) : tab === "evidence" ? (
         <div className="evidence-results">
