@@ -350,7 +350,14 @@ async def test_retrieve_node_runs_business_agent_over_authorized_skills(isolated
             "workflow_snapshot": {
                 "nodes": [
                     {"id": "start", "data": {"kind": "start", "label": "接收任务"}},
-                    {"id": "retrieve", "data": {"kind": "retrieve", "label": "机场状态检索"}},
+                    {
+                        "id": "retrieve",
+                        "data": {
+                            "kind": "retrieve",
+                            "label": "机场状态检索",
+                            "agent_id": "agent-retriever",
+                        },
+                    },
                 ],
                 "edges": [{"source": "start", "target": "retrieve"}],
             },
@@ -489,23 +496,23 @@ async def test_report_writer_configuration_and_disabled_block(isolated_engine, m
         return {"text": "## 信息缺口\n\n没有来源证据，须补充资料后复核。"}
 
     monkeypatch.setattr(engine.model_gateway, "complete", fake_model)
-    run = engine.create_run(
-        {
-            "workflow_id": workflow["id"],
-            "project_id": project["id"],
-            "prompt": "资料不足的研究任务",
-            "mode": "live",
-        }
-    )
-    run = await settle(run["id"])
-    if enabled:
-        assert run["status"] == "waiting_review", run.get("error")
-        assert calls == ["report_generation"]
-    else:
-        assert run["status"] == "failed"
-        assert "智能体已禁用" in run["error"]
+    request = {
+        "workflow_id": workflow["id"],
+        "project_id": project["id"],
+        "prompt": "资料不足的研究任务",
+        "mode": "live",
+    }
+    if not enabled:
+        # Definition availability is checked before scheduling, not after earlier nodes run.
+        with pytest.raises(ValueError, match="已停用|已禁用"):
+            engine.create_run(request)
         assert not calls
-        assert not run.get("report_id")
+        assert not store.list("runs")
+        return
+    run = engine.create_run(request)
+    run = await settle(run["id"])
+    assert run["status"] == "waiting_review", run.get("error")
+    assert calls == ["report_generation"]
 
 
 @pytest.mark.asyncio

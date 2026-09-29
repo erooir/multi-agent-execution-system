@@ -846,6 +846,27 @@ function RunDetail({
           >
             {active ? (
               <>
+                {active.agent_instance_id && (
+                  <div className="execution-agent-context">
+                    <div>
+                      <strong>
+                        智能体执行上下文 · 配置 v{active.agent_version}
+                      </strong>
+                      <code>{active.agent_instance_id}</code>
+                      <small>
+                        {run.agent_snapshots_source === "legacy_resume"
+                          ? "按任务隔离；此历史任务在首次恢复时保存当前配置，此前配置版本未知。"
+                          : "按任务隔离，使用启动时保存的配置快照。"}
+                      </small>
+                    </div>
+                    <button
+                      className="button small"
+                      onClick={() => p.go("agents", active.agent_id)}
+                    >
+                      查看智能体
+                    </button>
+                  </div>
+                )}
                 {active.error && (
                   <InlineMessage error>{active.error}</InlineMessage>
                 )}

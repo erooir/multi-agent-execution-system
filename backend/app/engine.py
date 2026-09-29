@@ -10,7 +10,7 @@ from functools import wraps
 from importlib.metadata import PackageNotFoundError, version
 from uuid import uuid4
 
-from . import workflows
+from . import agent_instances, agent_registry, workflows
 from .capabilities.contracts import ExecutionContext
 from .capabilities.facade import capability_runtime
 from .config import get_settings
@@ -124,6 +124,7 @@ def runtime_status() -> dict:
 
 @locked
 def recover_interrupted() -> None:
+    agent_instances.recover_contexts(store)
     for run in store.list("runs"):
         if run.get("status") in {"running", "queued"}:
             run.update(status="interrupted", error="服务重新启动，执行已暂停。请检查节点结果后点击重试继续。")
@@ -138,6 +139,7 @@ def recover_interrupted() -> None:
             store.save("evaluations", evaluation)
 
 
+@locked
 def create_run(data: dict, user: dict | None = None) -> dict:
     workflow = store.get("workflows", data.get("workflow_id", ""))
     if not workflow:
@@ -147,6 +149,7 @@ def create_run(data: dict, user: dict | None = None) -> dict:
     check = workflows.validate_workflow(workflow)
     if not check["valid"]:
         raise ValueError("；".join(check["errors"]))
+    agent_snapshots = agent_instances.capture_snapshots(store, workflow)
     mode = data.get("mode", get_settings()["default_mode"])
     mode = "live" if mode == "real" else mode
     if mode not in {"live", "rehearsal"}:
@@ -173,6 +176,9 @@ def create_run(data: dict, user: dict | None = None) -> dict:
             "workflow_name": workflow["name"],
             "workflow_version": workflow.get("version", 1),
             "workflow_snapshot": deepcopy(workflow),
+            "agent_snapshots": agent_snapshots,
+            "agent_snapshots_source": "run_creation",
+            "agent_snapshots_captured_at": now(),
             "project_id": project_id,
             "prompt": str(data.get("prompt") or workflow["name"]),
             "document_ids": document_ids,
@@ -242,8 +248,12 @@ async def _drive(run_id: str) -> None:
     loop = asyncio.get_running_loop()
     if _scheduler_loop is not loop:
         _scheduler_loop, _scheduler_semaphore = loop, asyncio.Semaphore(2)
-    async with _scheduler_semaphore:
-        await _drive_work(run_id)
+    try:
+        async with _scheduler_semaphore:
+            await _drive_work(run_id)
+    finally:
+        current = store.get("runs", run_id)
+        agent_instances.release_contexts(store, run_id, (current or {}).get("status", "interrupted"))
 
 
 async def _drive_work(run_id: str) -> None:
@@ -255,8 +265,12 @@ async def _drive_work(run_id: str) -> None:
         return
     emit(run_id, "running", "开始执行已校验的流程")
     workflow = run["workflow_snapshot"]
-    order = workflows.validate_workflow(workflow)["order"]
     try:
+        run = agent_instances.ensure_snapshots(store, run_id)
+        check = workflows.validate_workflow(workflow, agent_snapshots=run["agent_snapshots"])
+        if not check["valid"]:
+            raise ValueError("任务快照校验失败：" + "；".join(check["errors"]))
+        order = check["order"]
         for node_id in order:
             run = store.get("runs", run_id)
             if run["status"] == "cancelled":
@@ -366,6 +380,7 @@ def _run_context(run: dict, node_id: str | None = None, agent: dict | None = Non
     """从运行记录构造能力执行上下文：live 放行网络，rehearsal 只做本地真实执行。"""
     documents = [store.get("documents", doc_id) for doc_id in run.get("document_ids") or []]
     visibility = "local" if any(doc and doc.get("visibility") == "local" for doc in documents) else "external"
+    step = next((item for item in run.get("steps", []) if item.get("node_id") == node_id), {})
     return ExecutionContext(
         run_id=run["id"],
         step_id=node_id,
@@ -375,6 +390,8 @@ def _run_context(run: dict, node_id: str | None = None, agent: dict | None = Non
         mode="live" if run["mode"] == "live" else "drill",
         network_policy="allow" if run["mode"] == "live" else "deny",
         agent_id=agent.get("id") if agent else None,
+        agent_instance_id=step.get("agent_instance_id"),
+        agent_version=step.get("agent_version"),
         allowed_skill_ids=list(agent.get("skill_ids", [])) if agent else None,
     )
 
@@ -424,9 +441,12 @@ def _record_capability_result(
     selected = run.get("document_ids") or None
     with store.lock:
         current = store.get("runs", run["id"])
+        step = next((item for item in current.get("steps", []) if item.get("node_id") == node_id), {})
         current.setdefault("capability_calls", []).append(
             {
                 "agent_id": agent_id,
+                "agent_instance_id": step.get("agent_instance_id"),
+                "agent_version": step.get("agent_version"),
                 "skill_id": skill_id,
                 "node_id": node_id,
                 "status": result.status,
@@ -526,11 +546,7 @@ async def _execute_agent_node(run: dict, data: dict, config: dict, node_id: str)
     from .capabilities.runtime.agent import run_business_agent
 
     agent_id = data.get("agent_id")
-    agent = store.get("agents", agent_id or "")
-    if not agent:
-        raise ValueError(f"智能体不存在：{agent_id or '未绑定'}")
-    if not agent.get("enabled", True):
-        raise ValueError(f"智能体已禁用：{agent.get('name', agent_id)}")
+    agent = agent_instances.resolve_agent(store, run, agent_id or "")
     context = _run_context(run, node_id, agent)
     message = {
         "task": run["prompt"],
@@ -594,12 +610,12 @@ async def _execute_agent_node(run: dict, data: dict, config: dict, node_id: str)
     return merged
 
 
-def _agent_instructions(agent_id: str) -> str:
-    agent = store.get("agents", agent_id)
-    if not agent:
-        raise ValueError(f"智能体不存在：{agent_id}")
-    if not agent.get("enabled", True):
-        raise ValueError(f"智能体已禁用：{agent.get('name', agent_id)}")
+def _agent_instructions(agent_id: str, run: dict | None = None) -> str:
+    agent = (
+        agent_instances.resolve_agent(store, run, agent_id)
+        if run is not None
+        else agent_instances.require_active(store, agent_id)
+    )
     return (
         "智能体业务要求（须遵循下方固定系统约束）：\n"
         + str(agent.get("instructions", ""))[:6000]
@@ -639,13 +655,7 @@ async def _summarize_parsed_documents(run: dict, data: dict, parsed: dict) -> di
             "documents": len(by_document),
             "text": "解析结果均为仅本地资料，未发送给外部模型。",
         }
-    agent = store.get("agents", data.get("agent_id") or "agent-parser") or {}
-    if not agent or not agent.get("enabled", True):
-        return {
-            "mode": "live",
-            "documents": len(by_document),
-            "text": "文档解析智能体不可用，本次未生成模型解析摘要。",
-        }
+    agent = agent_instances.resolve_agent(store, run, data.get("agent_id") or "agent-parser")
     context = "\n\n".join(
         f"《{item.get('document_name', '')}》{item.get('location', '')}\n{item.get('text', '')[:1500]}"
         for item in external[:8]
@@ -695,6 +705,30 @@ def _review_content(run: dict, draft: dict | None) -> str:
 
 
 async def _execute_node(run_id: str, node_id: str) -> dict:
+    run = agent_instances.ensure_snapshots(store, run_id)
+    node = next(n for n in run["workflow_snapshot"]["nodes"] if n["id"] == node_id)
+    agent_id = agent_registry.node_agent_id(node["data"])
+    if not agent_id:
+        return await _execute_node_body(run_id, node_id)
+    instance = agent_instances.start_context(store, run_id, node_id, agent_id)
+    outcome = "failed"
+    try:
+        result = await _execute_node_body(run_id, node_id)
+        outcome = "completed"
+        return result
+    except asyncio.CancelledError:
+        outcome = "interrupted"
+        raise
+    finally:
+        current = store.get("runs", run_id)
+        if current and current.get("status") == "cancelled":
+            outcome = "cancelled"
+        agent_instances.finish_context(store, instance["id"], outcome)
+        if current and current.get("status") == "cancelled":
+            agent_instances.release_contexts(store, run_id, "cancelled")
+
+
+async def _execute_node_body(run_id: str, node_id: str) -> dict:
     from . import reports
 
     run = store.get("runs", run_id)
@@ -746,11 +780,14 @@ async def _execute_node(run_id: str, node_id: str) -> dict:
         }
     if kind == "parse":
         if data.get("skill_id"):
-            agent = store.get("agents", data.get("agent_id", "")) if data.get("agent_id") else None
+            agent = (
+                agent_instances.resolve_agent(store, run, data["agent_id"]) if data.get("agent_id") else None
+            )
             result = await _execute_capability(run, data["skill_id"], config, node_id, agent)
             return {"task": run["prompt"], "parsed": result}
         if run.get("document_ids"):
-            parsed = await _execute_capability(run, "document_parse", config, node_id)
+            parser = agent_instances.resolve_agent(store, run, data.get("agent_id") or "agent-parser")
+            parsed = await _execute_capability(run, "document_parse", config, node_id, parser)
             summary = await _summarize_parsed_documents(run, data, parsed)
             if summary.get("text"):
                 with store.lock:
@@ -778,7 +815,7 @@ async def _execute_node(run_id: str, node_id: str) -> dict:
         skill_id = data.get("skill_id") or (
             "semantic_search" if config.get("semantic") else "knowledge_search"
         )
-        agent = store.get("agents", data.get("agent_id", "")) if data.get("agent_id") else None
+        agent = agent_instances.resolve_agent(store, run, data["agent_id"]) if data.get("agent_id") else None
         return await _execute_capability(run, skill_id, config, node_id, agent)
     if kind == "condition":
         if "contains" in config:
@@ -823,9 +860,11 @@ async def _execute_node(run_id: str, node_id: str) -> dict:
                 text = "\n\n".join(lines)
                 results.append({"item": item, "text": text, "mode": mode})
             else:
-                agent = store.get("agents", data.get("agent_id", "")) or {}
-                if agent and not agent.get("enabled", True):
-                    raise ValueError("节点绑定的智能体已禁用")
+                agent = (
+                    agent_instances.resolve_agent(store, run, data["agent_id"])
+                    if data.get("agent_id")
+                    else {}
+                )
                 context = "\n\n".join(
                     f"来源 [{e['id']}] {e.get('document_name') or e.get('source_title', '')} {e.get('location', '')}\n{e.get('text', '')[:2200]}"
                     for e in evidence
@@ -918,7 +957,7 @@ async def _execute_node(run_id: str, node_id: str) -> dict:
             reports.REPORT_TEMPLATES[0],
         )
         if mode == "live":
-            writer_instructions = _agent_instructions(data.get("agent_id") or "agent-writer")
+            writer_instructions = _agent_instructions(data.get("agent_id") or "agent-writer", run)
             if run.get("evidence") and not evidence:
                 raise ValueError("仅本地证据不能发送至云端报告模型")
             source_text = "\n\n".join(
@@ -961,6 +1000,7 @@ def cancel_run(run_id: str, user: dict) -> dict:
         raise ValueError("已完成或已取消的任务不能再次取消")
     run.update(status="cancelled", finished_at=now())
     store.save("runs", run)
+    agent_instances.release_contexts(store, run_id, "cancelled")
     for approval in store.list("approvals"):
         if approval.get("run_id") == run_id and approval.get("status") == "pending":
             approval["status"] = "cancelled"
@@ -979,6 +1019,10 @@ def retry_run(run_id: str, user: dict) -> dict:
         raise ValueError("只有失败、中断或取消的任务可以重试")
     if run_id in TASKS and not TASKS[run_id].done():
         raise ValueError("上一次请求仍在结束中，请稍后重试")
+    # Retry is an explicit new attempt: enforce availability, but keep the original config version.
+    agent_instances.capture_snapshots(store, run["workflow_snapshot"])
+    run = agent_instances.ensure_snapshots(store, run_id)
+    agent_instances.release_contexts(store, run_id, "retry")
     rewind = run.pop("review_rework_node", None)
     reset_ids = set()
     if rewind:
@@ -994,6 +1038,9 @@ def retry_run(run_id: str, user: dict) -> dict:
     for step in run["steps"]:
         if step["node_id"] in reset_ids or step["status"] not in {"completed", "skipped"}:
             step.update(status="pending", error=None, payload=None, started_at=None, finished_at=None)
+            step.pop("agent_instance_id", None)
+            step.pop("agent_version", None)
+            step.pop("agent_id", None)
     run.update(status="queued", error=None, finished_at=None)
     store.save("runs", run, allow_cancelled_resume=True)
     emit(
@@ -1118,7 +1165,7 @@ def _normalize_model_plan(response_text: str, prompt: str, data: dict) -> dict:
                 a
                 for a in agents
                 if a.get("role") == role_for.get(node.get("kind"), "coordinator")
-                and a.get("enabled", True)
+                and agent_registry.lifecycle_status(a) == "active"
                 and (not node.get("skill_id") or node.get("skill_id") in a.get("skill_ids", []))
             ),
             None,

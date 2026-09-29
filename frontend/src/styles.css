@@ -6453,6 +6453,229 @@ a:focus-visible {
   background: var(--warning-bg);
   border-color: var(--warning-border);
 }
+
+/* Agent definitions are shared; execution contexts remain task-scoped. */
+.lifecycle-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.lifecycle-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-1);
+}
+.lifecycle-stats strong {
+  font-size: 28px;
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+.lifecycle-stats span {
+  font-size: 15px;
+  color: var(--text-secondary);
+}
+.lifecycle-description {
+  font-size: 16px;
+  color: var(--text-secondary);
+  line-height: 1.85;
+  margin: 16px 0 22px;
+}
+.lifecycle-toolbar {
+  flex-wrap: wrap;
+}
+.lifecycle-toolbar .tabs {
+  flex-wrap: wrap;
+}
+.agent-usage {
+  display: flex;
+  gap: 12px 20px;
+  flex-wrap: wrap;
+  margin: 20px 0 6px;
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+.agent-usage strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.agent-actions {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.agent-actions > .agent-secondary-actions {
+  display: flex;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.agent-secondary-actions .button {
+  flex: 1;
+  white-space: nowrap;
+  justify-content: center;
+}
+.lifecycle-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  font-size: 15px;
+  color: var(--text-secondary);
+  margin: 12px 0;
+}
+.lifecycle-tabs {
+  margin: 20px 0;
+  flex-wrap: wrap;
+}
+.lifecycle-tabs button {
+  white-space: nowrap;
+}
+.lifecycle-list > .muted {
+  font-size: 15px;
+  line-height: 1.8;
+}
+.lifecycle-row {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  justify-content: space-between;
+}
+article.lifecycle-row,
+.lifecycle-instance,
+.lifecycle-event {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  margin: 12px 0;
+  background: var(--surface-1);
+}
+.lifecycle-row > div {
+  min-width: 0;
+}
+.lifecycle-row strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  line-height: 1.6;
+}
+.lifecycle-row p,
+.lifecycle-event p {
+  margin: 8px 0;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.lifecycle-row > .button,
+.lifecycle-event > .button {
+  flex-shrink: 0;
+}
+.lifecycle-instance > .lifecycle-row {
+  padding: 0;
+  border: 0;
+}
+.lifecycle-instance-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  margin: 10px 0;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+.lifecycle-id {
+  font-size: 13px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.lifecycle-event {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.lifecycle-event > svg {
+  flex-shrink: 0;
+  margin-top: 4px;
+  color: var(--accent);
+}
+.lifecycle-event > div {
+  flex: 1;
+  min-width: 0;
+}
+.lifecycle-event strong {
+  font-size: 16px;
+}
+.lifecycle-event small {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+.lifecycle-confirm-name {
+  font-size: 21px;
+  font-weight: 600;
+  margin-top: 12px;
+}
+.execution-agent-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  background: var(--surface-1);
+}
+.execution-agent-context > div {
+  flex: 1;
+  min-width: 0;
+}
+.execution-agent-context strong,
+.execution-agent-context code,
+.execution-agent-context small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.execution-agent-context strong {
+  font-size: 15px;
+  margin-bottom: 6px;
+}
+.execution-agent-context code {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.execution-agent-context small {
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.7;
+}
+@media (max-width: 760px) {
+  .lifecycle-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .lifecycle-stats > div {
+    padding: 16px;
+  }
+  .lifecycle-row {
+    flex-wrap: wrap;
+  }
+  .lifecycle-event {
+    flex-wrap: wrap;
+  }
+  .lifecycle-tabs button {
+    font-size: 14px;
+    padding: 10px;
+  }
+  .agent-secondary-actions .button {
+    flex-basis: 40%;
+  }
+}
 .timeline-item > .timeline-call-warning {
   color: var(--warning);
   flex-shrink: 0;

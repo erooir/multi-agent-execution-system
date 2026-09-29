@@ -10,7 +10,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
-from . import engine, reports, workflows
+from . import agent_registry, engine, reports, workflows
 from .auth import (
     create_user,
     get_current_user,
@@ -63,7 +63,7 @@ def safe_document(doc: dict) -> dict:
 
 
 def safe_run(run: dict) -> dict:
-    return {k: v for k, v in run.items() if k != "workflow_snapshot"}
+    return {k: v for k, v in run.items() if k not in {"workflow_snapshot", "agent_snapshots"}}
 
 
 def audit(action: str, entity: str, user: dict, detail=None):
@@ -182,6 +182,7 @@ def bootstrap(user: dict = read):
         kind: store.list(kind)
         for kind in ("projects", "agents", "workflows", "reports", "evaluations", "samples", "approvals")
     }
+    result["agents"] = agent_registry.enrich_agents(store, result["agents"])
     result["reports"] = [{k: v for k, v in r.items() if k != "content"} for r in result["reports"]]
     result["runs"] = [
         {
@@ -276,10 +277,14 @@ def delete_project(item_id: str, user: dict = edit):
 
 @router.get("/agents")
 def list_agents(user: dict = read):
-    return store.list("agents")
+    return agent_registry.enrich_agents(store)
 
 
 def agent_data(body: dict, previous=None):
+    if previous and agent_registry.lifecycle_status(previous) == "destroyed":
+        raise HTTPException(409, "此智能体已销毁，不能编辑或重新启用")
+    if "enabled" in body and not isinstance(body["enabled"], bool):
+        raise HTTPException(400, "enabled 必须为布尔值")
     item = dict(previous or {})
     item.update(
         {
@@ -288,13 +293,20 @@ def agent_data(body: dict, previous=None):
             if k in body
         }
     )
-    if not str(item.get("name", "")).strip():
+    if not isinstance(item.get("name"), str) or not item["name"].strip():
         raise HTTPException(400, "智能体名称不能为空")
-    if item.get("role", "writer") not in {"planner", "retriever", "writer", "coordinator", "parser"}:
+    item["name"] = item["name"].strip()[:100]
+    if not isinstance(item.get("role", "writer"), str) or item.get("role", "writer") not in {
+        "planner",
+        "retriever",
+        "writer",
+        "coordinator",
+        "parser",
+    }:
         raise HTTPException(400, "智能体角色无效")
     valid_skills = set(capability_runtime().skills.ids())
     if not isinstance(item.get("skill_ids", []), list) or any(
-        s not in valid_skills for s in item.get("skill_ids", [])
+        not isinstance(s, str) or s not in valid_skills for s in item.get("skill_ids", [])
     ):
         raise HTTPException(400, "包含未注册的技能")
     item.update(model="deepseek-flash", version=int(item.get("version", 0)) + 1)
@@ -302,41 +314,87 @@ def agent_data(body: dict, previous=None):
     item.setdefault("role", "writer")
     item.setdefault("skill_ids", [])
     item.setdefault("instructions", "")
+    item["lifecycle_status"] = "active" if item["enabled"] else "disabled"
     return item
 
 
 @router.post("/agents", status_code=201)
 def create_agent(body: dict, user: dict = edit):
-    item = store.save("agents", agent_data(body))
-    audit("agent.create", item["id"], user)
-    return item
+    with store.lock:
+        item = store.save("agents", agent_data(body))
+        agent_registry.record_event(store, item["id"], "create", {"version": 1}, user=user["username"])
+        audit("agent.create", item["id"], user)
+        return agent_registry.enrich_agents(store, [item])[0]
 
 
 @router.put("/agents/{item_id}")
 def update_agent(item_id: str, body: dict, user: dict = edit):
-    item = store.save("agents", agent_data(body, required("agents", item_id)))
-    audit("agent.update", item_id, user)
-    return item
+    with store.lock:
+        previous = required("agents", item_id)
+        item = store.save("agents", agent_data(body, previous))
+        changed = item["lifecycle_status"] != agent_registry.lifecycle_status(previous)
+        action = ("enable" if item["enabled"] else "disable") if changed else "edit"
+        agent_registry.record_event(
+            store, item_id, action, {"version": item["version"]}, user=user["username"]
+        )
+        audit("agent.update", item_id, user, {"action": action, "version": item["version"]})
+        return agent_registry.enrich_agents(store, [item])[0]
+
+
+@router.post("/agents/{item_id}/clone", status_code=201)
+def clone_agent(item_id: str, body: dict | None = None, user: dict = edit):
+    with store.lock:
+        original = required("agents", item_id)
+        if agent_registry.lifecycle_status(original) == "destroyed":
+            raise HTTPException(409, "此智能体已销毁，不能复制")
+        source = {
+            key: deepcopy(original[key])
+            for key in ("description", "role", "instructions", "skill_ids")
+            if key in original
+        }
+        source.update(
+            name=(body or {}).get("name", str(original.get("name") or "未命名智能体") + " · 副本"),
+            enabled=True,
+        )
+        item = agent_data(source)
+        item["cloned_from"] = item_id
+        item = store.save("agents", item)
+        agent_registry.record_event(
+            store,
+            item["id"],
+            "clone",
+            {
+                "source_id": item_id,
+                "source_name": original["name"],
+                "source_version": original.get("version", 1),
+            },
+            user=user["username"],
+        )
+        audit("agent.clone", item["id"], user, {"source": item_id})
+        return agent_registry.enrich_agents(store, [item])[0]
+
+
+@router.get("/agents/{item_id}/lifecycle")
+def agent_lifecycle(item_id: str, user: dict = read):
+    return agent_registry.lifecycle_detail(store, item_id)
 
 
 @router.delete("/agents/{item_id}")
 def delete_agent(item_id: str, user: dict = edit):
-    required("agents", item_id)
-    if any(
-        n.get("data", {}).get("agent_id") == item_id
-        for w in store.list("workflows")
-        for n in w.get("nodes", [])
-    ):
-        raise HTTPException(409, "有工作流引用此智能体，请先解除绑定")
-    store.delete("agents", item_id)
-    audit("agent.delete", item_id, user)
-    return {"deleted": True}
+    try:
+        item = agent_registry.destroy_agent(store, item_id, user["username"])
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from error
+    audit("agent.destroy", item_id, user)
+    return {"deleted": True, "agent": agent_registry.enrich_agents(store, [item])[0]}
 
 
 @router.post("/agents/{item_id}/test")
 async def test_agent(item_id: str, body: dict, user: dict = edit):
     agent = required("agents", item_id)
-    if not agent.get("enabled", True):
+    if agent_registry.lifecycle_status(agent) == "destroyed":
+        raise HTTPException(409, "此智能体已销毁，不能测试")
+    if agent_registry.lifecycle_status(agent) != "active":
         raise HTTPException(400, "此智能体已禁用")
     message, mode = str(body.get("message", "")), body.get("mode", get_settings()["default_mode"])
     mode = "live" if mode == "real" else mode

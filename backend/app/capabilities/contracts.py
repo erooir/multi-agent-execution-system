@@ -17,6 +17,8 @@ class ExecutionContext(BaseModel):
     user_id: str | None = None
     project_id: str | None = None
     agent_id: str | None = None
+    agent_instance_id: str | None = None
+    agent_version: int | None = None
     document_ids: list[str] = Field(default_factory=list)
     data_visibility: Literal["external", "local"] = "external"
     mode: Literal["live", "drill"] = "drill"
