@@ -2,7 +2,9 @@
 
 A local Chinese research workbench built on Agno AgentOS. Create research projects, configure agents and skills, edit executable workflows, review evidence, and produce traceable reports.
 
-中文操作与演示步骤见 [使用说明](docs/USER_GUIDE.md)。预置三个合成研究场景、四类智能体、六种技能、六条流程模板和 30 条评测样例。
+中文操作与演示步骤见 [使用说明](docs/USER_GUIDE.md)。预置三个合成研究场景、五类智能体、九种技能、六条流程模板和 30 条评测样例。
+
+智能体管理支持创建、独立复制、跨流程复用、停用与受保护的销毁。任务保存智能体版本快照，执行上下文按任务隔离，并记录创建、复用和释放过程；操作方法见 [智能体生命周期管理](docs/USER_GUIDE.md#51-智能体生命周期管理)。
 
 ## Start on Windows
 

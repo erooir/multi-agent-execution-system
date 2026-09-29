@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import { api, post, put, type RecordData } from "./api";
 import { skillsForNodeKind } from "./capabilities";
+import { agentAvailable, agentOptionLabel } from "./agentLifecycle";
 import {
   layoutWorkflow,
   prepareWorkflowLayout,
@@ -552,7 +553,17 @@ export default function WorkflowEditor({
                   value={kinds[node.data.kind]?.name || node.data.kind}
                 />
               </Field>
-              <Field label="执行智能体">
+              <Field
+                label="执行智能体"
+                hint={
+                  node.data.agent_id &&
+                  !agentAvailable(
+                    agents.find((a) => a.id === node.data.agent_id),
+                  )
+                    ? "当前绑定已停用、销毁或不存在。请更换可用智能体，或在智能体管理中启用后再启动新任务。"
+                    : "选择已有智能体可跨流程复用配置；每次任务的执行上下文独立。"
+                }
+              >
                 <select
                   disabled={!canEdit}
                   value={node.data.agent_id || ""}
@@ -562,10 +573,20 @@ export default function WorkflowEditor({
                 >
                   <option value="">使用默认角色</option>
                   {agents.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
+                    <option
+                      key={a.id}
+                      value={a.id}
+                      disabled={!agentAvailable(a)}
+                    >
+                      {agentOptionLabel(a)}
                     </option>
                   ))}
+                  {node.data.agent_id &&
+                    !agents.some((a) => a.id === node.data.agent_id) && (
+                      <option value={node.data.agent_id} disabled>
+                        {node.data.agent_id} · 已不可用
+                      </option>
+                    )}
                 </select>
               </Field>
               {node.data.kind === "retrieve" && (

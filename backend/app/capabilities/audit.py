@@ -74,6 +74,8 @@ class AuditLog:
             "user_id": getattr(context, "user_id", None),
             "project_id": getattr(context, "project_id", None),
             "agent_id": getattr(context, "agent_id", None),
+            "agent_instance_id": getattr(context, "agent_instance_id", None),
+            "agent_version": getattr(context, "agent_version", None),
             "mode": getattr(context, "mode", None),
             "arguments": redact(arguments or {}),
         }

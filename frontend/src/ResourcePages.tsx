@@ -1,5 +1,13 @@
 import { useProject } from "./ProjectContext";
 import KnowledgeGraph from "./KnowledgeGraph";
+import { AgentLifecycleDetails } from "./AgentLifecycleDetails";
+import {
+  agentAvailable,
+  filterAgents,
+  lifecycleNames,
+  lifecycleStatus,
+  type LifecycleStatus,
+} from "./agentLifecycle";
 import { useEffect, useState } from "react";
 import {
   ArrowRight,
@@ -751,14 +759,35 @@ export function AgentsPage(p: PageProps) {
       "请介绍你的研究职责，以及处理证据不足时的原则。",
     ),
     [mode, setMode] = useState(p.data.system?.default_mode || "rehearsal"),
-    [result, setResult] = useState<any>(null);
+    [result, setResult] = useState<any>(null),
+    [filter, setFilter] = useState<LifecycleStatus | "available" | "all">(
+      "available",
+    ),
+    [search, setSearch] = useState(""),
+    [detailId, setDetailId] = useState<string | null>(p.selectedId || null),
+    [confirm, setConfirm] = useState<{
+      agent: RecordData;
+      action: "enable" | "disable" | "destroy" | "clone";
+    } | null>(null),
+    [actionError, setActionError] = useState(""),
+    [cloneName, setCloneName] = useState("");
   const task = useTask(p);
+  const agents: RecordData[] = p.data.agents || [];
+  const items = filterAgents(agents, filter, search);
+  const openConfirm = (
+    agent: RecordData,
+    action: "enable" | "disable" | "destroy" | "clone",
+  ) => {
+    setActionError("");
+    setCloneName(`${agent.name} · 副本`);
+    setConfirm({ agent, action });
+  };
   return (
     <>
       <SectionTitle
         eyebrow="AGENT REGISTRY"
         title="智能体"
-        detail="定义角色职责与技能边界，让不同智能体协同完成研究。"
+        detail="管理智能体的创建、跨流程复用、停用与销毁，追踪每次任务的执行上下文。"
         actions={
           <button
             className="button primary"
@@ -780,18 +809,89 @@ export function AgentsPage(p: PageProps) {
           </button>
         }
       />
+      <div className="lifecycle-stats">
+        <div>
+          <strong>{agents.filter(agentAvailable).length}</strong>
+          <span>已启用智能体</span>
+        </div>
+        <div>
+          <strong>
+            {agents.filter((a) => lifecycleStatus(a) === "disabled").length}
+          </strong>
+          <span>已停用智能体</span>
+        </div>
+        <div>
+          <strong>
+            {
+              agents.filter(
+                (a) =>
+                  lifecycleStatus(a) !== "destroyed" &&
+                  a.usage?.workflow_count > 1,
+              ).length
+            }
+          </strong>
+          <span>跨流程复用</span>
+        </div>
+        <div>
+          <strong>
+            {agents.reduce(
+              (sum, a) => sum + (a.usage?.active_instance_count || 0),
+              0,
+            )}
+          </strong>
+          <span>未释放执行上下文</span>
+        </div>
+      </div>
+      <p className="lifecycle-description">
+        流程通过绑定已有智能体复用配置，各任务的执行上下文独立。需要不同职责时创建独立副本；无需改变原有的流程编辑与运行方式。
+      </p>
+      <div className="toolbar lifecycle-toolbar">
+        <div className="tabs">
+          {(
+            [
+              ["available", "在库智能体"],
+              ["active", "已启用"],
+              ["disabled", "已停用"],
+              ["destroyed", "已销毁"],
+              ["all", "全部"],
+            ] as const
+          ).map(([key, name]) => (
+            <button
+              className={filter === key ? "active" : ""}
+              key={key}
+              onClick={() => setFilter(key)}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+        <div className="search-field compact">
+          <Search size={17} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="搜索智能体"
+            aria-label="搜索智能体"
+          />
+        </div>
+      </div>
       <div className="agent-grid">
-        {(p.data.agents || []).map((a: any) => (
+        {items.map((a: any) => (
           <Panel key={a.id} className="agent-card">
             <div className="card-top">
               <div className={`agent-icon ${a.role}`}>
                 <BrainCircuit size={26} />
               </div>
-              <Badge status={a.enabled === false ? "pending" : "ready"}>
-                {a.enabled === false ? "已停用" : "已启用"}
+              <Badge
+                status={lifecycleStatus(a) === "active" ? "ready" : "cancelled"}
+              >
+                {lifecycleNames[lifecycleStatus(a)]}
               </Badge>
             </div>
-            <div className="eyebrow">{roleNames[a.role] || a.role}</div>
+            <div className="eyebrow">
+              {roleNames[a.role] || a.role} ·{" "}
+              {a.origin === "built_in" ? "系统内置" : "自建"}
+            </div>
             <h2>{a.name}</h2>
             <p className="card-description">
               {a.description || "尚未填写角色说明"}
@@ -808,9 +908,29 @@ export function AgentsPage(p: PageProps) {
               {a.model || "deepseek-flash"}
               <small>v{a.version || 1}</small>
             </div>
-            <div className="card-footer">
+            <div className="agent-usage">
+              <span>
+                <strong>{a.usage?.workflow_count || 0}</strong> 个流程引用
+              </span>
+              <span>
+                <strong>{a.usage?.run_count || 0}</strong> 个关联任务
+              </span>
+              <span>
+                <strong>{a.usage?.active_instance_count || 0}</strong>{" "}
+                个未释放上下文
+              </span>
+            </div>
+            <div className="card-footer agent-actions">
               <button
                 className="button small"
+                onClick={() => setDetailId(a.id)}
+              >
+                生命周期与复用
+                <ArrowRight size={14} />
+              </button>
+              <button
+                className="button small"
+                disabled={!p.canEdit || !agentAvailable(a)}
                 onClick={() => {
                   setTest(a);
                   setResult(null);
@@ -819,33 +939,165 @@ export function AgentsPage(p: PageProps) {
                 <Play size={14} />
                 测试角色
               </button>
-              <div>
+              <div className="agent-secondary-actions">
                 <button
-                  className="icon-button"
+                  className="button small"
                   title="编辑智能体"
-                  disabled={!p.canEdit}
+                  disabled={!p.canEdit || lifecycleStatus(a) === "destroyed"}
                   onClick={() => setEdit({ ...a })}
                 >
                   <Edit3 size={16} />
+                  配置
                 </button>
-                <ActionButton
-                  className="icon-button danger"
-                  disabled={!p.canEdit}
-                  onClick={() => {
-                    if (window.confirm(`删除智能体“${a.name}”？`))
-                      return task(
-                        () => remove(`/agents/${a.id}`),
-                        "智能体已删除",
-                      );
-                  }}
+                <button
+                  className="button small"
+                  disabled={!p.canEdit || lifecycleStatus(a) === "destroyed"}
+                  onClick={() => openConfirm(a, "clone")}
                 >
-                  <Trash2 size={16} />
-                </ActionButton>
+                  <Copy size={14} />
+                  独立副本
+                </button>
+                <button
+                  className="button small"
+                  disabled={!p.canEdit || lifecycleStatus(a) === "destroyed"}
+                  onClick={() =>
+                    openConfirm(a, agentAvailable(a) ? "disable" : "enable")
+                  }
+                >
+                  {agentAvailable(a) ? "停用" : "启用"}
+                </button>
+                <button
+                  className="button small danger"
+                  disabled={
+                    !p.canEdit ||
+                    lifecycleStatus(a) === "destroyed" ||
+                    a.origin === "built_in"
+                  }
+                  title={
+                    a.origin === "built_in"
+                      ? "内置默认角色不可销毁，可停用"
+                      : "销毁并保留历史记录"
+                  }
+                  onClick={() => openConfirm(a, "destroy")}
+                >
+                  <Trash2 size={14} />
+                  销毁
+                </button>
               </div>
             </div>
           </Panel>
         ))}
       </div>
+      {!items.length && (
+        <Empty
+          title="没有匹配的智能体"
+          detail="调整状态筛选或搜索内容，或创建一个新的智能体。"
+        />
+      )}
+      {detailId && (
+        <AgentLifecycleDetails
+          id={detailId}
+          p={p}
+          onClose={() => setDetailId(null)}
+        />
+      )}
+      {confirm && (
+        <Modal
+          title={`${{ enable: "启用", disable: "停用", destroy: "销毁", clone: "复制" }[confirm.action]}智能体`}
+          onClose={() => setConfirm(null)}
+        >
+          <p className="lifecycle-confirm-name">{confirm.agent.name}</p>
+          {confirm.action === "clone" ? (
+            <>
+              <p className="lifecycle-description">
+                副本拥有独立配置和版本，可单独调整职责。若希望多个流程使用相同职责，请直接在流程画布中绑定原智能体。
+              </p>
+              <Field label="副本名称">
+                <input
+                  value={cloneName}
+                  onChange={(e) => setCloneName(e.target.value)}
+                />
+              </Field>
+            </>
+          ) : confirm.action === "disable" ? (
+            <p className="lifecycle-description">
+              停用后，新任务、角色测试和显式重试将不能使用该智能体。已排队、运行中或等待审核的任务保留原配置快照，不受配置停用影响。已有流程绑定会保留，可在生命周期详情中查看。
+            </p>
+          ) : confirm.action === "enable" ? (
+            <p className="lifecycle-description">
+              启用后，该智能体可再次用于新任务、角色测试和流程绑定。
+            </p>
+          ) : (
+            <>
+              <p className="lifecycle-description">
+                销毁后不能恢复、编辑或再次使用；历史任务、执行快照和生命周期记录仍会保留。请先解除流程绑定，并处理未结束任务与未释放的执行上下文。
+              </p>
+              <div className="lifecycle-summary">
+                <span>
+                  {confirm.agent.usage?.workflow_count || 0} 个流程引用
+                </span>
+                <span>
+                  {confirm.agent.usage?.active_instance_count || 0}{" "}
+                  个未释放上下文
+                </span>
+              </div>
+              <button
+                className="button small"
+                onClick={() => {
+                  setDetailId(confirm.agent.id);
+                  setConfirm(null);
+                }}
+              >
+                查看绑定与执行记录
+                <ArrowRight size={14} />
+              </button>
+            </>
+          )}
+          {actionError && <InlineMessage error>{actionError}</InlineMessage>}
+          <div className="modal-actions">
+            <button className="button" onClick={() => setConfirm(null)}>
+              取消
+            </button>
+            <ActionButton
+              className={`button ${confirm.action === "destroy" ? "danger" : "primary"}`}
+              disabled={
+                !p.canEdit || (confirm.action === "clone" && !cloneName.trim())
+              }
+              onClick={async () => {
+                setActionError("");
+                try {
+                  if (confirm.action === "destroy")
+                    await remove(`/agents/${confirm.agent.id}`);
+                  else if (confirm.action === "clone")
+                    await post(`/agents/${confirm.agent.id}/clone`, {
+                      name: cloneName.trim(),
+                    });
+                  else
+                    await put(`/agents/${confirm.agent.id}`, {
+                      enabled: confirm.action === "enable",
+                    });
+                  await p.refresh();
+                  p.notify(
+                    {
+                      enable: "智能体已启用",
+                      disable: "智能体已停用",
+                      destroy: "智能体已销毁，历史记录保留",
+                      clone: "已创建独立副本",
+                    }[confirm.action],
+                  );
+                  setConfirm(null);
+                } catch (e) {
+                  setActionError((e as Error).message);
+                }
+              }}
+            >
+              {confirm.action === "clone"
+                ? "创建独立副本"
+                : `确认${{ enable: "启用", disable: "停用", destroy: "销毁" }[confirm.action]}`}
+            </ActionButton>
+          </div>
+        </Modal>
+      )}
       {edit && (
         <Modal
           title={edit.id ? "配置智能体" : "创建智能体"}
@@ -928,14 +1180,23 @@ export function AgentsPage(p: PageProps) {
               })}
             </div>
           </Field>
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={edit.enabled !== false}
-              onChange={(e) => setEdit({ ...edit, enabled: e.target.checked })}
-            />
-            启用该智能体
-          </label>
+          {!edit.id && (
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={edit.enabled !== false}
+                onChange={(e) =>
+                  setEdit({ ...edit, enabled: e.target.checked })
+                }
+              />
+              启用该智能体
+            </label>
+          )}
+          {edit.id && (
+            <p className="muted">
+              配置修改仅影响后续新任务。停用或启用请使用智能体卡片上的对应操作。
+            </p>
+          )}
           <div className="modal-actions">
             <button className="button" onClick={() => setEdit(null)}>
               取消
@@ -945,9 +1206,17 @@ export function AgentsPage(p: PageProps) {
               disabled={!edit.name.trim()}
               onClick={() =>
                 task(async () => {
-                  await (edit.id
-                    ? put(`/agents/${edit.id}`, edit)
-                    : post("/agents", edit));
+                  if (edit.id) {
+                    const { name, role, description, instructions, skill_ids } =
+                      edit;
+                    await put(`/agents/${edit.id}`, {
+                      name,
+                      role,
+                      description,
+                      instructions,
+                      skill_ids,
+                    });
+                  } else await post("/agents", edit);
                   setEdit(null);
                 }, "智能体配置已保存")
               }

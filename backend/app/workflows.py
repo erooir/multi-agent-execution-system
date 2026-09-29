@@ -5,12 +5,15 @@ from __future__ import annotations
 from copy import deepcopy
 from uuid import uuid4
 
+from .agent_registry import lifecycle_status, node_agent_id
 from .storage import store
 
 KINDS = {"start", "parse", "retrieve", "condition", "batch", "analyze", "review", "report", "end"}
 
 
-def validate_workflow(workflow: dict) -> dict:
+def validate_workflow(
+    workflow: dict, *, agent_snapshots: dict[str, dict] | None = None, allow_disabled: bool = False
+) -> dict:
     errors, warnings = [], []
     nodes, edges = workflow.get("nodes", []), workflow.get("edges", [])
     if not isinstance(nodes, list) or not isinstance(edges, list):
@@ -73,10 +76,22 @@ def validate_workflow(workflow: dict) -> dict:
             or any(not isinstance(v, str) for v in config["items"])
         ):
             errors.append(f"节点 {node['id']} 的 items 必须为 1 至 10 个字符串")
-        if data.get("agent_id"):
-            agent = store.get("agents", data["agent_id"])
+        agent_id = node_agent_id(data)
+        if agent_id:
+            if not isinstance(agent_id, str):
+                errors.append(f"节点 {node['id']} 的智能体 ID 必须为字符串")
+                continue
+            agent = (
+                agent_snapshots.get(agent_id)
+                if agent_snapshots is not None
+                else store.get("agents", agent_id)
+            )
             if not agent:
                 errors.append(f"节点 {node['id']} 引用了不存在的智能体")
+            elif lifecycle_status(agent) == "destroyed":
+                errors.append(f"节点 {node['id']} 绑定的智能体已销毁，请替换绑定")
+            elif lifecycle_status(agent) == "disabled" and not allow_disabled:
+                errors.append(f"节点 {node['id']} 绑定的智能体已停用，请启用或替换绑定")
             elif skill_id and skill_id not in agent.get("skill_ids", []):
                 errors.append(
                     f"节点 {node['id']} 的技能 {skill_id} 未授权给智能体 {agent.get('name', agent['id'])}"
@@ -168,12 +183,39 @@ def versions(workflow_id: str) -> list:
     )
 
 
+def _validate_draft_bindings(workflow: dict, previous: dict | None) -> None:
+    existing = {
+        (node.get("id"), node_agent_id(node["data"]))
+        for node in (previous or {}).get("nodes", [])
+        if isinstance(node, dict)
+        and isinstance(node.get("data"), dict)
+        and isinstance(node.get("id"), str)
+        and isinstance(node_agent_id(node["data"]), str)
+    }
+    for node in workflow.get("nodes", []):
+        if not isinstance(node, dict) or not isinstance(node.get("data"), dict):
+            continue
+        agent_id = node_agent_id(node["data"])
+        if not agent_id:
+            continue
+        if not isinstance(agent_id, str):
+            raise ValueError("智能体 ID 必须为字符串")  # noqa: TRY004 - API validation returns HTTP 400.
+        agent = store.get("agents", agent_id)
+        if not agent or lifecycle_status(agent) == "destroyed":
+            raise ValueError("流程引用了不存在或已销毁的智能体，请移除或替换绑定")
+        if lifecycle_status(agent) == "disabled" and (node.get("id"), agent_id) not in existing:
+            raise ValueError("不能绑定已停用的智能体，请先启用或选择其他智能体")
+
+
 def save_workflow(data: dict, workflow_id: str | None = None) -> dict:
+    with store.lock:
+        return _save_workflow(data, workflow_id)
+
+
+def _save_workflow(data: dict, workflow_id: str | None = None) -> dict:
     previous = store.get("workflows", workflow_id) if workflow_id else None
     if workflow_id and previous is None:
         raise KeyError(workflow_id)
-    if previous:
-        snapshot(previous)
     result = deepcopy(previous or {})
     for key in (
         "name",
@@ -194,10 +236,18 @@ def save_workflow(data: dict, workflow_id: str | None = None) -> dict:
     result.setdefault("category", "technology")
     result.setdefault("nodes", [])
     result.setdefault("edges", [])
+    _validate_draft_bindings(result, previous)
+    if previous:
+        snapshot(previous)
     return store.save("workflows", result)
 
 
 def publish(workflow_id: str) -> dict:
+    with store.lock:
+        return _publish(workflow_id)
+
+
+def _publish(workflow_id: str) -> dict:
     workflow = store.get("workflows", workflow_id)
     if not workflow:
         raise KeyError(workflow_id)
@@ -211,6 +261,11 @@ def publish(workflow_id: str) -> dict:
 
 
 def restore(workflow_id: str, version: int) -> dict:
+    with store.lock:
+        return _restore(workflow_id, version)
+
+
+def _restore(workflow_id: str, version: int) -> dict:
     source = store.get("workflow_versions", f"{workflow_id}:{version}")
     if not source:
         current = store.get("workflows", workflow_id)
