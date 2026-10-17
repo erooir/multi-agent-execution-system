@@ -76,6 +76,8 @@ usage = model_gateway.usage(task_id)
 
 ## PostgreSQL 目标环境
 
+当前开发机已按用户授权安装独立PostgreSQL17.11测试二进制至`.local/tools/postgresql17/`，仅以127.0.0.1:55432执行合成并发验收，测试完成后停止。它没有替换现有`.local/platform-v2.sqlite3`，也没有迁移或重置历史账本。二进制来源为EDB官方Windows发行包，下载地址和SHA-256保存在该目录的installation.json；测试密码保存在私有文件，不在本手册复制。
+
 本脚本拒绝在 `HANGZHI_DATABASE_URL` 指向 PostgreSQL 时声称完成平台备份。正式环境协调以下操作：
 
 - 在维护窗口暂停接单，停止 Worker 并确认租约和在途外部调用。使用与服务端兼容的 `pg_dump --format=custom` 保存业务库；数据库连接用 libpq 环境及受保护 `.pgpass`，不在命令行暴露密码。
@@ -104,6 +106,17 @@ usage = model_gateway.usage(task_id)
 5. 完成备份恢复和代码/schema 升级回退演练，记录条件、样本规模、失败、资源开销、RTO/RPO 和未完成项。
 
 历史账本和其他运行数据通过独立私有迁移流程进入离线环境，绝不能在源码包中夹带。不存在经过验证的内网多模态服务时，能力目录继续返回不支持；不得用测试替身补齐验收结果。
+
+## 本次本机容器验收产物
+
+2026-10-17，公开代码cc92ec5在本机WSL/Podman6.1.4完成Linux amd64应用断网构建与任务验证。生产依赖为55个固定哈希wheel，基础镜像为Python3.12.15，均在联网准备阶段获得；构建、依赖安装及应用运行阶段不依赖网络。具体范围见VALIDATION.md，不能替代目标生产硬件、模型推理或容量验收。
+
+- 原始构建镜像：`.local/release/hangzhi-v2-cc92ec5-linux-amd64.oci.tar`，156304896字节；SHA-256 `b4c2f28175840259118a0abc20c1d2def40ac6a419e8ef54d52df48af0988b5f`。
+- 依赖闭包：`.local/container-validation/build-context/wheelhouse/`；对应`requirements-offline.txt`同目录。
+- 镜像digest、wheel哈希、实际API/任务结果及网络隔离证据：`.local/v2-validation/container-environment.json`及其引用文件。
+- Podman便携工具和独立机器已保留；验证容器与卷已清理，机器hangzhi-validation已停止，避免持续占用资源。Windows8000主服务继续运行。
+
+镜像仅含公开代码、依赖与前端静态资源，`/app/.local`为空。使用`podman load -i`载入后，正式启动前仍须按照前文恢复受保护运行目录、完整历史账本和外部配置；不得把空运行目录当作项目费用重新起算的依据。OCI文件及wheel保存在本地忽略目录，未上传到Git。
 
 ## 常见故障
 
