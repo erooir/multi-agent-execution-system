@@ -1,0 +1,48 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "ready": {
+      "title": "Ready",
+      "type": "boolean"
+    },
+    "existing_task_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Existing Task Id"
+    },
+    "selected_agents": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Selected Agents",
+      "type": "array"
+    },
+    "checks": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "ready"
+  ],
+  "title": "TaskPreflight",
+  "type": "object"
+}

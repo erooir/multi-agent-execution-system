@@ -27,6 +27,13 @@ def deterministic_quality(request: dict, output: dict, inputs: list[dict]) -> di
         "source_refs", bool(refs) and all(ref in assets for ref in refs), "产物来源缺失或不属于冻结输入", True
     )
     policy = request.get("quality", {}) or {}
+    if output.get("contract_errors"):
+        check(
+            "model_output_invalid",
+            False,
+            "模型产物不符合契约，请修正字段：" + "; ".join(output["contract_errors"]),
+            True,
+        )
     task_type = request.get("task_type")
     if task_type == "structured_transform":
         rows = content.get("records") if isinstance(content, dict) else None
@@ -57,13 +64,34 @@ def deterministic_quality(request: dict, output: dict, inputs: list[dict]) -> di
         else:
             text = content.get("text", "") if isinstance(content, dict) else ""
             citations = content.get("citations", []) if isinstance(content, dict) else []
-            valid = bool(citations) and all(
-                isinstance(citation, dict)
-                and citation.get("source_id") in assets
-                and isinstance(citation.get("quote"), str)
-                and bool(citation["quote"].strip())
-                and citation["quote"] in text_of(assets[citation["source_id"]])
-                for citation in citations
+
+            def valid_citation(citation):
+                if not isinstance(citation, dict) or citation.get("source_id") not in refs:
+                    return False
+                if citation.get("kind") == "derived_result":
+                    return citation in output.get("derived_evidence", [])
+                source = assets.get(citation.get("source_id"))
+                quote = citation.get("quote")
+                if (
+                    not source
+                    or not isinstance(quote, str)
+                    or not quote.strip()
+                    or quote not in text_of(source)
+                ):
+                    return False
+                if output.get("method") == "tool_agent":
+                    start, end = citation.get("start"), citation.get("end")
+                    return (
+                        type(start) is int
+                        and type(end) is int
+                        and 0 <= start < end <= len(text_of(source))
+                        and text_of(source)[start:end] == quote
+                        and citation.get("source_version") == source["source_version"]
+                    )
+                return True
+
+            valid = (
+                isinstance(citations, list) and bool(citations) and all(valid_citation(c) for c in citations)
             )
             check("grounded_citations", valid, "模型引用必须逐字存在于真实输入来源", True)
         check(
@@ -115,7 +143,8 @@ def combine_review(deterministic: dict, model_review: dict | None = None) -> dic
                 *deterministic["issues"],
                 {
                     "code": "automatic_review_failed",
-                    "message": "自动评审未通过",
+                    "message": "；".join(model_review.get("issues", [])) or "自动评审未通过",
+                    "suggested_changes": model_review.get("suggested_changes", []),
                     "hard": False,
                 },
             ]

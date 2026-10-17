@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
+import os
 import sqlite3
 import uuid
 from collections.abc import Callable, Iterator
@@ -14,6 +16,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
+from urllib.request import getproxies, proxy_bypass
 
 import httpx
 
@@ -33,6 +36,27 @@ OUTPUT_RATE = 16.0
 HARD_CAP = 300.0
 
 
+class SDKMetadataOnly(logging.Filter):
+    """Agno validation messages can include raw source text and tool arguments."""
+
+    def filter(self, record):
+        record.msg = f"agno_sdk_{record.levelname.lower()} (详情请查看平台任务事件)"
+        record.args = ()
+        record.exc_info = record.exc_text = record.stack_info = None
+        return True
+
+
+def _protect_sdk_logs():
+    from agno.utils.log import agent_logger, team_logger, workflow_logger
+
+    for logger in (agent_logger, team_logger, workflow_logger):
+        if not any(isinstance(item, SDKMetadataOnly) for item in logger.filters):
+            logger.addFilter(SDKMetadataOnly())
+
+
+_protect_sdk_logs()
+
+
 class BudgetExceeded(RuntimeError):
     pass
 
@@ -45,12 +69,40 @@ class InvalidModelUsage(RuntimeError):
     pass
 
 
+class ModelCallError(RuntimeError):
+    def __init__(self, code: str, message: str):
+        self.code = code
+        super().__init__(message)
+
+
+def model_proxy():
+    """Custom transports must explicitly honor the configured system proxy."""
+    configured = os.environ.get("HANGZHI_MODEL_PROXY")
+    if configured is not None:
+        return configured or None
+    return None if proxy_bypass("api.deepseek.com") else getproxies().get("https")
+
+
+def _validated_run(output, transport):
+    if transport.policy_failure is not None:
+        raise transport.policy_failure
+    _require_complete_output(transport.result)
+    if "tool_calls" in transport.result.get("finish_reasons", []):
+        raise ModelCallError("tool_call_limit", "工具调用已达到本轮上限，未生成完整产物")
+    status = getattr(getattr(output, "status", None), "value", getattr(output, "status", None))
+    if status in {"ERROR", "CANCELLED", "PAUSED"} or not transport.result.get("request_id"):
+        raise ModelCallError(
+            "model_call_failed", "模型未完成有效响应，请检查连接与模型配置；未确认费用保留预留"
+        )
+
+
 @dataclass(frozen=True)
 class RequestScope:
     task_id: str
     max_cost_cny: float
     allow_external: bool
     cancelled: Callable[[], bool] | None = None
+    before_dispatch: Callable[[], None] | None = None
 
 
 _request_scope: ContextVar[RequestScope | None] = ContextVar("model_request_scope", default=None)
@@ -62,6 +114,7 @@ def request_scope(
     max_cost_cny: float,
     allow_external: bool,
     cancelled: Callable[[], bool] | None = None,
+    before_dispatch: Callable[[], None] | None = None,
 ) -> Iterator[RequestScope]:
     """Freeze task authorization around complete(); inherited by async child tasks.
 
@@ -83,7 +136,13 @@ def request_scope(
                 (parent.cancelled and parent.cancelled()) or (current_cancelled and current_cancelled())
             )
 
-    scope = RequestScope(str(task_id), float(max_cost_cny), bool(allow_external), cancelled)
+    scope = RequestScope(
+        str(task_id),
+        float(max_cost_cny),
+        bool(allow_external),
+        cancelled,
+        before_dispatch or (parent.before_dispatch if parent else None),
+    )
     token = _request_scope.set(scope)
     try:
         yield scope
@@ -336,7 +395,7 @@ class BudgetLedger:
 class MeteredTransport(httpx.AsyncBaseTransport):
     def __init__(self, ledger: BudgetLedger, purpose: str, run_id=None, inner=None):
         self.ledger, self.purpose, self.run_id = ledger, purpose, run_id
-        self.inner = inner or httpx.AsyncHTTPTransport(retries=0)
+        self.inner = inner or httpx.AsyncHTTPTransport(retries=2, proxy=model_proxy())
         self.result = {}
         self.request_ids: list[str] = []
         # SDKs wrap transport failures; retain trusted policy exceptions without request dumps.
@@ -389,6 +448,16 @@ class MeteredTransport(httpx.AsyncBaseTransport):
         except (BudgetExceeded, ModelRequestCancelled, PermissionError) as exc:
             self.policy_failure = exc
             raise
+        except httpx.TimeoutException:
+            self.policy_failure = ModelCallError(
+                "model_timeout", "模型请求超时；请检查网络，未确认费用仍保留预留"
+            )
+            raise
+        except httpx.TransportError:
+            self.policy_failure = ModelCallError(
+                "model_connection_failed", "无法连接模型服务；请检查网络和代理配置"
+            )
+            raise
 
     async def _handle_async_request(self, request: httpx.Request) -> httpx.Response:
         try:
@@ -428,6 +497,12 @@ class MeteredTransport(httpx.AsyncBaseTransport):
             raise ValueError("输入超出模型上下文限制")
         reserved = (input_cap * INPUT_RATE + output_cap * OUTPUT_RATE) / 1_000_000
         self._check_scope(scope)
+        if scope and scope.before_dispatch:
+            try:
+                scope.before_dispatch()
+            except BaseException as exc:
+                self.policy_failure = exc
+                raise
         request_id = self.ledger.reserve(
             reserved,
             self.purpose,
@@ -467,6 +542,13 @@ class MeteredTransport(httpx.AsyncBaseTransport):
                     self.ledger.uncertain(request_id)
             else:
                 self.ledger.uncertain(request_id)
+                code, message = {
+                    401: ("model_auth_failed", "模型密钥无效，请检查密钥配置"),
+                    403: ("model_auth_failed", "模型账户未获授权"),
+                    402: ("model_balance_insufficient", "模型服务账户余额不足"),
+                    429: ("model_rate_limited", "模型服务限流，请稍后新建任务重试"),
+                }.get(response.status_code, ("model_service_failed", "模型服务返回失败响应，请稍后重试"))
+                self.policy_failure = ModelCallError(code, message)
             # aread() returns decoded bytes. Do not advertise compression twice.
             headers = httpx.Headers(response.headers)
             headers.pop("content-encoding", None)
@@ -485,6 +567,28 @@ class ModelGateway:
         self._ledger = ledger
         self.semaphore = asyncio.Semaphore(2)
 
+    async def connectivity(self):
+        checked_at = datetime.now(UTC).isoformat()
+        result = {
+            "key_configured": bool(get_api_key()),
+            "reachable": None,
+            "checked_at": checked_at,
+            "key_verified": False,
+            "verification": "not_verified",
+        }
+        result["last_successful_call_at"] = self.config_status().get("last_successful_call_at")
+        if os.environ.get("HANGZHI_OFFLINE", "false").lower() == "true":
+            return {**result, "reason_code": "offline_policy"}
+        try:
+            async with httpx.AsyncClient(
+                proxy=model_proxy(), timeout=8, follow_redirects=False, trust_env=False
+            ) as client:
+                response = await client.head("https://api.deepseek.com/models")
+            result["reachable"] = response.status_code < 500
+        except httpx.HTTPError:
+            result.update(reachable=False, reason_code="model_connection_failed")
+        return result
+
     @property
     def ledger(self) -> BudgetLedger:
         if self._ledger is None:
@@ -500,9 +604,16 @@ class ModelGateway:
     def config_status(self):
         import importlib.metadata
 
+        try:
+            last_success = next(
+                (item["created_at"] for item in self.ledger.recent() if item["state"] == "settled"), None
+            )
+        except RuntimeError:
+            last_success = None
         return {
             "model": MODEL_ID,
             "key_configured": bool(get_api_key()),
+            "last_successful_call_at": last_success,
             "agno_version": importlib.metadata.version("agno"),
             "mode": get_settings()["default_mode"],
             "budget_limit_cny": 300,
@@ -520,13 +631,18 @@ class ModelGateway:
         json_mode=False,
         images=None,
         evidence=None,
+        output_schema=None,
     ):
         run_id = _authorize_egress(run_id=run_id, evidence=evidence)
         api_key = get_api_key()
         if not api_key:
-            raise RuntimeError("未配置deepseek_api_key，请在Windows用户环境变量中设置后重试")
+            raise ModelCallError(
+                "model_not_configured", "未配置模型密钥，请在Windows用户环境变量中设置后重试"
+            )
         if len(str(prompt).encode("utf-8")) + len(system.encode("utf-8")) > 200_000:
-            raise ValueError("单次模型输入限制为200KB，请缩小资料范围")
+            raise ModelCallError(
+                "model_input_too_large", "模型评审或执行上下文超过200KB，请缩小资料或交付范围"
+            )
         from agno.agent import Agent
         from agno.media import Image
         from agno.models.deepseek import DeepSeek
@@ -559,6 +675,8 @@ class ModelGateway:
                 markdown=not json_mode,
                 retries=0,
                 add_history_to_context=False,
+                output_schema=output_schema,
+                use_json_mode=bool(output_schema),
             )
             if json_mode:
                 prompt = str(prompt) + "\n请仅输出一个合法JSON对象。"
@@ -578,11 +696,10 @@ class ModelGateway:
                 raise RuntimeError(
                     f"模型调用未完成（{type(exc).__name__}），请检查连接、余额与模型配置；未确认费用仍计入预留"
                 ) from None
-            _require_complete_output(transport.result)
+            _validated_run(output, transport)
+            content = output.content.model_dump() if hasattr(output.content, "model_dump") else output.content
             text = (
-                output.content
-                if isinstance(output.content, str)
-                else json.dumps(output.content, ensure_ascii=False, default=str)
+                content if isinstance(content, str) else json.dumps(content, ensure_ascii=False, default=str)
             )
             return {
                 "text": text,
@@ -631,13 +748,16 @@ class ModelGateway:
         context=None,
         max_rounds: int = 4,
         timeout_seconds: float = 180,
+        output_schema=None,
     ):
         """带真实 tools= 的受控模型执行；所有请求仍经由计量传输与预算账本。"""
         run_id = context.get("run_id") if isinstance(context, dict) else getattr(context, "run_id", None)
         run_id = _authorize_egress(run_id=run_id, context=context)
         api_key = get_api_key()
         if not api_key:
-            raise RuntimeError("未配置deepseek_api_key，请在Windows用户环境变量中设置后重试")
+            raise ModelCallError(
+                "model_not_configured", "未配置模型密钥，请在Windows用户环境变量中设置后重试"
+            )
         from agno.agent import Agent
         from agno.models.deepseek import DeepSeek
         from openai import AsyncOpenAI
@@ -662,6 +782,7 @@ class ModelGateway:
                 use_thinking=False,
                 retries=0,
                 max_retries=0,
+                request_params={"response_format": {"type": "json_object"}} if output_schema else None,
             )
             agent = Agent(
                 name=f"workbench-agent-{agent_spec.get('name', 'run')}",
@@ -670,9 +791,11 @@ class ModelGateway:
                 tools=tools or None,
                 tool_call_limit=max(1, int(max_rounds)),
                 telemetry=False,
-                markdown=True,
+                markdown=False,
                 retries=0,
                 add_history_to_context=False,
+                output_schema=output_schema,
+                use_json_mode=bool(output_schema),
             )
             try:
                 output = await asyncio.wait_for(
@@ -680,6 +803,10 @@ class ModelGateway:
                 )
             except (BudgetExceeded, ModelRequestCancelled, PermissionError):
                 raise
+            except TimeoutError:
+                raise ModelCallError(
+                    "model_timeout", "工具型智能体超过本轮执行时限；未确认费用继续保留预留"
+                ) from None
             except Exception as exc:  # noqa: BLE001 - SDK errors must not expose credentials or request contents.
                 if transport.policy_failure is not None:
                     raise transport.policy_failure from None
@@ -687,11 +814,10 @@ class ModelGateway:
                 raise RuntimeError(
                     f"模型调用未完成（{type(exc).__name__}），请检查连接、余额与模型配置；未确认费用仍计入预留"
                 ) from None
-            _require_complete_output(transport.result)
+            _validated_run(output, transport)
+            content = output.content.model_dump() if hasattr(output.content, "model_dump") else output.content
             text = (
-                output.content
-                if isinstance(output.content, str)
-                else json.dumps(output.content, ensure_ascii=False, default=str)
+                content if isinstance(content, str) else json.dumps(content, ensure_ascii=False, default=str)
             )
             return {
                 "text": text,

@@ -18,6 +18,11 @@
 | PostgreSQL服务 | 目标17系列，CI使用17.11 | PostgreSQL License |
 | React / ReactDOM / React Flow | 以package-lock为准 | MIT |
 | Lucide | 以package-lock为准 | ISC |
+| 官方 MCP Python SDK | 1.30.0（uv.lock） | MIT |
+| openapi-typescript（开发依赖） | 7.13.0 | MIT |
+| Playwright Test（开发依赖） | 1.64.1 | Apache-2.0 |
+
+本轮前端指南经 skill-installer 下载到 tools/frontend-skills；版本、校验和及许可依据保存在该目录的 PROVENANCE.json。React Best Practices 按其 SKILL.md 的 MIT 声明记录（上游没有独立根 LICENSE）；Web Interface Guidelines 的独立 LICENSE 已随资源保存。最新 command.md 也已保存，离线复核使用该固定版本。
 
 PostgreSQL版本依据 https://www.postgresql.org/support/versioning/ ，许可依据 https://www.postgresql.org/about/licence/ 。Agno运行时自托管，官方云控制台不是本平台依赖。本版本已移除旧演示的外网文献/航空工具、MCP自动发现和自动下载型嵌入/OCR依赖。
 
@@ -28,8 +33,8 @@ scripts/Containerfile不指定可隐式联网拉取的基础镜像。必须提�
 离线构建输入：
 1. uv export --frozen --no-dev --no-emit-project --format requirements-txt --output-file requirements-offline.txt
 2. 在联网准备机为目标OS/架构/Python收集带哈希的wheelhouse闭包，独立核查许可证和原生库。
-3. 复制frontend/dist、backend、requirements-offline.txt、wheelhouse到洁净构建目录；以scripts/Containerfile构建。pip使用--no-index和--require-hashes。
+3. 复制frontend/dist、backend、skills、requirements-offline.txt、wheelhouse到洁净构建目录；以scripts/Containerfile构建。pip使用--no-index和--require-hashes。
 4. 将镜像导出并记录摘要，私有运行目录及历史账本按运维文档单独迁移。
 5. 目标机断网安装、启动、任务、备份恢复、升级回退和出网审计通过后，才能把NOT_RUN改为真实验收结论。
 
-当前本机WSL/Podman6.1.4已构建并运行Linux amd64断网应用镜像。Python3.12生产wheel闭包共55包、42,313,536字节，锁定哈希验证通过；构建和运行均无网络。依赖与OCI镜像保留在.local的交付目录，未上传到Git。该结果只覆盖本机容器与确定性任务；目标硬件、模型权重/编解码/GPU驱动、其他架构和实际再分发审查仍需分别完成。
+仓库上一轮记录了WSL/Podman6.1.4的Linux amd64断网应用镜像，以及55包、42,313,536字节的Python3.12生产wheel闭包。这是加入本轮MCP依赖之前的构建证据，不能代表当前修改已通过离线镜像验收。本轮已更新容器及封装输入以包含skills；新的wheel闭包、镜像及目标机断网验收尚未重做。目标硬件、离线模型、其他架构和实际再分发审查仍需分别完成。

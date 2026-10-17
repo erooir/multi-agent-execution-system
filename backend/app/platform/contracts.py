@@ -2,7 +2,7 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 TaskType = Literal[
     "structured_transform",
@@ -15,7 +15,7 @@ TaskType = Literal[
 
 
 class Contract(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, hide_input_in_errors=True)
 
 
 class ProjectInput(Contract):
@@ -42,6 +42,140 @@ class ToolParameters(Contract):
     max_chars: int = Field(default=2000, ge=100, le=20000)
 
 
+class ToolReference(Contract):
+    tool_id: str = Field(min_length=1, max_length=100)
+    version: int = Field(default=1, ge=1)
+
+
+class SkillReference(Contract):
+    skill_id: str = Field(min_length=1, max_length=100)
+    version: str = "1.0.0"
+
+
+class ToolCallRecord(Contract):
+    id: str
+    task_id: str
+    instance_id: str | None = None
+    node_id: str | None = None
+    revision: int = 0
+    kind: Literal["tool", "mcp", "skill"]
+    capability_id: str
+    version: str
+    status: Literal["running", "completed", "failed"]
+    started_at: str
+    duration_ms: int = 0
+    argument_names: list[str] = Field(default_factory=list)
+    arguments_checksum: str
+    source_refs: list[str] = Field(default_factory=list)
+    result_checksum: str | None = None
+    error_code: str | None = None
+    summary: dict[str, Any] = Field(default_factory=dict)
+
+
+class ToolResult(Contract):
+    data: dict[str, Any]
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class SourceCitation(Contract):
+    # Explanatory provider fields are discarded, never published as verified claims.
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=False)
+    kind: Literal["source_span", "source_quote"] = Field(
+        default="source_span", validation_alias=AliasChoices("kind", "type")
+    )
+    source_id: str
+    source_version: str
+    start: int = Field(ge=0, strict=True)
+    end: int = Field(ge=1, strict=True)
+    quote: str = Field(min_length=1, max_length=12000)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_source_label(cls, value):
+        # Providers commonly use "source" for a span. Only normalize the label;
+        # source version, exact offsets and verbatim quote remain mandatory.
+        if isinstance(value, dict) and value.get("kind", value.get("type")) == "source":
+            return {**value, "kind": "source_span"}
+        return value
+
+
+class DerivedCitation(Contract):
+    model_config = ConfigDict(extra="ignore")
+    kind: Literal["derived_result"] = Field(validation_alias=AliasChoices("kind", "type"))
+    tool_call_id: str
+    source_id: str
+    result_checksum: str
+
+
+class AgentTextResult(Contract):
+    text: str = Field(min_length=1, max_length=50000)
+    citations: list[SourceCitation | DerivedCitation] = Field(min_length=1, max_length=100)
+    missing_information: list[str] = Field(default_factory=list, max_length=100)
+
+
+class ToolCallDetail(Contract):
+    call: ToolCallRecord
+    arguments: dict[str, Any] | None = None
+    result: dict[str, Any] | None = None
+
+
+class SourceRead(Contract):
+    source_id: str
+    start: int = Field(default=0, ge=0)
+    length: int = Field(default=2000, ge=1, le=12000)
+
+
+class SourceSearch(Contract):
+    query: str = Field(min_length=1, max_length=200)
+    limit: int = Field(default=10, ge=1, le=20)
+
+
+class EvidenceLocate(Contract):
+    source_id: str
+    quote: str = Field(min_length=1, max_length=4000)
+
+
+class SkillRead(Contract):
+    skill_id: str = Field(min_length=1, max_length=100)
+
+
+class SkillReferenceRead(SkillRead):
+    reference: str = Field(min_length=1, max_length=200)
+
+
+class TableOperation(Contract):
+    source_id: str
+    operation: Literal["filter", "sort", "deduplicate"] = "filter"
+    where: dict[str, str | int | float | bool | None] | None = None
+    sort_by: str | None = None
+    descending: bool = False
+    sort_type: Literal["auto", "numeric", "text"] = "auto"
+    limit: int = Field(default=100, ge=1, le=200)
+
+
+class TableAggregate(Contract):
+    source_id: str
+    metric: Literal["count", "sum", "average", "min", "max"] = "count"
+    value_field: str | None = None
+    group_by: str | None = None
+    where: dict[str, str | int | float | bool | None] | None = None
+
+
+class CapabilityCatalog(Contract):
+    capabilities: list[dict[str, Any]]
+    tools: list[dict[str, Any]]
+    skills: list[dict[str, Any]]
+    mcp_servers: list[dict[str, Any]]
+
+
+class TaskPreflight(Contract):
+    ready: bool
+    existing_task_id: str | None = None
+    selected_agents: list[dict[str, Any]] = Field(default_factory=list)
+    checks: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class AgentInput(Contract):
     project_id: str
     name: str = Field(min_length=1, max_length=100)
@@ -57,6 +191,9 @@ class AgentInput(Contract):
     model_policy: Literal["local", "cloud"] = "local"
     members: list[Member] = Field(default_factory=list, max_length=20)
     parameters: dict[str, Any] = Field(default_factory=dict)
+    execution_strategy: Literal["fixed", "tool_agent"] = "fixed"
+    tool_refs: list[ToolReference] = Field(default_factory=list, max_length=10)
+    skill_refs: list[SkillReference] = Field(default_factory=list, max_length=5)
 
 
 class WorkflowNode(Contract):
@@ -95,6 +232,15 @@ class Quality(Contract):
     min_length: int = Field(default=1, ge=0, le=100000)
 
 
+class ModelQualityReview(Contract):
+    verdict: Literal["passed", "failed"]
+    issues: list[str]
+    evidence_refs: list[str] = Field(
+        min_length=1, description="只填写 allowed_evidence_refs 中的资料ID，不填写工具调用ID或说明文字"
+    )
+    suggested_changes: list[str]
+
+
 class TaskInput(Contract):
     project_id: str
     name: str = Field(min_length=1, max_length=100)
@@ -108,6 +254,7 @@ class TaskInput(Contract):
     max_cost_cny: float = Field(default=0, ge=0, le=10, allow_inf_nan=False)
     max_revisions: int = Field(default=1, ge=0, le=2)
     allow_partial: bool = False
+    use_project_knowledge: bool = False
     quality: Quality = Field(default_factory=Quality)
 
 

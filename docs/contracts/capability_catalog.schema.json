@@ -1,0 +1,45 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "capabilities": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "tools": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Tools",
+      "type": "array"
+    },
+    "skills": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Skills",
+      "type": "array"
+    },
+    "mcp_servers": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Mcp Servers",
+      "type": "array"
+    }
+  },
+  "required": [
+    "capabilities",
+    "tools",
+    "skills",
+    "mcp_servers"
+  ],
+  "title": "CapabilityCatalog",
+  "type": "object"
+}

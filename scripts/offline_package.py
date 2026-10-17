@@ -23,7 +23,7 @@ ROOT_FILES = {
     ".gitignore",
     ".gitattributes",
 }
-ROOT_DIRECTORIES = {"backend", "frontend", "scripts", "docs", ".github", ".githooks"}
+ROOT_DIRECTORIES = {"backend", "frontend", "scripts", "docs", "skills", "tools", ".github", ".githooks"}
 DENIED_PARTS = {
     ".local",
     ".venv",

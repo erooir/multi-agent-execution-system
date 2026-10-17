@@ -12,6 +12,7 @@ import {
 import { api, idPath, post } from "./api";
 import { money, reasonNames, taskTypes, terminal, time } from "./domain";
 import type { Item, Mutation, Notify } from "./types";
+import type { components } from "./generated/api";
 import {
   Badge,
   Confirm,
@@ -39,6 +40,7 @@ type Props = {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onAgent: (id: string) => void;
+  onTaskUpdated: (task: Item) => void;
 };
 export default function TasksPage({
   projectId,
@@ -53,8 +55,10 @@ export default function TasksPage({
   selectedId,
   onSelect,
   onAgent,
+  onTaskUpdated,
 }: Props) {
   const [create, setCreate] = useState<"task" | "schedule" | null>(null),
+    [copy, setCopy] = useState<Item | undefined>(),
     [tab, setTab] = useState("tasks"),
     [search, setSearch] = useState(""),
     [status, setStatus] = useState("all");
@@ -78,6 +82,12 @@ export default function TasksPage({
         notify={notify}
         onBack={() => onSelect(null)}
         onAgent={onAgent}
+        onTaskUpdated={onTaskUpdated}
+        onCopy={(request) => {
+          setCopy(request);
+          setCreate("task");
+          onSelect(null);
+        }}
       />
     );
   return (
@@ -94,7 +104,13 @@ export default function TasksPage({
                   <CalendarClock size={18} />
                   创建计划
                 </button>
-                <button className="primary" onClick={() => setCreate("task")}>
+                <button
+                  className="primary"
+                  onClick={() => {
+                    setCopy(undefined);
+                    setCreate("task");
+                  }}
+                >
                   <Plus size={18} />
                   新建任务
                 </button>
@@ -287,6 +303,7 @@ export default function TasksPage({
             if (create === "task") onSelect(item.id);
             else setTab("schedules");
           }}
+          initial={create === "task" ? copy : undefined}
         />
       )}
     </>
@@ -300,6 +317,8 @@ function TaskDetail({
   notify,
   onBack,
   onAgent,
+  onCopy,
+  onTaskUpdated,
 }: {
   id: string;
   agents: Item[];
@@ -308,6 +327,8 @@ function TaskDetail({
   notify: Notify;
   onBack: () => void;
   onAgent: (id: string) => void;
+  onCopy: (request: Item) => void;
+  onTaskUpdated: (task: Item) => void;
 }) {
   const [task, setTask] = useState<Item | null>(null),
     [error, setError] = useState(""),
@@ -328,6 +349,7 @@ function TaskDetail({
         });
         if (active) {
           setTask(data);
+          onTaskUpdated(data);
           setError("");
           setUpdated(new Date().toISOString());
         }
@@ -343,7 +365,7 @@ function TaskDetail({
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [id]);
+  }, [id, onTaskUpdated]);
   const graphNodes = useMemo(() => {
     if (!task) return [];
     const frozen =
@@ -351,13 +373,15 @@ function TaskDetail({
       task.snapshot?.nodes ||
       task.snapshot?.workflow_snapshot?.nodes ||
       [];
-    return (task.nodes || []).map((n: Item) => ({
-      ...n,
-      depends_on:
-        n.depends_on ||
-        frozen.find((f: Item) => f.id === n.node_id)?.depends_on ||
-        [],
-    }));
+    return (task.nodes || [])
+      .filter((n: Item) => n.attempt === (task.revision || 0) + 1)
+      .map((n: Item) => ({
+        ...n,
+        depends_on:
+          n.depends_on ||
+          frozen.find((f: Item) => f.id === n.node_id)?.depends_on ||
+          [],
+      }));
   }, [task]);
   async function showArtifact(item: Item) {
     try {
@@ -392,16 +416,29 @@ function TaskDetail({
         title={task.name || task.request?.name || "任务详情"}
         description={task.request?.goal}
         actions={
-          canEdit &&
-          !terminal.has(task.status) && (
-            <button
-              className="danger"
-              disabled={task.cancel_requested}
-              onClick={() => setCancel(true)}
-            >
-              <Square size={16} />
-              {task.cancel_requested ? "取消请求已登记" : "请求取消"}
-            </button>
+          canEdit && (
+            <>
+              <button
+                onClick={() =>
+                  onCopy({
+                    ...task.request,
+                    name: `${task.name || task.request.name}（重试）`,
+                  })
+                }
+              >
+                复制为新任务
+              </button>
+              {!terminal.has(task.status) && (
+                <button
+                  className="danger"
+                  disabled={task.cancel_requested}
+                  onClick={() => setCancel(true)}
+                >
+                  <Square size={16} />
+                  {task.cancel_requested ? "取消请求已登记" : "请求取消"}
+                </button>
+              )}
+            </>
           )
         }
       />
@@ -444,6 +481,10 @@ function TaskDetail({
             label: `结果与产物 · ${task.artifacts?.length || 0}`,
           },
           { id: "events", label: `事件轨迹 · ${task.events?.length || 0}` },
+          {
+            id: "calls",
+            label: `工具与技能 · ${task.tool_calls?.length || 0}`,
+          },
           { id: "snapshot", label: "输入与冻结快照" },
         ]}
       />
@@ -451,6 +492,7 @@ function TaskDetail({
         <>
           <Panel>
             <Graph nodes={graphNodes} agents={agents} onNode={setInspect} />
+            <JsonView value={task.nodes} label="全部修订轮次的节点记录" />
           </Panel>
           <Panel title="运行实例">
             <div className="table-scroll">
@@ -591,6 +633,11 @@ function TaskDetail({
           )}
         </Panel>
       )}
+      {tab === "calls" && (
+        <Panel title="真实工具、MCP 与技能调用">
+          <ToolCalls calls={task.tool_calls || []} />
+        </Panel>
+      )}
       {tab === "snapshot" && (
         <Panel title="请求与执行快照">
           <JsonView value={task.request} label="原始任务请求" />
@@ -631,6 +678,13 @@ function TaskDetail({
           <div className="modal-body">
             <Badge status={inspect.status || "unknown"} />
             <pre>{JSON.stringify(inspect, null, 2)}</pre>
+            <ToolCalls
+              calls={(task.tool_calls || []).filter(
+                (call: Item) =>
+                  call.instance_id === inspect.instance_id ||
+                  call.instance_id === inspect.id,
+              )}
+            />
           </div>
         </Modal>
       )}
@@ -648,6 +702,100 @@ function TaskDetail({
                 : JSON.stringify(artifact.content, null, 2)}
             </pre>
             <JsonView value={artifact.source_refs} label="来源引用" />
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+export function ToolCalls({
+  calls,
+}: {
+  calls: components["schemas"]["ToolCallRecord"][];
+}) {
+  const [detail, setDetail] = useState<Item | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState<string | null>(null);
+  if (!calls.length)
+    return (
+      <Empty
+        title="暂无工具调用"
+        description="工具型 Agent 实际执行后显示记录；固定执行任务可能没有此类调用。"
+      />
+    );
+  return (
+    <>
+      <div className="table-scroll">
+        {error && <ErrorLine>{error}</ErrorLine>}
+        <table>
+          <thead>
+            <tr>
+              <th>能力 / 版本</th>
+              <th>类型</th>
+              <th>状态</th>
+              <th>修订 / 耗时</th>
+              <th>调用依据</th>
+            </tr>
+          </thead>
+          <tbody>
+            {calls.map((call) => (
+              <tr key={call.id}>
+                <td>
+                  {call.capability_id}
+                  <small>v{call.version}</small>
+                </td>
+                <td>
+                  {{ tool: "内置工具", mcp: "MCP 服务", skill: "技能读取" }[
+                    call.kind as string
+                  ] || call.kind}
+                </td>
+                <td>
+                  <Badge status={call.status} />
+                  {call.error_code && (
+                    <small>
+                      {reasonNames[call.error_code] || call.error_code}
+                    </small>
+                  )}
+                </td>
+                <td>
+                  {call.revision} / {call.duration_ms} ms
+                </td>
+                <td>
+                  <JsonView value={call} label="参数摘要、来源与结果校验" />
+                  <button
+                    disabled={loading === call.id}
+                    onClick={async () => {
+                      setLoading(call.id);
+                      setError("");
+                      try {
+                        setDetail(
+                          await api(
+                            `/v2/tasks/${encodeURIComponent(call.task_id)}/tool-calls/${encodeURIComponent(call.id)}`,
+                          ),
+                        );
+                      } catch (error) {
+                        setError((error as Error).message);
+                      } finally {
+                        setLoading(null);
+                      }
+                    }}
+                  >
+                    {loading === call.id ? "正在读取…" : "查看输入与输出"}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {detail && (
+        <Modal wide title="工具调用详情" onClose={() => setDetail(null)}>
+          <div className="modal-body">
+            <JsonView value={detail.call} label="调用元数据" />
+            <h3>实际参数</h3>
+            <pre>{JSON.stringify(detail.arguments, null, 2)}</pre>
+            <h3>实际输出</h3>
+            <pre>{JSON.stringify(detail.result, null, 2)}</pre>
           </div>
         </Modal>
       )}

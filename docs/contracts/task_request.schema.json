@@ -122,6 +122,11 @@
       "title": "Allow Partial",
       "type": "boolean"
     },
+    "use_project_knowledge": {
+      "default": false,
+      "title": "Use Project Knowledge",
+      "type": "boolean"
+    },
     "quality": {
       "$ref": "#/$defs/Quality"
     }

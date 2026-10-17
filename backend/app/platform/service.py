@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .contracts import AgentInput, AssetInput, TaskInput, ToolParameters, WorkflowInput
 from .db import ROOT, TERMINAL, now, repo
+from .tool_registry import freeze_bindings, permissions, validate_frozen
 
 ASSET_DIR = ROOT / ".local" / "platform-assets"
 TOOLS = {"structured_transform", "source_summary", "text_analysis", "image_inspect"}
@@ -23,7 +24,7 @@ CAPABILITIES = [
         "available": True,
         "modes": ["local", "rehearsal"],
         "tool_id": "structured_transform",
-        "description": "真实 JSON / CSV 校验、筛选、去重和排序",
+        "description": "本地 JSON / CSV 校验、筛选、去重和排序；需要模型自主分析表格时请选择文本分析与云端模式",
     },
     {
         "id": "source_summary",
@@ -37,11 +38,11 @@ CAPABILITIES = [
     {
         "id": "text_analysis",
         "name": "文本分析",
-        "modalities": ["text"],
+        "modalities": ["text", "structured"],
         "available": True,
         "modes": ["local", "cloud", "rehearsal"],
         "tool_id": "text_analysis",
-        "description": "本地为提取式整理，语义分析需要网关模型",
+        "description": "本地为提取式整理；云端工具型 Agent 可自主分析文本和表格，选择已授权工具及技能",
     },
     {
         "id": "image_inspect",
@@ -169,6 +170,20 @@ def seed_templates(tx, project_id):
             tool_ids=[capability["id"]],
             model_policy="cloud" if "cloud" in capability["modes"] else "local",
         ).model_dump()
+        if capability["id"] in {"source_summary", "text_analysis"}:
+            from .tool_registry import catalog
+
+            available = catalog()
+            agent.update(
+                execution_strategy="tool_agent",
+                tool_refs=[
+                    {"tool_id": item["id"], "version": item["version"]} for item in available["tools"]
+                ],
+                skill_refs=[
+                    {"skill_id": item["id"], "version": item["version"]} for item in available["skills"]
+                ],
+            )
+            agent["runtime_bindings"] = freeze_bindings(agent)
         agent.update(id=agent_id, status="published", current_version=1, built_in=True)
         tx.put("agents", agent)
         tx.put(
@@ -212,6 +227,13 @@ def validate_agent(body, tx, agent_id=None):
     ToolParameters.model_validate(body.get("parameters", {}))
     if set(body["tool_ids"]) - TOOLS:
         fail("tool_not_allowed", "包含未登记工具")
+    if body.get("execution_strategy") == "tool_agent":
+        if body["model_policy"] != "cloud" or not body.get("tool_refs"):
+            fail("invalid_agent_strategy", "工具型智能体需要云模型政策和已授权工具")
+        try:
+            freeze_bindings(body)
+        except ValueError as exc:
+            fail(str(exc), "工具或技能版本不可用，或技能所需工具未获授权", 422)
     if body["structure"] == "atomic" and body["members"]:
         fail("invalid_composite", "元智能体不能包含成员")
     if body["structure"] == "composite" and not body["members"]:
@@ -226,7 +248,7 @@ def validate_agent(body, tx, agent_id=None):
             fail("unpublished_dependency", "成员必须绑定已发布的可用版本")
         if member["project_id"] != body["project_id"]:
             fail("permission_denied", "复合成员不能跨项目", 403)
-        if set(member.get("tool_ids", [])) - set(body["tool_ids"]):
+        if permissions(member) - permissions(body):
             fail("permission_denied", "成员工具超出复合边界授权", 403)
         for child in member.get("members", []):
             walk(child, chain | {ref["agent_id"]}, depth + 1)
@@ -264,6 +286,8 @@ def agent_action(agent_id, action, user, repository=None):
             if status == "retired":
                 fail("invalid_state", "退役智能体不能发布", 409)
             validate_agent(agent, tx, agent_id)
+            if agent.get("execution_strategy") == "tool_agent":
+                agent["runtime_bindings"] = freeze_bindings(agent)
             version = (
                 max((v["version"] for v in tx.list("agent_versions", definition_id=agent_id)), default=0) + 1
             )
@@ -527,21 +551,54 @@ def _freeze_agents(tx, refs, project_id):
     return list(result.values())
 
 
-def create_task(body, user, repository=None):
+def compatible_agent(tx, definition, body, inputs, version=None, boundary=None, depth=0):
+    if not definition or definition.get("status") != "published" or depth > 4:
+        return False
+    agent = tx.get("agent_versions", f"{definition['id']}:{version or definition['current_version']}")
+    if not agent or agent["project_id"] != body["project_id"]:
+        return False
+    tools = permissions(agent)
+    try:
+        validate_frozen(agent)
+    except ValueError:
+        return False
+    if boundary is not None:
+        tools &= boundary
+    if body["task_type"] not in agent.get("capabilities", []) or body["task_type"] not in tools:
+        return False
+    if any(a["modality"] not in agent.get("modalities", []) for a in inputs):
+        return False
+    if body["mode"] == "cloud" and agent.get("model_policy") != "cloud":
+        return False
+    if (
+        body.get("use_project_knowledge")
+        and agent.get("structure") != "composite"
+        and agent.get("execution_strategy") != "tool_agent"
+    ):
+        return False
+    return all(
+        compatible_agent(
+            tx, tx.get("agents", ref["agent_id"]), body, inputs, ref["version"], tools, depth + 1
+        )
+        for ref in agent.get("members", [])
+    )
+
+
+def create_task(body, user, repository=None, *, preflight=False):
     repository = repository or repo
     body = TaskInput.model_validate(body).model_dump()
     capability = next(item for item in CAPABILITIES if item["id"] == body["task_type"])
-    if capability["available"] and body["mode"] not in capability["modes"]:
-        fail("unsupported_mode", "能力目录未授权此任务的执行模式", 422)
-    if not capability["available"] and body["mode"] == "cloud":
-        fail("unsupported_mode", "未经验证的能力不能调用云模型", 422)
     with repository.transaction() as tx:
         project_access(body["project_id"], user, True, tx)
         previous = tx.list("tasks", body["project_id"], idempotency_key=body["idempotency_key"])
         if previous:
-            if previous[0].get("request_hash") != digest(body):
+            if TaskInput.model_validate(previous[0]["request"]).model_dump() != body:
                 fail("idempotency_conflict", "同一幂等键已有不同任务请求", 409)
-            return previous[0]
+            return {"ready": True, "existing_task_id": previous[0]["id"]} if preflight else previous[0]
+        if not capability["available"]:
+            fail("unsupported_capability", "此任务能力尚未接入，请选择已验证能力", 422)
+        if body["mode"] not in capability["modes"]:
+            fail("unsupported_mode", "此任务不支持所选执行模式，请依据能力说明选择", 422)
         inputs = []
         for asset_id in body["input_refs"]:
             asset = required("data_assets", asset_id, user, repository=tx)
@@ -551,10 +608,44 @@ def create_task(body, user, repository=None):
             if body["mode"] == "cloud" and asset["classification"] != "public":
                 fail("data_egress_blocked", "云任务仅能处理已明确授权外发的公开资料", 403)
             inputs.append(asset)
+        if body.get("use_project_knowledge"):
+            if body["mode"] != "cloud":
+                fail("unsupported_knowledge_scope", "项目公开知识仅用于云端工具型智能体", 422)
+            existing_ids = {asset["id"] for asset in inputs}
+            for asset in tx.list("data_assets", body["project_id"]):
+                if (
+                    asset["id"] in existing_ids
+                    or asset.get("classification") != "public"
+                    or asset.get("modality") not in capability["modalities"]
+                ):
+                    continue
+                try:
+                    usable_asset(asset)
+                except DomainError:
+                    continue
+                inputs.append(asset)
+            if len(inputs) > 50:
+                fail("knowledge_scope_too_large", "项目公开知识超过50份，请缩小项目资料范围", 422)
+        if not inputs:
+            fail("insufficient_data", "请至少选择一份有效资料", 422)
+        if any(a["modality"] not in capability["modalities"] for a in inputs):
+            fail("unsupported_input", "所选资料类型不符合任务能力，请更换任务类型或资料", 422)
         if body["mode"] == "cloud" and body["max_cost_cny"] <= 0:
             fail("invalid_budget", "云任务必须指定正数费用上限")
         if body["mode"] == "cloud" and os.environ.get("HANGZHI_OFFLINE", "false").lower() == "true":
             fail("offline_policy", "离线部署禁止云模型调用", 403)
+        if body["mode"] == "cloud":
+            from ..config import get_api_key
+            from ..model_gateway import model_gateway
+
+            if not get_api_key():
+                fail("model_not_configured", "尚未配置模型密钥，请先完成模型配置", 422)
+            try:
+                budget = model_gateway.budget()
+            except RuntimeError:
+                fail("ledger_unavailable", "预算账本不可用，云模型调用已关闭，请恢复历史账本", 503)
+            if budget.get("accounting_violation") or budget.get("remaining_cny", 0) <= 0:
+                fail("budget_exhausted", "项目累计预算不可用，请检查费用与未决预留", 422)
         workflow = None
         if body.get("workflow_id"):
             definition = required("workflows", body["workflow_id"], user, repository=tx)
@@ -567,9 +658,7 @@ def create_task(body, user, repository=None):
             workflow = tx.get("workflow_versions", f"{definition['id']}:{definition['current_version']}")
         if not workflow:
             candidates = [
-                a
-                for a in tx.list("agents", body["project_id"])
-                if a["status"] == "published" and body["task_type"] in a["capabilities"]
+                a for a in tx.list("agents", body["project_id"]) if compatible_agent(tx, a, body, inputs)
             ]
             candidates.sort(
                 key=lambda a: (a["purpose"] != "specialized", a["structure"] != "atomic", a["id"])
@@ -593,9 +682,31 @@ def create_task(body, user, repository=None):
                     ],
                 }
             else:
-                # The worker records a clear unsupported terminal result; never invent an agent.
-                workflow = {"id": "unsupported", "name": "能力检查", "nodes": []}
+                fail("no_compatible_agent", "没有同时满足执行模式、资料类型和工具授权的已发布智能体", 422)
+        for node in workflow["nodes"]:
+            if not compatible_agent(
+                tx, tx.get("agents", node["agent_id"]), body, inputs, node.get("agent_version")
+            ):
+                fail("no_compatible_agent", "流程包含不匹配或未授权的智能体，请更新流程版本", 422)
         agents = _freeze_agents(tx, workflow["nodes"], body["project_id"])
+        if preflight:
+            return {
+                "ready": True,
+                "selected_agents": [
+                    {"agent_id": a.get("agent_id", a["id"]), "version": a["version"], "name": a["name"]}
+                    for a in agents
+                ],
+                "checks": [
+                    "mode",
+                    "inputs",
+                    "permissions",
+                    "agents",
+                    "budget",
+                    "offline_policy",
+                    "knowledge_scope",
+                ],
+                "warnings": ["网络连通不代表密钥或模型调用已验证"] if body["mode"] == "cloud" else [],
+            }
         task_id = uuid.uuid4().hex
         task = tx.put(
             "tasks",
@@ -613,6 +724,7 @@ def create_task(body, user, repository=None):
                 "revision": 0,
                 "trace_id": task_id,
                 "created_by": user["id"],
+                "authorization": {key: user[key] for key in ("id", "role", "username") if key in user},
                 "deadline_at": (datetime.now(UTC) + timedelta(seconds=body["deadline_seconds"])).isoformat(),
                 "result": None,
             },
@@ -656,7 +768,11 @@ def safe_asset(record):
 
 
 def safe_task(record):
-    return {k: v for k, v in record.items() if k not in ("snapshot", "request_hash", "in_flight")}
+    return {
+        k: v
+        for k, v in record.items()
+        if k not in ("snapshot", "request_hash", "in_flight", "tool_checkpoints", "authorization")
+    }
 
 
 def unavailable_sources(source_refs, project_id, repository=None):
@@ -688,6 +804,13 @@ def redact_derived(record, blocked_sources):
     # Warnings and node errors may include provider-derived text; keep reason code.
     if "warnings" in output:
         output["warnings"] = ["来源已撤回或过期，派生产物内容不再提供"]
+    if "tool_calls" in output:
+        output["tool_calls"] = [{**item, "summary": {}} for item in output["tool_calls"]]
+    for key in ("summary", "metrics"):
+        if key in output:
+            output[key] = {}
+    if isinstance(output.get("payload"), dict):
+        output["payload"] = redact_derived(output["payload"], blocked_sources)
     return output
 
 
@@ -705,8 +828,10 @@ def task_detail(task_id, user, repository=None):
     if blocked:
         result["nodes"] = [redact_derived(node, blocked) for node in result["nodes"]]
         result["artifacts"] = [redact_derived(artifact, blocked) for artifact in result["artifacts"]]
+        result["events"] = [redact_derived(event, blocked) for event in result["events"]]
         if result.get("result"):
             result["result"] = redact_derived(result["result"], blocked)
         result["quality_verdict"] = None
+        result["tool_calls"] = [{**item, "summary": {}} for item in result.get("tool_calls", [])]
         result["content_withheld"] = True
     return result

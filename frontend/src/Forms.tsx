@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { api, post, put, idPath } from "./api";
 import { parseObject, splitList, taskTypes } from "./domain";
 import type { Item, Mutation } from "./types";
+import type { components } from "./generated/api";
 import { Field, FormModal } from "./ui";
 const modalities: Record<string, string> = {
   text: "文本",
@@ -32,9 +33,25 @@ export function AgentForm({
       .map((c) => c.tool_id),
     instructions: "",
     model_policy: "local",
+    execution_strategy: "fixed",
+    tool_refs: [],
+    skill_refs: [],
     members: [],
     ...item,
   });
+  const [extensions, setExtensions] = useState<Item>({ tools: [], skills: [] });
+  const [extensionError, setExtensionError] = useState("");
+  useEffect(() => {
+    const controller = new AbortController();
+    api(`/v2/capabilities?project_id=${encodeURIComponent(projectId)}`, {
+      signal: controller.signal,
+    })
+      .then(setExtensions)
+      .catch((error) => {
+        if (error.name !== "AbortError") setExtensionError(error.message);
+      });
+    return () => controller.abort();
+  }, [projectId]);
   const update = (key: string, value: any) =>
     setForm({ ...form, [key]: value });
   const [parameters, setParameters] = useState(
@@ -65,6 +82,9 @@ export function AgentForm({
               "modalities",
               "instructions",
               "model_policy",
+              "execution_strategy",
+              "tool_refs",
+              "skill_refs",
             ].map((k) => [k, form[k]]),
           ),
           tool_ids: form.tool_ids.filter(Boolean),
@@ -84,6 +104,49 @@ export function AgentForm({
       }}
     >
       <div className="form-grid">
+        <Field
+          label="运行方式"
+          hint="工具型适用于云端文本分析和资料摘要，自主选择已授权工具。"
+        >
+          <select
+            value={form.execution_strategy}
+            onChange={(event) => {
+              const strategy = event.target.value;
+              const capabilities = form.capabilities.filter((id: string) =>
+                ["text_analysis", "source_summary"].includes(id),
+              );
+              setForm({
+                ...form,
+                execution_strategy: strategy,
+                ...(strategy === "tool_agent"
+                  ? {
+                      model_policy: "cloud",
+                      capabilities: capabilities.length
+                        ? capabilities
+                        : ["text_analysis"],
+                      modalities: ["text", "structured"],
+                      tool_ids: capabilities.length
+                        ? capabilities
+                        : ["text_analysis"],
+                      tool_refs: extensions.tools.map((item: Item) => ({
+                        tool_id: item.id,
+                        version: item.version,
+                      })),
+                      skill_refs: extensions.skills.map((item: Item) => ({
+                        skill_id: item.id,
+                        version: item.version,
+                      })),
+                    }
+                  : { tool_refs: [], skill_refs: [] }),
+              });
+            }}
+          >
+            <option value="fixed">固定执行能力</option>
+            <option value="tool_agent" disabled={!extensions.tools.length}>
+              自主工具型 Agent
+            </option>
+          </select>
+        </Field>
         <Field label="名称">
           <input
             required
@@ -184,6 +247,77 @@ export function AgentForm({
           placeholder="说明职责、输出约束与来源要求"
         />
       </Field>
+      {extensionError && (
+        <p className="warning" role="alert">
+          工具目录读取失败：{extensionError}
+        </p>
+      )}
+      {(form.execution_strategy === "tool_agent" ||
+        form.structure === "composite") && (
+        <>
+          <fieldset className="capability-picker">
+            <legend>授权工具及 MCP</legend>
+            <p className="note">
+              发布时锁定版本。只提供选中的能力，资料中的指令不能增加权限。
+            </p>
+            {extensions.tools.map((tool: Item) => (
+              <label className="check" key={tool.id}>
+                <input
+                  type="checkbox"
+                  checked={form.tool_refs.some(
+                    (ref: Item) => ref.tool_id === tool.id,
+                  )}
+                  onChange={(event) =>
+                    update(
+                      "tool_refs",
+                      event.target.checked
+                        ? [
+                            ...form.tool_refs,
+                            { tool_id: tool.id, version: tool.version },
+                          ]
+                        : form.tool_refs.filter(
+                            (ref: Item) => ref.tool_id !== tool.id,
+                          ),
+                    )
+                  }
+                />
+                {tool.label} · v{tool.version}
+              </label>
+            ))}
+          </fieldset>
+          <fieldset className="capability-picker">
+            <legend>授权技能</legend>
+            {extensions.skills.map((skill: Item) => (
+              <label className="check" key={skill.id}>
+                <input
+                  type="checkbox"
+                  checked={form.skill_refs.some(
+                    (ref: Item) => ref.skill_id === skill.id,
+                  )}
+                  onChange={(event) =>
+                    update(
+                      "skill_refs",
+                      event.target.checked
+                        ? [
+                            ...form.skill_refs,
+                            { skill_id: skill.id, version: skill.version },
+                          ]
+                        : form.skill_refs.filter(
+                            (ref: Item) => ref.skill_id !== skill.id,
+                          ),
+                    )
+                  }
+                />
+                {skill.name} · {skill.version}
+                <span className="muted">{skill.description}</span>
+              </label>
+            ))}
+            <p className="note">
+              技能所需工具须同时授权；技能包只提供说明和参考资料。
+            </p>
+          </fieldset>
+        </>
+      )}
       <Field
         label="工具参数 JSON"
         hint="允许 operation、select_fields、filter、sort_by、descending、deduplicate、max_chars；参数由服务端白名单验证。"
@@ -244,11 +378,13 @@ export function TaskForm({
   mutate,
   schedule = false,
   afterCreate,
+  initial,
 }: Common & {
   assets: Item[];
   workflows: Item[];
   schedule?: boolean;
   afterCreate?: (item: Item) => void;
+  initial?: Item;
 }) {
   const [form, setForm] = useState<Item>({
     name: "",
@@ -257,16 +393,36 @@ export function TaskForm({
     input_refs: [],
     workflow_id: "",
     mode: "local",
-    idempotency_key: crypto.randomUUID(),
     deadline_seconds: 300,
     max_cost_cny: 0,
     max_revisions: 1,
     allow_partial: false,
+    use_project_knowledge: false,
+    ...initial,
+    idempotency_key: crypto.randomUUID(),
   });
+  const [catalog, setCatalog] = useState<Item[]>([]);
+  const [catalogError, setCatalogError] = useState("");
+  useEffect(() => {
+    const controller = new AbortController();
+    api(`/v2/capabilities?project_id=${encodeURIComponent(projectId)}`, {
+      signal: controller.signal,
+    })
+      .then((data) => {
+        setCatalog(data.capabilities);
+        setCatalogError("");
+      })
+      .catch((error) => {
+        if (error.name !== "AbortError") setCatalogError(error.message);
+      });
+    return () => controller.abort();
+  }, [projectId]);
+  const capability = catalog.find((c) => c.id === form.task_type);
   const [quality, setQuality] = useState({
       min_records: 1,
       min_length: 1,
-      required_fields: "",
+      ...initial?.quality,
+      required_fields: (initial?.quality?.required_fields || []).join(", "),
     }),
     [interval, setInterval] = useState(86400);
   const update = (key: string, value: any) =>
@@ -278,8 +434,18 @@ export function TaskForm({
       onClose={onClose}
       submit={schedule ? "创建计划" : "提交并自动执行"}
       onSubmit={async () => {
-        const task = {
-          ...form,
+        const task: components["schemas"]["TaskInput"] = {
+          name: form.name,
+          goal: form.goal,
+          task_type: form.task_type,
+          input_refs: form.input_refs,
+          mode: form.mode,
+          idempotency_key: form.idempotency_key,
+          deadline_seconds: form.deadline_seconds,
+          max_cost_cny: form.max_cost_cny,
+          max_revisions: form.max_revisions,
+          allow_partial: form.allow_partial,
+          use_project_knowledge: form.use_project_knowledge,
           project_id: projectId,
           workflow_id: form.workflow_id || null,
           quality: {
@@ -288,8 +454,9 @@ export function TaskForm({
           },
         };
         const result = await mutate(
-          () =>
-            post(
+          async () => {
+            await post("/v2/tasks/preflight", task);
+            return post(
               schedule ? "/v2/schedules" : "/v2/tasks",
               schedule
                 ? {
@@ -300,12 +467,18 @@ export function TaskForm({
                     task_template: task,
                   }
                 : task,
-            ),
+            );
+          },
           schedule ? "计划任务已创建" : "任务已受理",
         );
         afterCreate?.(result);
       }}
     >
+      {catalogError && (
+        <p className="warning" role="alert">
+          能力目录读取失败：{catalogError}
+        </p>
+      )}
       <div className="form-grid">
         <Field label="任务名称">
           <input
@@ -318,18 +491,40 @@ export function TaskForm({
         <Field label="任务类型">
           <select
             value={form.task_type}
-            onChange={(e) =>
-              setForm({ ...form, task_type: e.target.value, workflow_id: "" })
-            }
+            onChange={(e) => {
+              const selected = catalog.find((c) => c.id === e.target.value);
+              const mode = selected?.modes.includes(form.mode)
+                ? form.mode
+                : selected?.modes[0] || "local";
+              setForm({
+                ...form,
+                task_type: e.target.value,
+                workflow_id: "",
+                mode,
+                use_project_knowledge:
+                  mode === "cloud" && form.use_project_knowledge,
+                max_cost_cny: mode === "cloud" ? form.max_cost_cny || 1 : 0,
+              });
+            }}
           >
             {Object.entries(taskTypes).map(([id, label]) => (
-              <option value={id} key={id}>
+              <option
+                value={id}
+                key={id}
+                disabled={!catalog.find((c) => c.id === id)?.available}
+              >
                 {label}
+                {catalog.find((c) => c.id === id)?.available
+                  ? ""
+                  : "（暂未接入）"}
               </option>
             ))}
           </select>
         </Field>
       </div>
+      <p className="note">
+        {capability?.description || "正在读取服务端能力目录…"}
+      </p>
       <Field label="任务目标">
         <textarea
           required
@@ -344,11 +539,20 @@ export function TaskForm({
         <span>输入数据 · 选择已登记的有效资产</span>
         <div className="selection-list">
           {assets
-            .filter((a) => a.status === "active")
+            .filter(
+              (a) =>
+                a.status === "active" &&
+                new Date(a.expires_at).getTime() > Date.now(),
+            )
             .map((a) => (
               <label className="check" key={a.id}>
                 <input
                   type="checkbox"
+                  disabled={
+                    !form.input_refs.includes(a.id) &&
+                    (!capability?.modalities.includes(a.modality) ||
+                      (form.mode === "cloud" && a.classification !== "public"))
+                  }
                   checked={form.input_refs.includes(a.id)}
                   onChange={() =>
                     update(
@@ -381,13 +585,30 @@ export function TaskForm({
               setForm({
                 ...form,
                 mode: e.target.value,
+                use_project_knowledge:
+                  e.target.value === "cloud" && form.use_project_knowledge,
                 max_cost_cny: e.target.value === "cloud" ? 1 : 0,
               })
             }
           >
-            <option value="local">本地工具 · 无模型推理</option>
-            <option value="cloud">云端模型 · 计入累计预算</option>
-            <option value="rehearsal">配置演练 · 非推理结果</option>
+            <option
+              value="local"
+              disabled={!capability?.modes.includes("local")}
+            >
+              本地工具 · 无模型推理
+            </option>
+            <option
+              value="cloud"
+              disabled={!capability?.modes.includes("cloud")}
+            >
+              云端模型 · 计入累计预算
+            </option>
+            <option
+              value="rehearsal"
+              disabled={!capability?.modes.includes("rehearsal")}
+            >
+              配置演练 · 非推理结果
+            </option>
           </select>
         </Field>
         <Field label="复用流程">
@@ -414,6 +635,18 @@ export function TaskForm({
           只允许外发已标记公开的数据。执行、自动评审与修订均经过统一网关并计入历史累计
           300 元上限。
         </p>
+      )}
+      {form.mode === "cloud" && (
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={form.use_project_knowledge}
+            onChange={(event) =>
+              update("use_project_knowledge", event.target.checked)
+            }
+          />
+          允许工具型 Agent 检索本项目公开知识
+        </label>
       )}
       {form.mode === "rehearsal" && (
         <p className="warning">

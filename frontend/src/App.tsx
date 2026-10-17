@@ -87,7 +87,16 @@ export default function App() {
     try {
       const value = await api<Bootstrap>("/v2/bootstrap");
       if (currentUser.current !== expected) return;
-      setData(value);
+      setData((previous) => ({
+        ...value,
+        tasks: value.tasks.map((task) => {
+          const known = previous?.tasks.find((item) => item.id === task.id);
+          return known &&
+            Date.parse(known.updated_at) > Date.parse(task.updated_at)
+            ? known
+            : task;
+        }),
+      }));
       setUser(value.user);
       setError("");
       setProjectId((old) =>
@@ -104,6 +113,29 @@ export default function App() {
       } else setError((e as Error).message);
       throw e;
     }
+  }, []);
+  const taskUpdated = useCallback((task: Item) => {
+    setData((previous) =>
+      previous
+        ? {
+            ...previous,
+            tasks: previous.tasks.map((item) =>
+              item.id !== task.id ||
+              Date.parse(item.updated_at) > Date.parse(task.updated_at)
+                ? item
+                : {
+                    ...item,
+                    status: task.status,
+                    revision: task.revision,
+                    reason_code: task.reason_code,
+                    finished_at: task.finished_at,
+                    updated_at: task.updated_at,
+                    cancel_requested: task.cancel_requested,
+                  },
+            ),
+          }
+        : previous,
+    );
   }, []);
   useEffect(() => {
     let active = true;
@@ -382,6 +414,7 @@ export default function App() {
                   selectedId={taskId}
                   onSelect={setTaskId}
                   onAgent={openAgent}
+                  onTaskUpdated={taskUpdated}
                 />
               )}
               {page === "workflows" && (

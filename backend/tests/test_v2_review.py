@@ -78,7 +78,7 @@ async def candidate(db):
     return project, asset, agent, body
 
 
-def test_mode_catalog_blocks_unapproved_cloud_but_accepts_honest_unsupported_local(db):
+def test_mode_catalog_rejects_unapproved_modes_and_unsupported_inputs_before_acceptance(db):
     project, asset = fixtures(db)
     body = {
         "project_id": project["id"],
@@ -93,8 +93,14 @@ def test_mode_catalog_blocks_unapproved_cloud_but_accepts_honest_unsupported_loc
     with pytest.raises(service.DomainError) as error:
         service.create_task(body, ADMIN, db)
     assert error.value.code == "unsupported_mode"
-    task = service.create_task({**body, "task_type": "audio_transcribe", "mode": "local"}, ADMIN, db)
-    assert task["status"] == "accepted"
+    with pytest.raises(service.DomainError) as error:
+        service.create_task({**body, "task_type": "audio_transcribe", "mode": "local"}, ADMIN, db)
+    assert error.value.code in {
+        "unsupported_capability",
+        "unsupported_mode",
+        "unsupported_input",
+        "no_compatible_agent",
+    }
 
 
 def test_lost_update_is_rejected_and_parallel_publishes_use_unique_versions(db):

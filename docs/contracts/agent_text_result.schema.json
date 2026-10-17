@@ -1,0 +1,118 @@
+{
+  "$defs": {
+    "DerivedCitation": {
+      "properties": {
+        "kind": {
+          "const": "derived_result",
+          "title": "Kind",
+          "type": "string"
+        },
+        "tool_call_id": {
+          "title": "Tool Call Id",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "result_checksum": {
+          "title": "Result Checksum",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "tool_call_id",
+        "source_id",
+        "result_checksum"
+      ],
+      "title": "DerivedCitation",
+      "type": "object"
+    },
+    "SourceCitation": {
+      "properties": {
+        "kind": {
+          "default": "source_span",
+          "enum": [
+            "source_span",
+            "source_quote"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_version": {
+          "title": "Source Version",
+          "type": "string"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "end": {
+          "minimum": 1,
+          "title": "End",
+          "type": "integer"
+        },
+        "quote": {
+          "maxLength": 12000,
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "source_version",
+        "start",
+        "end",
+        "quote"
+      ],
+      "title": "SourceCitation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "text": {
+      "maxLength": 50000,
+      "minLength": 1,
+      "title": "Text",
+      "type": "string"
+    },
+    "citations": {
+      "items": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/SourceCitation"
+          },
+          {
+            "$ref": "#/$defs/DerivedCitation"
+          }
+        ]
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "title": "Citations",
+      "type": "array"
+    },
+    "missing_information": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Missing Information",
+      "type": "array"
+    }
+  },
+  "required": [
+    "text",
+    "citations"
+  ],
+  "title": "AgentTextResult",
+  "type": "object"
+}

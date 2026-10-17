@@ -2005,3 +2005,23 @@ fieldset {
     transition: none !important;
   }
 }
+
+.capability-picker {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  margin: 16px 0;
+}
+.capability-picker .check {
+  margin: 12px 0;
+  flex-wrap: wrap;
+}
+.capability-picker,
+.capability-picker .muted,
+.field small,
+.note,
+.warning,
+.error-line {
+  font-size: 14px;
+  line-height: 1.6;
+}

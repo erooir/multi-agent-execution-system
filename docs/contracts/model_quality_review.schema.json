@@ -1,0 +1,44 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "verdict": {
+      "enum": [
+        "passed",
+        "failed"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    },
+    "issues": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Issues",
+      "type": "array"
+    },
+    "evidence_refs": {
+      "description": "只填写 allowed_evidence_refs 中的资料ID，不填写工具调用ID或说明文字",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Evidence Refs",
+      "type": "array"
+    },
+    "suggested_changes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Suggested Changes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "verdict",
+    "issues",
+    "evidence_refs",
+    "suggested_changes"
+  ],
+  "title": "ModelQualityReview",
+  "type": "object"
+}

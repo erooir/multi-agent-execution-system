@@ -14,7 +14,7 @@ from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
-DATABASES = ("budget.sqlite3", "workbench.sqlite3", "platform-v2.sqlite3")
+DATABASES = ("budget.sqlite3", "workbench.sqlite3", "platform-v2.sqlite3", "development-test.sqlite3")
 CONTENT_DIRECTORY = "platform-assets"
 
 
@@ -229,7 +229,7 @@ def restore_backup(
         target = _local_path(root, local / name)
         if (
             name in DATABASES
-            and name != "budget.sqlite3"
+            and name not in {"budget.sqlite3", "development-test.sqlite3"}
             and any(Path(str(target) + suffix).exists() for suffix in ("-wal", "-shm"))
         ):
             raise ValueError("目标数据库仍有 WAL/SHM；确认服务已停止并执行完整检查点后再恢复")
@@ -247,6 +247,9 @@ def restore_backup(
         if name == "budget.sqlite3":
             continue
         target = _local_path(root, local / name)
+        if name == "development-test.sqlite3" and target.exists():
+            merge_budget_history(directory / name, target)
+            continue
         target.parent.mkdir(parents=True, exist_ok=True)
         staged = target.with_name(target.name + ".restore-" + uuid.uuid4().hex)
         shutil.copy2(directory / name, staged)

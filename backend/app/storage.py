@@ -6,7 +6,9 @@ import json
 import os
 import sqlite3
 import threading
+import time
 import uuid
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -20,11 +22,21 @@ class Store:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
-        with self.connect() as conn:
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS records (kind TEXT NOT NULL,id TEXT NOT NULL,data TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(kind,id))"
-            )
+        # Switching journal mode on a brand-new database can fail immediately
+        # despite busy_timeout when API and Worker start together.
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                with closing(self.connect()) as conn, conn:
+                    conn.execute("PRAGMA journal_mode=WAL")
+                    conn.execute(
+                        "CREATE TABLE IF NOT EXISTS records (kind TEXT NOT NULL,id TEXT NOT NULL,data TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(kind,id))"
+                    )
+                break
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc).lower() or time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.05)
 
     def connect(self):
         conn = sqlite3.connect(self.path, timeout=30)

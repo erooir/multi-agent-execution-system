@@ -240,6 +240,46 @@ def projects(user: dict = read):
     return [p for p in repo.list("projects") if user["role"] == "admin" or user["id"] in p["members"]]
 
 
+@router.post("/model/connectivity")
+async def model_connectivity(user: dict = edit):
+    return await model_gateway.connectivity()
+
+
+@router.post("/tasks/preflight", response_model=c.TaskPreflight)
+def task_preflight(body: c.TaskInput, user: dict = edit):
+    return s.create_task(body.model_dump(), user, preflight=True)
+
+
+@router.get("/capabilities", response_model=c.CapabilityCatalog | list[dict])
+def capability_catalog(project_id: str | None = None, user: dict = read):
+    if project_id is None:
+        return s.CAPABILITIES
+    s.project_access(project_id, user)
+    from .tool_registry import catalog
+
+    return {"capabilities": s.CAPABILITIES, **catalog()}
+
+
+@router.get("/tasks/{task_id}/tool-calls", response_model=list[c.ToolCallRecord])
+def task_tool_calls(task_id: str, user: dict = read):
+    task = s.required("tasks", task_id, user)
+    if s.unavailable_sources(_task_source_ids(task), task["project_id"], repo):
+        return []
+    return task.get("tool_calls", [])
+
+
+@router.get("/tasks/{task_id}/tool-calls/{call_id}", response_model=c.ToolCallDetail)
+def task_tool_call_detail(task_id: str, call_id: str, user: dict = read):
+    task = s.required("tasks", task_id, user)
+    if s.unavailable_sources(_task_source_ids(task), task["project_id"], repo):
+        s.fail("input_unavailable", "资料已撤回或过期，调用的输入和输出不再提供", 403)
+    call = next((item for item in task.get("tool_calls", []) if item["id"] == call_id), None)
+    if call is None:
+        s.fail("not_found", "调用记录不存在", 404)
+    checkpoint = task.get("tool_checkpoints", {}).get(call_id, {})
+    return {"call": call, "arguments": checkpoint.get("arguments"), "result": checkpoint.get("result")}
+
+
 @router.post("/projects", status_code=201)
 def create_project(body: c.ProjectInput, user: dict = edit):
     return s.create_project(body.model_dump(), user)
@@ -521,8 +561,9 @@ def events(
     limit: int = Query(default=500, ge=1, le=1000),
     user: dict = read,
 ):
-    s.required("tasks", task_id, user)
-    return _event_page(task_id, after, limit)
+    task = s.required("tasks", task_id, user)
+    blocked = s.unavailable_sources(_task_source_ids(task), task["project_id"], repo)
+    return [s.redact_derived(item, blocked) for item in _event_page(task_id, after, limit)]
 
 
 @router.get("/tasks/{task_id}/stream")
@@ -540,7 +581,9 @@ async def stream(task_id: str, request: Request, after: int = Query(default=0, g
                 yield 'event: access_revoked\ndata: {"code":"access_revoked"}\n\n'
                 return
             page = _event_page(task_id, cursor)
+            blocked = s.unavailable_sources(_task_source_ids(task), task["project_id"], repo)
             for item in page:
+                item = s.redact_derived(item, blocked)
                 cursor = item["sequence"]
                 yield f"id: {cursor}\ndata: {json.dumps(item, ensure_ascii=False)}\n\n"
             if len(page) == 500:
@@ -581,11 +624,6 @@ def download(artifact_id: str, user: dict = read):
             "Content-Disposition": f"attachment; filename*=UTF-8''{quote('artifact-' + artifact_id + '.txt', safe='')}"
         },
     )
-
-
-@router.get("/capabilities")
-def capabilities(user: dict = read):
-    return s.CAPABILITIES
 
 
 @router.get("/budget")

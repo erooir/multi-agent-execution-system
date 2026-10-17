@@ -17,6 +17,8 @@ def postgres():
     url = os.environ.get("HANGZHI_TEST_POSTGRES_URL")
     if not url:
         pytest.skip("Actual PostgreSQL service not configured on this host")
+    if not (make_url(url).database or "").endswith("_test"):
+        raise RuntimeError("PostgreSQL tests require an explicitly named *_test database")
     schema = "test_" + uuid.uuid4().hex
     admin = create_engine(url)
     with admin.begin() as conn:

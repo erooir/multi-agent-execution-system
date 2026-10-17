@@ -58,6 +58,16 @@ def test_backup_tampering_and_nonquiescent_restore_rejected(tmp_path):
         verify_backup(backup)
 
 
+def test_restore_preserves_newer_development_test_reservations(tmp_path):
+    synthetic_runtime(tmp_path)
+    development = BudgetLedger(tmp_path / ".local" / "development-test.sqlite3")
+    development.reserve(0.2, "synthetic-development", "one", limit=10)
+    backup = create_backup(tmp_path, services_stopped=True)
+    development.reserve(0.3, "synthetic-development", "two", limit=10)
+    restore_backup(tmp_path, backup, services_stopped=True)
+    assert development.budget(10)["reserved_cny"] == 0.5
+
+
 def test_backup_never_recurses_into_source_or_overwrites(tmp_path):
     synthetic_runtime(tmp_path)
     with pytest.raises(ValueError, match="重叠"):

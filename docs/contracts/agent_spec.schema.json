@@ -19,6 +19,49 @@
       ],
       "title": "Member",
       "type": "object"
+    },
+    "SkillReference": {
+      "additionalProperties": false,
+      "properties": {
+        "skill_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Skill Id",
+          "type": "string"
+        },
+        "version": {
+          "default": "1.0.0",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "skill_id"
+      ],
+      "title": "SkillReference",
+      "type": "object"
+    },
+    "ToolReference": {
+      "additionalProperties": false,
+      "properties": {
+        "tool_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Tool Id",
+          "type": "string"
+        },
+        "version": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tool_id"
+      ],
+      "title": "ToolReference",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -123,6 +166,31 @@
       "additionalProperties": true,
       "title": "Parameters",
       "type": "object"
+    },
+    "execution_strategy": {
+      "default": "fixed",
+      "enum": [
+        "fixed",
+        "tool_agent"
+      ],
+      "title": "Execution Strategy",
+      "type": "string"
+    },
+    "tool_refs": {
+      "items": {
+        "$ref": "#/$defs/ToolReference"
+      },
+      "maxItems": 10,
+      "title": "Tool Refs",
+      "type": "array"
+    },
+    "skill_refs": {
+      "items": {
+        "$ref": "#/$defs/SkillReference"
+      },
+      "maxItems": 5,
+      "title": "Skill Refs",
+      "type": "array"
     }
   },
   "required": [

@@ -684,6 +684,8 @@ export function OperationsPage({
     [members, setMembers] = useState<Item | null>(null),
     [memberText, setMemberText] = useState(""),
     [audits, setAudits] = useState<Item[]>([]);
+  const [connection, setConnection] = useState<Item | null>(null);
+  const [checkingConnection, setCheckingConnection] = useState(false);
   useEffect(() => {
     if (tab !== "audit") return;
     let active = true;
@@ -718,6 +720,44 @@ export function OperationsPage({
       />
       {tab === "services" && (
         <>
+          <Panel title="云模型连接">
+            <p>
+              密钥配置：{system.key_configured ? "已配置" : "未配置"}
+              。最近真实模型响应：{time(system.last_successful_call_at)}。
+            </p>
+            <p className="note">
+              最近响应来自持久费用记录；不代表当前密钥、网络或任务质量已验证。连通性检查不调用模型、不产生模型费用。
+            </p>
+            {user.role !== "reviewer" && (
+              <button
+                disabled={checkingConnection}
+                onClick={async () => {
+                  setCheckingConnection(true);
+                  try {
+                    setConnection(await post("/v2/model/connectivity"));
+                  } catch (error) {
+                    notify((error as Error).message, true);
+                  } finally {
+                    setCheckingConnection(false);
+                  }
+                }}
+              >
+                {checkingConnection ? "正在检查…" : "检查网络连通性"}
+              </button>
+            )}
+            {connection && (
+              <p role="status">
+                网络：
+                {connection.reachable === true
+                  ? "可达"
+                  : connection.reachable === false
+                    ? "不可达，请检查网络和代理"
+                    : "未检查（离线策略）"}{" "}
+                · 检查于 {time(connection.checked_at)}
+                。密钥有效性仍需真实调用确认。
+              </p>
+            )}
+          </Panel>
           <div className="metric-grid">
             <div className="metric">
               <Server size={20} />

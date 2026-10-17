@@ -17,6 +17,7 @@ dependencies = [
   "pillow>=11",
   "psycopg[binary]>=3.2,<4",
   "tzdata>=2025.1",
+  "mcp>=1.25,<2",
 ]
 
 [dependency-groups]
