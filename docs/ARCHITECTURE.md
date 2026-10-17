@@ -1,73 +1,50 @@
-# Research Agent Workbench Architecture
+# 航智智能体管理平台架构 v2
 
-## Runtime
-Python 3.12+, FastAPI, Agno AgentOS, SQLite. React/TypeScript/Vite/React Flow frontend. Application data is under ignored `.local/`; model API keys are read from the process or Windows user environment and never stored there. Login identities and salted password hashes persist in the local database. No cloud control plane subscription. All model traffic uses the budget gateway.
+2026-10-17。新版共享契约。旧业务由 Git 归档保留，私有原文只保存在忽略目录。
 
-AgentOS registers the same Agno Workflow that executes each validated node. Its unrestricted native API is private; the authenticated product API supplies role checks, persistence and spending control. At most two runs execute concurrently, with explicit recovery after interruption. Local deployment uses a single server process.
+## 系统边界
+智能体定义、不可变版本、运行实例分离。任务自动规划、执行、确定性校验、评审与有界修订，没有人工审核等待状态。首批支持结构化数据整理、来源文本整理/摘要、图片元数据检查。音频转写、图像语义和视频理解未验证时返回 unsupported_capability。local 是真实确定性工具；cloud 是网关模型；rehearsal 显著标记且不冒充离线推理。
 
-## Storage contract
-`from .storage import store` singleton. `store.list(kind) -> list[dict]`, `store.get(kind,id) -> dict|None`, `store.save(kind,item) -> dict` (generates id/timestamps when omitted), `store.delete(kind,id) -> bool`, `store.audit(action,entity,detail,user='system')`. Generic JSON records, all changes atomic. Kinds: projects, agents, workflows, runs, reports, documents, chunks, evaluations, samples, events, approvals, graph_nodes, graph_edges, audits.
+## 部署与数据
+Python/FastAPI + Agno 3.0.10 私有运行时，React/TypeScript 管理台。API 和独立 Worker 共享 SQLAlchemy 数据库；HANGZHI_DATABASE_URL 配置 PostgreSQL 正式部署，默认 SQLite .local/platform-v2.sqlite3 用于本机开发。schema_version 显式管理，不迁移旧任务。
+实体表：projects, agents, agent_versions, workflows, workflow_versions, data_assets, tasks, nodes, instances, artifacts, events, schedules, evaluations, improvements, memories, connectors, workers, audits。每表独立主键、项目、状态、时间与配置；任务有幂等键、租约持有者、递增 token、过期时间、取消标记。状态与事件事务提交，事件表作为可重放通知源。
+身份密码/会话复用已验证组件，身份库保留 .local/workbench.sqlite3，只访问身份与设置类别。新部署不生成固定默认密码。admin 全局管理；operator 操作所属项目；reviewer 只读。所有实体读取和写入均验证项目成员。
+预算固定历史 .local/budget.sqlite3，不随新库目录迁移。所有模型调用只经过 backend/app/model_gateway.py，保留最坏预留、不确定费用、8000输出上限与300元历史累计上限。AgentOS原生执行API不公开。禁遥测、CDN、自动下载。
 
-## API contract
-All routes under `/api`. JSON collections are arrays (no envelope). Errors return HTTP errors with `detail`. Model is `deepseek-flash`, with a visibly labeled deterministic `rehearsal` execution mode, never silent fallback.
+## API
+业务前缀 /api/v2；身份 /api/auth/login|register|me|logout。集合为数组。错误 {detail:{code,message}}；身份保留detail字符串。写入校验同源和后端角色。输入拒绝未知字段。
+- GET /health；GET /bootstrap 返回 {user,projects,agents,workflows,tasks,data_assets,schedules,improvements,connectors,capabilities,workers,budget,stats,system}。
+- GET/POST /projects；PUT /projects/{id}/members（admin）。
+- GET/POST /agents；GET/PUT /agents/{id}；POST /agents/{id}/publish|disable|enable|retire；DELETE /agents/{id}；GET /agents/{id}/versions|instances。
+- GET/POST /workflows；GET/PUT /workflows/{id}；POST /workflows/{id}/publish；GET /workflows/{id}/versions。
+- GET/POST /data-assets；POST /data-assets/upload（multipart）；POST /data-assets/{id}/revoke；GET /data-assets/{id}/content。
+- GET/POST /tasks；GET /tasks/{id} 包含 nodes,instances,artifacts,events；POST /tasks/{id}/cancel；GET /tasks/{id}/events?after=N 数组；GET /tasks/{id}/stream SSE支持Last-Event-ID；GET /tasks/{id}/result。
+- GET /artifacts/{id} 索引及内容；GET /artifacts/{id}/download 下载。
+- GET/POST /schedules；POST /schedules/{id}/disable|enable。持久 interval_seconds,next_run_at,timezone,task_template；计划ID和触发时间构成幂等键。
+- GET /capabilities|budget|workers|audits；GET/POST /connectors；POST /knowledge/search；GET/POST /memories。
+- GET/POST /improvements；POST /improvements/{id}/evaluate|promote|rollback；GET /evaluations。候选仅改变授权配置，保存真实样本和输出，硬回归禁止晋升。
 
-- POST /auth/register {username,password,name?} returns 201 {user} and signs in. Username is case-insensitive, 3–32 ASCII letters/digits/underscores; password 8–128 characters; display name at most 40 printable characters. Registration fixes the role to operator and rejects extra fields, including role. Concurrent duplicates are rejected by the SQLite record primary key.
-- POST /auth/login {username,password}; GET /auth/me; POST /auth/logout. Sessions use opaque HttpOnly, SameSite=Strict cookies (Secure on HTTPS); only a token hash is persisted. User responses include id/username/name/role, never password hashes. Every authenticated request reads current role and enabled status from the user record. Passwords use PBKDF2-SHA256 with 600,000 iterations and random 32-byte salts; hashing runs off the event loop. Existing local identities and sessions migrate once without resetting passwords on later environment changes.
-- GET /users; POST /users {username,password,name?,role}; PUT /users/{id} {name?,role?,enabled?,password?}. Admin-only user management: created roles are limited to operator/reviewer; disabling or password reset revokes sessions; the last enabled admin and self-lockout are protected.
-- Authentication writes enforce allowed local origins and reject cross-site browser requests. Durable rate limits apply to registration (10 per IP per 10 minutes) and login (30 per IP and 10 per username per 10 minutes), returning Retry-After. Auth storage kinds: users, sessions, auth_meta, auth_limits.
-- GET /bootstrap returns {projects,agents,skills,tools,mcp_servers,capability_stats,workflows,runs,reports,documents,evaluations,samples,approvals,stats,budget,system,user}. capability_stats 为 {skills,tools,mcp_servers,healthy_tools} 数量；skills 含 execution_mode/node_kinds/allowed_tools/evidence_required。Keep it lightweight, no document full text or credential values.
-- GET/POST /projects; PUT/DELETE /projects/{id}
-- GET/POST /agents; PUT/DELETE /agents/{id}; POST /agents/{id}/test {message,mode}
-- GET /skills; POST /skills/{id}/test {query,project_id,document_ids,mode,...}
-- GET /tools; POST /tools/{id}/test {input,mode}（按 Tool input_schema 收参并再次校验；rehearsal 模式下网络类 Tool 仅返回 dry_run 预检）
-- GET /mcp-servers; GET /mcp-servers/{id}/health; POST /mcp-servers/{id}/refresh（admin，重新发现并登记 allowlist 内工具）
-- GET /capability-events?run_id=（能力调用审计事件，已脱敏，不含原文与凭据）
-- GET /documents?project_id=&include_temporary=; POST /documents/upload multipart file, project_id, visibility=(external|local), temporary=(true|false); DELETE /documents/{id}; GET /documents/{id}/chunks; GET /documents/{id}/file. Temporary run-scoped uploads are excluded from library listings and default retrieval, and only participate when explicitly selected via document_ids; they persist so run evidence and report citations stay resolvable.
-- POST /knowledge/search {query,project_id,document_ids,limit,semantic}; GET /knowledge/graph?project_id=
-- GET/POST /workflows; PUT/DELETE /workflows/{id}; POST /workflows/{id}/validate; POST /workflows/{id}/publish; POST /workflows/{id}/clone; GET /workflows/{id}/versions; POST /workflows/{id}/restore {version}. Deleting a workflow also removes its version snapshots; existing runs keep their immutable workflow_snapshot.
-- POST /plan {prompt,project_id,mode} => 202 planning job; GET /planning/{id} returns {status,stage,attempts,workflow_id,error} with real generation/validation progress. Live planning retries repairs up to PLAN_MAX_REPAIRS=2, each carrying validation errors and the previous JSON back to the model.
-- POST /runs {workflow_id,project_id,prompt,mode,document_ids}; GET /runs; GET /runs/{id}; POST /runs/{id}/cancel; POST /runs/{id}/retry; POST /runs/{id}/review {decision:approve|reject,feedback,content?}; GET /runs/{id}/events SSE
-- GET /reports; GET /reports/{id}; PUT /reports/{id} {content,title}; GET /reports/{id}/versions; GET /reports/{id}/export?format=md|docx|html; POST /reports/{id}/restore {version}
-- GET /samples; POST /evaluations {sample_ids,mode,workflow_id?}; GET /evaluations; GET /evaluations/{id}
-- GET /audits; GET /settings; PUT /settings (admin, cannot increase budget beyond 300; max_output_tokens accepts 256–8000 and defaults to 8000, preserving any saved lower limit); GET /budget
-- GET /health (unauthenticated, no secret details)
+## 字段
+AgentSpec: id,project_id,name,description,purpose(general|specialized),structure(atomic|composite),capabilities[],modalities[],tool_ids[],instructions,model_policy(local|cloud),members[{agent_id,version}],status(draft|published|disabled|retired|destroyed),current_version。发布冻结配置和成员版本，检查循环及深度。禁用阻止新任务，存量按快照执行；销毁保留tombstone并检查引用。
+WorkflowSpec: id,project_id,name,description,task_type,nodes[{id,label,agent_id,depends_on:[],config:{}}],status,current_version。发布验证DAG和已发布成员，冻结agent版本。未选流程则按能力匹配或白名单模板组装任务级配置，不生成代码。
+DataAsset: id,project_id,name,modality(text|structured|image|audio|video),media_type,content,source_id,source_version,provenance,classification(local|public),retention_days,expires_at,checksum,bytes,status(active|revoked)。文本/JSON内联受大小限制；文件content_ref只指向受控存储。只有public+cloud任务可外发。撤回/过期阻止读取并失效派生记忆。
+TaskRequest: project_id,name,goal,task_type(structured_transform|source_summary|text_analysis|image_inspect|audio_transcribe|video_analyze),input_refs[],workflow_id?,mode(local|cloud|rehearsal),idempotency_key,deadline_seconds(1..86400),max_cost_cny(0..10),max_revisions(0..2),allow_partial(false),quality{min_records?,required_fields?:[],min_length?}。项目内幂等，同键异内容409。
+TaskRun: id,project_id,status(accepted|planning|queued|running|evaluating|revising|succeeded|partial|failed|cancelled),reason_code,request,snapshot,attempt,revision,cancel_requested,lease_owner,lease_token,lease_until,result,created_at,updated_at。
+ResultBundle: task_id,status,reason_code,artifacts[],quality_verdict,warnings[],lineage[],usage,version_refs[]。
+Node: id,task_id,project_id,node_id,label,agent_id,agent_version,instance_id,status,attempt,output,error,started_at,finished_at。
+Instance: id,project_id,task_id,agent_id,agent_version,status(running|released|abandoned),context_id。不同任务从不共享context。
+Artifact: id,project_id,task_id,type,media_type,content,checksum,source_refs[],quality_status。
+Event: id,sequence,project_id,task_id,node_id?,instance_id?,type,time,trace_id,payload。事件不复制私有全文。
 
-## Record fields
-Project: id,name,description,category(technology|geography|situational),created_at.
-Agent: id,name,role(planner|parser|retriever|writer|coordinator),description,instructions,skill_ids[],model,enabled,version.
-Workflow: id,name,description,category,project_id?,version,status(draft|published),nodes[],edges[],source_prompt?,preferred_mode?,created_at,updated_at. Node: {id,type:'task',position:{x,y},data:{label,kind,agent_id?,skill_id?,config:{}}}. Allowed kind: start,parse,retrieve,condition,batch,analyze,review,report,end. Edge: {id,source,target,label?,sourceHandle?}; condition edges use sourceHandle=pass|fail. Config is data, never executable user code. Workflow version snapshots are immutable. source_prompt/preferred_mode record the originating task text and planning mode; the run dialog prefills from them.
-Run: id,name,workflow_id,workflow_name,workflow_version,project_id,prompt,mode,status(queued|running|waiting_review|completed|failed|cancelled|interrupted),progress,steps[],logs[],evidence[],capability_calls[],report_id?,error?,created_at,updated_at. Step: node_id,label,kind,status,payload?,error?,started_at?,finished_at?. capability_calls: {skill_id,node_id,status,error_code,duration_ms,tool_calls[]}; Step payload of skill-bound nodes carries the unified `trace`.
-Report: id,title,category,project_id,run_id,content(markdown),citations[],version,status(draft|reviewed),created_at,updated_at.
-Document: id,name,project_id,visibility(external|local),status,chunk_count,size,kind,created_at; internal path and raw text must not leak through bootstrap.
-Evidence: id,document_id,document_name,location,text,score. Source IDs must resolve to actual retrieved chunks.
-Budget: limit_cny,spent_cny,reserved_cny,remaining_cny,request_count,blocked_count,input_tokens,output_tokens,pricing_note. Values are conservative upper bound from official peak prices, labeled accordingly.
-System: default_mode,runtime_mode,model,key_configured,agno_version,skills status,embedding_status.
+## 模块协作接口
+backend/app/platform/db.py: Repository(url=None), repo。transaction() 产生绑定事务的Repository；get(kind,id),list(kind,project_id=None,**filters),put(kind,record),delete(kind,id)；event(task_id,type,payload=None,**refs)；claim(worker_id,lease_seconds=30) 原子领取accepted/queued或过期任务并递增token；fenced(task_id,worker_id,token) 检查租约；heartbeat(task_id,worker_id,token,lease_seconds=30)；finish_claim(task_id,worker_id,token)释放。执行结果必须在transaction内先fenced，再put。
+platform/service.py 负责定义/数据/任务受理；platform/contracts.py 是输入Schema；platform/api.py 是路由。
+platform/runtime.py 提供 async process_claim(repository,task,worker_id) 以及 runtime_workflow()；platform/worker.py 独立CLI调度、心跳及计划。领域对象只依赖新Repository；模型和身份是显式保留边界。
 
-The run UI derives non-blocking tool warnings from each node's final/current state and its chronological capability_calls; warnings are presentation only, not new persisted run states. It retains each failed call and only claims a later tool switch or successful retry when the recorded tool IDs and order support it. The call-details view filters the existing records by node and does not issue tool/model retries.
+## 恢复与质量
+PostgreSQL领取FOR UPDATE SKIP LOCKED；SQLite BEGIN IMMEDIATE。所有结果经过租约令牌验证；旧worker不能写入。完成节点复用。外部调用前记录in_flight，接管未确认调用返回execution_uncertain，禁止盲重放付费请求。取消在途调用不能提前宣称释放。
+硬Schema/来源/权限校验不能被模型自评分覆盖，评审上下文独立。有界修订失败保留原始问题；仅allow_partial时可部分交付。评测冻结样本、基线和候选，保留原始结果与资源数据，禁止伪造评分。
 
-## Gateway contract (root)
-`async model_gateway.complete(prompt, *, system='', purpose='general', run_id=None, max_tokens=2000, json_mode=False, images=None) -> dict` returns {text,usage,cost_cny,model}. Every request is a genuine Agno Agent using the restricted DeepSeek transport. For deterministic rehearsal do not call gateway. Await gateway, no other model paths.
-`model_gateway.budget() -> dict`. `model_gateway.config_status() -> dict` safe configuration only.
-
-`model_gateway.run_agent(...)` uses the configured `max_output_tokens` on every model turn, up to 8000; it has no separate 2000-token ceiling. `complete()` still honors a caller's explicit smaller output allowance (for example, a short parsing summary). The transport accepts at most 8000 output tokens and reserves their full conservative cost plus estimated input cost before each request. The cumulative CNY 300 cap, usage settlement, uncertain-charge retention and rejection of truncated output remain enforced.
-
-## Knowledge contract (document service)
-`knowledge.seed()` idempotent via seeds module. `knowledge.ingest(filename,content:bytes,project_id,visibility) -> document`. `knowledge.search(query,project_id=None,document_ids=None,limit=6,semantic=False) -> evidence list`. `knowledge.chunks(document_id)`, `knowledge.remove(document_id)`, `knowledge.graph(project_id=None)`. Define module-level singleton knowledge. Vision uses gateway only, never raw model SDK.
-
-## Capability contract (Skill/Tool/MCP three layers)
-Skills/Tools/MCP servers are declared in `backend/app/skills/*/{skill.yaml,SKILL.md}` and `backend/app/capability_manifests/{tools,mcp}/*.yaml`, loaded and cross-validated at startup into SkillRegistry/ToolRegistry/McpRegistry (`capabilities/loader.py`). Execution goes through `capabilities.facade.capability_runtime()`: SkillRuntime (recipe/agent) → Policy Gate → ToolRuntime → Local/HTTP/MCP providers. Nine skills: knowledge_search,graph_query,document_parse,ocr,semantic_search,multimodal (original six, IDs and output fields unchanged), plus aviation_weather (NOAA METAR/TAF), airport_lookup (OurAirports offline snapshot), literature_search (OpenAlex+Crossref). HTTP tools use provider "http" with entrypoint "module:base" resolving `base_request(args)->{url,params}` + `base_parse(payload,args)->dict`; the provider enforces allowed_hosts, ≤15s timeout and a 5MB response cap. External-source results become evidence with origin=external/source_uri/retrieved_at and are recorded on runs as `external_references`, never merged into the chunk-locatable `evidence` pool. They do participate in evidence-count conditions and downstream analysis/reporting, and reports retain them as separately validated external citations with their source URI. MCP: docling-local is config-only (enabled:false); aviation-local (enabled:true) is an internal fastmcp stdio server (`backend/app/mcp_servers/aviation_server.py`, command `uv run python -m ...` from repo root) exposing OurAirports lookup_airport/nearby_airports via tool_allowlist; discovered tools register as `mcp.aviation-local.<tool>`, and MCP-dependent skills are marked `degraded` when the server is unavailable without affecting local capabilities. At startup, enabled MCP servers are discovered in a background task (per-server cap `min(startup_timeout_seconds, 20s)`; failures mark the server unavailable and never block API startup; tests set `WORKBENCH_MCP_AUTODISCOVERY=off`). MCP call results are unwrapped by the provider: structured content (or JSON text, including fastmcp's `{"result": ...}` wrapper) becomes `data`; `evidence`/`text` fields are promoted to the ToolResult top level; non-JSON payloads keep `data={}` with the original text in `text`; `is_error` raises `tool_failed`. Engine and API never call skill implementations directly. `model_gateway.run_agent(agent_spec, messages, tool_bindings, context, max_rounds)` creates Agno Agents with real `tools=` bindings; all model traffic stays metered. Errors carry stable codes (capability_not_found, schema_validation_failed, permission_denied, data_egress_blocked, confirmation_required, provider_unavailable, mcp_connection_failed, tool_timeout, tool_result_invalid, budget_exceeded, capability_disabled). Runs record nested `capability_calls` traces (skill_id, tool_id, provider, status, duration_ms, error_code). Startup performs a read-only check that stored agents/workflows reference only registered skills.
-
-Agent-mode skills receive the original task, their node's initial config, and bounded completed ancestor outputs. The initial JSON is advisory: after reading SKILL.md the skill agent selects schema-valid arguments, calls only manifest `allowed_tools`, inspects actual results, and may retry with corrected language/code. Tool results—not model prose—are aggregated into the Skill result, evidence, and trace; an agent that calls no tool fails with `tool_result_invalid`. Agent skills may declare a deterministic recipe fallback for drill mode. `requires_documents:true` identifies document-only skills: live planning rejects them when the task neither supplies nor mentions an attachment, and execution of a legacy/manually edited workflow skips such a skill with an explicit reason when `document_ids` is empty.
-
-Workflow retrieve nodes additionally support `execution_strategy: agent|direct_skill`. `direct_skill` executes the bound Skill deterministically. `agent` runs the bound business Agent with Skill callables derived from the intersection of its `skill_ids`, node-kind compatibility, document availability and Policy Gate context. Each callable exposes the Skill manifest schema plus its complete `SKILL.md` method; the Agent sees the task, node goal/config and bounded ancestor outputs, and can choose, combine and retry Skills. The model never receives raw provider tools at this layer. A no-Skill answer is repaired once and then fails with `tool_result_invalid`; only observed Skill invocations can complete the node. Calls are recorded as Node → Agent → Skill → Tool with `agent_id`, evidence and nested tool traces. Model-generated workflows default retrieve nodes to `agent`; legacy seeded workflows remain `direct_skill` unless explicitly upgraded. `airport_lookup` and `aviation_weather` are deterministic recipe Skills: the retriever Agent owns city decomposition, Chinese-to-English/code normalization and multi-airport sequencing.
-`seeds.seed_all()` idempotent creates public-safe synthetic samples, 3 projects,4 agent roles,6 workflows,30 task samples,graph fixtures. Avoid importing engine/API. It may import knowledge lazily after base records are saved.
-`reports.create_report(run,content,evidence)->dict`, `reports.update_report(id,content,title=None)->dict`, `reports.export_report(id,format)->(bytes,mime,filename)`, `reports.versions(id)` and `reports.restore(id,version)`.
-
-## Execution and security
-Backend enforces role: admin all, operator create/edit/run, reviewer read and approve/edit reports. Read all local demo projects. Persist node outputs and events. Resume explicitly after process restart; do not silently rerun ambiguous external actions. Evidence marked local must NEVER reach cloud models, including through prompt context, agent test, or vision. Rehearsal uses actual local retrieval and deterministic formatting, labeled throughout. SSE or polling must survive refreshing the frontend.
-
-Live planning generates nodes, edges and configuration, validates each terminal path's report/review order, and permits metered repair attempts (PLAN_MAX_REPAIRS=2) that feed validation errors and the previous JSON back to the model. Failed responses and validation reasons remain in local planning records and on the visible planning job. Reports are created as drafts before review; rejection records feedback and explicit retry reruns the relevant analysis and downstream nodes. Editing or restoring a report invalidates its reviewed status. A parse node without a bound skill parses only the run's explicitly selected documents via the local document_parse skill — it never auto-selects project documents, so unrelated material cannot leak downstream. The metered parser summary (purpose=document_parse_summary) runs only for explicitly selected documents. Review nodes always show auditable content: report draft, else analysis text, else a plainly labeled status note with the evidence collected so far.
-
-Budget reservations use a separate durable SQLite ledger with transactional concurrency control. Unknown response costs remain reserved; cancellation does not refund requests already sent. The user-facing estimate uses twice the verified peak token prices and includes pending reservations. There is no reset endpoint. Tests cover concurrent reservations, unknown costs, network target restrictions, local evidence isolation, cancelled-run persistence, and gzip responses.
-
-Demo limits: seeded graph relations are not automatically extracted from new uploads; scanned PDFs require image extraction before OCR; rule evaluations do not measure factual accuracy. The local accounts and SQLite store are intended for this single-machine demo, with deployment hardening required before multi-user network service.
+## 验收
+成功、缺数据、错Schema、重复键、越权、撤回、过期、不支持能力、模型错误、质量不合格、超时、取消、重复领取、过期接管和旧实例隔离。UI只显示持久状态和账本；无样本不显示成功率。上游接口、多模态、目标硬件和断网部署必须实际验证，不能由本机演练替代。
+技术核对：Agno固定版本由平台租约作唯一调度权威，AgentOS运行真实Workflow但不公开原生API。参考 https://docs.agno.com/agent-os/overview 和 https://docs.agno.com/telemetry 。模型目录参考 https://api-docs.deepseek.com/quick_start/pricing/ 。
