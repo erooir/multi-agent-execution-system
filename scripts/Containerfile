@@ -1,0 +1,13 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+WORKDIR /app
+# Supply an audited, locally loaded Python 3.12 image by digest; no runtime downloads.
+COPY wheelhouse /wheels
+COPY requirements-offline.txt /app/requirements-offline.txt
+RUN python -m pip install --no-index --find-links=/wheels --require-hashes -r requirements-offline.txt
+COPY backend /app/backend
+COPY frontend/dist /app/frontend/dist
+RUN mkdir -p /app/.local && chown -R 1000:1000 /app/.local
+USER 1000:1000
+ENV AGNO_TELEMETRY=false HANGZHI_OFFLINE=true
+CMD ["python", "-m", "uvicorn", "backend.app.main:app", "--host", "127.0.0.1", "--port", "8000"]

@@ -7,7 +7,6 @@ export default defineConfig({
       output: {
         manualChunks: {
           graph: ["@xyflow/react"],
-          markdown: ["react-markdown", "remark-gfm"],
         },
       },
     },

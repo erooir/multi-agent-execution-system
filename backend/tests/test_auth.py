@@ -1,5 +1,8 @@
 import hashlib
 import json
+import os
+import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from threading import Barrier
@@ -8,7 +11,8 @@ import pytest
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.testclient import TestClient
 
-from backend.app import api, auth
+from backend.app import auth
+from backend.app.platform import api
 from backend.app.storage import Store
 
 
@@ -16,10 +20,9 @@ from backend.app.storage import Store
 def identity_app(tmp_path, monkeypatch):
     database = Store(tmp_path / "identities.sqlite3")
     monkeypatch.setattr(auth, "store", database)
-    monkeypatch.setattr(api, "store", database)
-    monkeypatch.delenv("WORKBENCH_DEMO_PASSWORD", raising=False)
+    monkeypatch.setenv("HANGZHI_ADMIN_PASSWORD", "synthetic-admin-password")
     app = FastAPI()
-    app.include_router(api.router)
+    app.include_router(api.identity)
     return app, database
 
 
@@ -41,9 +44,8 @@ def test_registration_persists_hashed_password_login_cookie_and_roles(identity_a
         cookie = response.headers["set-cookie"]
         assert "HttpOnly" in cookie and "SameSite=strict" in cookie
         assert client.get("/api/auth/me").json() == expected_user
-        assert client.post("/api/projects", json={"name": "注册研究项目"}).status_code == 201
-        assert client.put("/api/settings", json={"budget_limit_cny": 1}).status_code == 403
-        assert client.post("/api/runs/missing/review", json={"decision": "approve"}).status_code == 403
+        assert client.get("/api/users").status_code == 403
+        assert client.put("/api/users/admin", json={"role": "reviewer"}).status_code == 403
         token = client.cookies.get("workbench_session")
         digest = hashlib.sha256(token.encode()).hexdigest()
         assert database.get("sessions", digest)
@@ -144,6 +146,18 @@ def test_parallel_duplicate_username_is_atomic(identity_app):
 def test_legacy_identity_and_existing_session_migrate_once(identity_app, monkeypatch):
     app, database = identity_app
     legacy_token = "existing-local-session-token"
+    original_hash = auth._hash_password("existing-owner-password")
+    database.save(
+        "users",
+        {
+            "id": "admin",
+            "username": "admin",
+            "name": "已有管理员",
+            "role": "admin",
+            "enabled": True,
+            "password_hash": original_hash,
+        },
+    )
     database.save(
         "sessions",
         {
@@ -157,16 +171,18 @@ def test_legacy_identity_and_existing_session_migrate_once(identity_app, monkeyp
         client.cookies.set("workbench_session", legacy_token)
         assert client.get("/api/auth/me").json()["role"] == "admin"
         migrated = database.get("users", "admin")
-        assert auth._verify_password("demo12345", migrated["password_hash"])
-        assert len(database.list("users")) == 3
-        monkeypatch.setenv("WORKBENCH_DEMO_PASSWORD", "environment-change-does-not-reset-users")
+        assert migrated["password_hash"] == original_hash
+        assert len(database.list("users")) == 1
+        monkeypatch.setenv("HANGZHI_ADMIN_PASSWORD", "environment-change-does-not-reset-users")
         auth.ensure_users()
         assert database.get("users", "admin")["password_hash"] == migrated["password_hash"]
         assert database.get("projects", "keep-project")["name"] == "已有工作"
-        for username in ("operator", "reviewer"):
-            result = client.post("/api/auth/login", json={"username": username, "password": "demo12345"})
-            assert result.status_code == 200
-            assert result.json()["user"]["role"] == username
+        assert (
+            client.post(
+                "/api/auth/login", json={"username": "admin", "password": "existing-owner-password"}
+            ).status_code
+            == 200
+        )
 
 
 def test_expired_deleted_disabled_and_modified_identities_are_not_stale(identity_app):
@@ -177,7 +193,12 @@ def test_expired_deleted_disabled_and_modified_identities_are_not_stale(identity
         user["role"] = "reviewer"
         database.save("users", user)
         assert client.get("/api/auth/me").json()["role"] == "reviewer"
-        assert client.post("/api/projects", json={"name": "not-allowed"}).status_code == 403
+        assert (
+            client.post(
+                "/api/users", json={"username": "not_allowed", "password": "password-123"}
+            ).status_code
+            == 403
+        )
         user["enabled"] = False
         database.save("users", user)
         assert client.get("/api/auth/me").status_code == 401
@@ -242,13 +263,15 @@ def test_login_and_registration_rate_limits(identity_app):
                 client.post("/api/auth/login", json={"username": "admin", "password": ""}).status_code == 401
             )
         assert (
-            client.post("/api/auth/login", json={"username": "admin", "password": "demo12345"}).status_code
+            client.post(
+                "/api/auth/login", json={"username": "admin", "password": "synthetic-admin-password"}
+            ).status_code
             == 429
         )
         assert not database.list("sessions")
 
 
-def _login(client, username="admin", password="demo12345"):
+def _login(client, username="admin", password="synthetic-admin-password"):
     response = client.post("/api/auth/login", json={"username": username, "password": password})
     assert response.status_code == 200, response.text
     return response
@@ -259,7 +282,7 @@ def test_admin_manages_users(identity_app):
     with TestClient(app) as client:
         _login(client)
         users = client.get("/api/users").json()
-        assert {user["username"] for user in users} == {"admin", "operator", "reviewer"}
+        assert {user["username"] for user in users} == {"admin"}
         assert all("password_hash" not in user for user in users)
 
         created = client.post(
@@ -271,7 +294,7 @@ def test_admin_manages_users(identity_app):
                 "role": "reviewer",
             },
         )
-        assert created.status_code == 201, created.text
+        assert created.status_code == 200, created.text
         assert created.json()["username"] == "reviewer_2"
         assert "password_hash" not in created.json()
         assert not database.list("sessions") or all(
@@ -334,7 +357,12 @@ def test_admin_manages_users(identity_app):
 def test_user_management_requires_admin(identity_app):
     app, database = identity_app
     with TestClient(app) as client:
-        _login(client, "operator")
+        assert (
+            client.post(
+                "/api/auth/register", json={"username": "ordinary", "password": "operator-password"}
+            ).status_code
+            == 201
+        )
         assert client.get("/api/users").status_code == 403
         assert (
             client.post("/api/users", json={"username": "sneaky", "password": "sneaky-password"}).status_code
@@ -358,3 +386,109 @@ def test_disabling_user_revokes_sessions(identity_app):
         assert not [
             session for session in database.list("sessions") if session.get("username") == "temp_user"
         ]
+
+
+def test_fresh_bootstrap_random_secret_is_bound_to_identity_store(identity_app, monkeypatch):
+    _, database = identity_app
+    monkeypatch.delenv("HANGZHI_ADMIN_PASSWORD")
+    credential_file = database.path.parent / "bootstrap-admin.json"
+    auth.ensure_users()
+    credentials = json.loads(credential_file.read_text(encoding="utf-8"))
+    account = database.get("users", "admin")
+    assert auth._verify_password(credentials["password"], account["password_hash"])
+    assert len(credentials["password"]) >= 24
+    assert len(database.list("users")) == 1
+    assert not auth._verify_password("demo12345", account["password_hash"])
+    auth.ensure_users()
+    assert database.get("users", "admin")["password_hash"] == account["password_hash"]
+    if os.name != "nt":
+        assert credential_file.stat().st_mode & 0o777 == 0o600
+
+
+def test_interrupted_bootstrap_reuses_saved_credentials_and_revokes_orphans(identity_app, monkeypatch):
+    _, database = identity_app
+    monkeypatch.delenv("HANGZHI_ADMIN_PASSWORD")
+    credential_file = database.path.parent / "bootstrap-admin.json"
+    credential_file.write_text(
+        json.dumps({"username": "admin", "password": "interrupted-setup-password"}), encoding="utf-8"
+    )
+    database.save(
+        "sessions",
+        {
+            "id": "orphan",
+            "username": "admin",
+            "expires_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+        },
+    )
+    auth.ensure_users()
+    assert auth._verify_password(
+        "interrupted-setup-password", database.get("users", "admin")["password_hash"]
+    )
+    assert database.get("sessions", "orphan") is None
+
+
+def test_invalid_bootstrap_file_fails_without_creating_accounts(identity_app, monkeypatch):
+    _, database = identity_app
+    monkeypatch.delenv("HANGZHI_ADMIN_PASSWORD")
+    (database.path.parent / "bootstrap-admin.json").write_text("{broken", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="bootstrap_credentials_invalid"):
+        auth.ensure_users()
+    assert not database.list("users")
+    assert not database.get("auth_meta", "persisted_users_v1")
+
+
+def test_bootstrap_is_atomic_across_processes(tmp_path):
+    directory = tmp_path / "private-runtime"
+    environment = dict(os.environ)
+    environment.pop("HANGZHI_ADMIN_PASSWORD", None)
+    environment["WORKBENCH_DATA_DIR"] = str(directory)
+    command = [sys.executable, "-c", "from backend.app.auth import ensure_users; ensure_users()"]
+    processes = [
+        subprocess.Popen(command, env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        for _ in range(3)
+    ]
+    for process in processes:
+        stdout, stderr = process.communicate(timeout=30)
+        assert process.returncode == 0, stderr.decode(errors="replace")
+        assert not stdout
+    database = Store(directory / "workbench.sqlite3")
+    credentials = json.loads((directory / "bootstrap-admin.json").read_text(encoding="utf-8"))
+    assert len(database.list("users")) == 1
+    assert auth._verify_password(credentials["password"], database.get("users", "admin")["password_hash"])
+
+
+def test_password_change_prevents_stale_login_session(identity_app):
+    _, database = identity_app
+    auth.ensure_users()
+    actor = database.get("users", "admin")
+    auth.create_user({"username": "concurrent", "password": "before-password"}, actor)
+    stale = database.get("users", "concurrent")
+    auth.update_user("concurrent", {"password": "after-password"}, actor)
+    with pytest.raises(HTTPException) as error:
+        auth._start_session(stale, Response())
+    assert error.value.status_code == 401
+    assert not database.list("sessions")
+
+
+def test_concurrent_administrators_cannot_disable_every_admin(identity_app):
+    _, database = identity_app
+    auth.ensure_users()
+    first = database.get("users", "admin")
+    auth.create_user({"username": "second_admin", "password": "second-admin-password"}, first)
+    second = database.get("users", "second_admin")
+    second["role"] = "admin"
+    database.save("users", second)
+    barrier = Barrier(2)
+
+    def disable(pair):
+        actor, target = pair
+        barrier.wait()
+        try:
+            return auth.update_user(target["id"], {"enabled": False}, actor)
+        except HTTPException as error:
+            return error.status_code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(disable, [(first, second), (second, first)]))
+    assert sum(isinstance(result, dict) for result in results) == 1
+    assert len([user for user in database.list("users") if user["role"] == "admin" and user["enabled"]]) == 1

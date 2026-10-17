@@ -1,0 +1,40 @@
+# Linux / Podman deployment input. Load audited images offline before starting.
+# Required: HANGZHI_APP_IMAGE, HANGZHI_POSTGRES_IMAGE (both image digests), PG_PASSWORD.
+services:
+  database:
+    image: ${HANGZHI_POSTGRES_IMAGE:?Set an audited PostgreSQL 17 image digest}
+    environment:
+      POSTGRES_DB: hangzhi
+      POSTGRES_USER: hangzhi
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?Set the database password}
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hangzhi -d hangzhi"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  api:
+    image: ${HANGZHI_APP_IMAGE:?Set the locally built application digest}
+    network_mode: host
+    environment:
+      HANGZHI_DATABASE_URL: postgresql+psycopg://hangzhi:${PG_PASSWORD}@127.0.0.1:5432/hangzhi
+      HANGZHI_OFFLINE: "true"
+      AGNO_TELEMETRY: "false"
+    volumes: ["${HANGZHI_LOCAL_DIR:?Set the restored private runtime directory}:/app/.local"]
+    depends_on:
+      database: {condition: service_healthy}
+  worker:
+    image: ${HANGZHI_APP_IMAGE}
+    network_mode: host
+    command: ["python", "-m", "backend.app.platform.worker"]
+    environment:
+      HANGZHI_DATABASE_URL: postgresql+psycopg://hangzhi:${PG_PASSWORD}@127.0.0.1:5432/hangzhi
+      HANGZHI_OFFLINE: "true"
+      AGNO_TELEMETRY: "false"
+      HANGZHI_AUTO_IMPROVE: "false"
+    volumes: ["${HANGZHI_LOCAL_DIR}:/app/.local"]
+    depends_on:
+      database: {condition: service_healthy}
+volumes:
+  postgres-data:

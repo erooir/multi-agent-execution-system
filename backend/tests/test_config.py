@@ -1,12 +1,12 @@
 import pytest
 
-from backend.app import config
+from backend.app import config, storage
 from backend.app.storage import Store
 
 
 @pytest.fixture
 def isolated_settings(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "store", Store(tmp_path / "settings.db"))
+    monkeypatch.setattr(storage, "store", Store(tmp_path / "settings.db"))
     monkeypatch.setattr(config, "get_api_key", lambda: "test-only-key")
 
 

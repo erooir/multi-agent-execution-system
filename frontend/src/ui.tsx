@@ -1,89 +1,113 @@
 import {
-  cloneElement,
-  isValidElement,
-  type ReactElement,
-  type ReactNode,
-  useId,
+  useEffect,
+  useRef,
   useState,
+  type ReactNode,
+  type FormEvent,
 } from "react";
-import {
-  X,
-  LoaderCircle,
-  Inbox,
-  ArrowUpRight,
-  CheckCircle2,
-  AlertCircle,
-} from "lucide-react";
-import { statusNames } from "./api";
+import { X, LoaderCircle, Inbox, ArrowUpRight } from "lucide-react";
+import { statusNames, statusTone } from "./domain";
 export function Badge({
   status,
   children,
 }: {
-  status?: string;
+  status: string;
   children?: ReactNode;
 }) {
   return (
-    <span className={`badge ${status || ""}`}>
-      {children || statusNames[status || ""] || status}
-    </span>
-  );
-}
-export function ModeBadge({ mode }: { mode: string }) {
-  return (
-    <span className={`badge ${mode === "live" ? "live" : "rehearsal"}`}>
-      {mode === "live" ? "真实模型调用" : "本地演练 · 非模型生成"}
+    <span className={`badge ${statusTone(status)}`}>
+      <i />
+      {children || statusNames[status] || status || "未知"}
     </span>
   );
 }
 export function Empty({
-  title = "暂无内容",
-  detail = "创建第一条记录，开始你的研究工作。",
+  title,
+  description,
   action,
 }: {
-  title?: string;
-  detail?: string;
+  title: string;
+  description?: string;
   action?: ReactNode;
 }) {
   return (
     <div className="empty">
       <Inbox size={32} />
-      <strong>{title}</strong>
-      <p>{detail}</p>
+      <h3>{title}</h3>
+      {description && <p>{description}</p>}
       {action}
+    </div>
+  );
+}
+export function Field({
+  label,
+  hint,
+  children,
+  className = "",
+}: {
+  label: string;
+  hint?: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <label className={`field ${className}`}>
+      <span>{label}</span>
+      {children}
+      {hint && <small>{hint}</small>}
+    </label>
+  );
+}
+export function JsonView({
+  value,
+  label = "查看完整记录",
+}: {
+  value: unknown;
+  label?: string;
+}) {
+  return (
+    <details className="json">
+      <summary>{label}</summary>
+      <pre>{JSON.stringify(value, null, 2)}</pre>
+    </details>
+  );
+}
+export function ErrorLine({ children }: { children: ReactNode }) {
+  return (
+    <div className="error-line" role="alert">
+      {children}
     </div>
   );
 }
 export function SectionTitle({
   eyebrow,
   title,
-  detail,
+  description,
   actions,
 }: {
   eyebrow?: string;
   title: string;
-  detail?: string;
+  description?: string;
   actions?: ReactNode;
 }) {
   return (
     <div className="section-title">
       <div>
-        {eyebrow && <div className="eyebrow">{eyebrow}</div>}
+        {eyebrow && <span className="eyebrow">{eyebrow}</span>}
         <h1>{title}</h1>
-        {detail && <p>{detail}</p>}
+        {description && <p>{description}</p>}
       </div>
-      <div className="section-actions">{actions}</div>
+      <div className="actions">{actions}</div>
     </div>
   );
 }
 export function Panel({
   title,
-  detail,
   children,
   actions,
   className = "",
 }: {
   title?: string;
-  detail?: string;
   children: ReactNode;
   actions?: ReactNode;
   className?: string;
@@ -91,16 +115,27 @@ export function Panel({
   return (
     <section className={`panel ${className}`}>
       {title && (
-        <div className="panel-head">
-          <div>
-            <h2>{title}</h2>
-            {detail && <p>{detail}</p>}
-          </div>
+        <div className="panel-title">
+          <h2>{title}</h2>
           {actions}
         </div>
       )}
       {children}
     </section>
+  );
+}
+export function LinkButton({
+  children,
+  onClick,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button className="link-button" onClick={onClick}>
+      {children}
+      <ArrowUpRight size={15} />
+    </button>
   );
 }
 export function Modal({
@@ -114,128 +149,161 @@ export function Modal({
   onClose: () => void;
   wide?: boolean;
 }) {
+  const ref = useRef<HTMLDialogElement>(null),
+    closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const el = ref.current;
+    const previous = document.activeElement as HTMLElement;
+    el?.showModal();
+    const cancel = (e: Event) => {
+      e.preventDefault();
+      closeRef.current();
+    };
+    el?.addEventListener("cancel", cancel);
+    return () => {
+      el?.removeEventListener("cancel", cancel);
+      el?.close();
+      previous?.focus();
+    };
+  }, []);
   return (
-    <div
-      className="modal-backdrop"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className={`modal ${wide ? "wide" : ""}`}
-      >
-        <div className="modal-head">
-          <h2>{title}</h2>
-          <button className="icon-button" onClick={onClose} aria-label="关闭">
-            <X size={20} />
-          </button>
-        </div>
-        {children}
-      </section>
-    </div>
-  );
-}
-export function Field({
-  label,
-  children,
-  hint,
-}: {
-  label: string;
-  children: ReactNode;
-  hint?: string;
-}) {
-  const generatedId = useId();
-  const isControl =
-    isValidElement(children) &&
-    typeof children.type === "string" &&
-    ["input", "select", "textarea"].includes(children.type);
-  const control = isControl
-    ? (children as ReactElement<{ id?: string; "aria-describedby"?: string }>)
-    : null;
-  const controlId = control?.props.id || `field-${generatedId}`;
-  const hintId = `hint-${generatedId}`;
-  const labelId = `label-${generatedId}`;
-  return (
-    <div
-      className="field"
-      role={isControl ? undefined : "group"}
-      aria-labelledby={isControl ? undefined : labelId}
-    >
-      {isControl ? (
-        <label id={labelId} htmlFor={controlId}>
-          {label}
-        </label>
-      ) : (
-        <span id={labelId}>{label}</span>
-      )}
-      {control
-        ? cloneElement(control, {
-            id: controlId,
-            "aria-describedby":
-              [control.props["aria-describedby"], hint ? hintId : undefined]
-                .filter(Boolean)
-                .join(" ") || undefined,
-          })
-        : children}
-      {hint && <small id={hintId}>{hint}</small>}
-    </div>
-  );
-}
-export function JsonView({ value }: { value: any }) {
-  return (
-    <pre className="json-view">
-      {typeof value === "string" ? value : JSON.stringify(value, null, 2)}
-    </pre>
-  );
-}
-export function ActionButton({
-  children,
-  onClick,
-  className = "button",
-  disabled = false,
-  type = "button",
-}: {
-  children: ReactNode;
-  onClick?: () => Promise<unknown> | void;
-  className?: string;
-  disabled?: boolean;
-  type?: "button" | "submit";
-}) {
-  const [busy, setBusy] = useState(false);
-  return (
-    <button
-      type={type}
-      className={className}
-      disabled={disabled || busy}
-      onClick={async () => {
-        if (!onClick) return;
-        setBusy(true);
-        try {
-          await onClick();
-        } finally {
-          setBusy(false);
+    <dialog
+      aria-label={title}
+      ref={ref}
+      className={`modal ${wide ? "wide" : ""}`}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          const r = e.currentTarget.getBoundingClientRect();
+          if (
+            e.clientX < r.left ||
+            e.clientX > r.right ||
+            e.clientY < r.top ||
+            e.clientY > r.bottom
+          )
+            onClose();
         }
       }}
     >
-      {busy ? <LoaderCircle className="spin" size={16} /> : null}
+      <div className="modal-head">
+        <h2>{title}</h2>
+        <button
+          className="icon-button"
+          aria-label="关闭对话框"
+          onClick={onClose}
+        >
+          <X size={21} />
+        </button>
+      </div>
       {children}
-    </button>
+    </dialog>
   );
 }
-export function InlineMessage({
+export function FormModal({
+  title,
   children,
-  error = false,
+  onClose,
+  onSubmit,
+  submit = "保存",
+  wide = false,
 }: {
+  title: string;
   children: ReactNode;
-  error?: boolean;
+  onClose: () => void;
+  onSubmit: () => Promise<any>;
+  submit?: string;
+  wide?: boolean;
+}) {
+  const [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await onSubmit();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Modal
+      title={title}
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      wide={wide}
+    >
+      <form onSubmit={save}>
+        <fieldset disabled={busy}>
+          <div className="modal-body">
+            {children}
+            {error && <ErrorLine>{error}</ErrorLine>}
+          </div>
+          <div className="modal-foot">
+            <button type="button" onClick={onClose}>
+              取消
+            </button>
+            <button className="primary" type="submit">
+              {busy && <LoaderCircle size={16} className="spin" />}
+              {busy ? "正在提交…" : submit}
+            </button>
+          </div>
+        </fieldset>
+      </form>
+    </Modal>
+  );
+}
+export function Confirm({
+  title,
+  description,
+  onClose,
+  onConfirm,
+  danger = false,
+  confirm = "确认",
+}: {
+  title: string;
+  description: string;
+  onClose: () => void;
+  onConfirm: () => Promise<any>;
+  danger?: boolean;
+  confirm?: string;
 }) {
   return (
-    <div className={`inline-message ${error ? "error" : ""}`}>
-      {error ? <AlertCircle size={17} /> : <CheckCircle2 size={17} />}
-      <div>{children}</div>
+    <FormModal
+      title={title}
+      onClose={onClose}
+      onSubmit={onConfirm}
+      submit={confirm}
+    >
+      <p className={danger ? "danger-text" : ""}>{description}</p>
+    </FormModal>
+  );
+}
+export function Tabs({
+  items,
+  value,
+  onChange,
+}: {
+  items: { id: string; label: string }[];
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  return (
+    <div className="tabs">
+      {items.map((item) => (
+        <button
+          key={item.id}
+          className={item.id === value ? "selected" : ""}
+          aria-pressed={item.id === value}
+          onClick={() => onChange(item.id)}
+        >
+          {item.label}
+        </button>
+      ))}
     </div>
   );
 }

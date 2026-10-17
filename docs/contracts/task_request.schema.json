@@ -1,0 +1,138 @@
+{
+  "$defs": {
+    "Quality": {
+      "additionalProperties": false,
+      "properties": {
+        "min_records": {
+          "default": 1,
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Min Records",
+          "type": "integer"
+        },
+        "required_fields": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Required Fields",
+          "type": "array"
+        },
+        "min_length": {
+          "default": 1,
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Min Length",
+          "type": "integer"
+        }
+      },
+      "title": "Quality",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "goal": {
+      "maxLength": 8000,
+      "minLength": 1,
+      "title": "Goal",
+      "type": "string"
+    },
+    "task_type": {
+      "enum": [
+        "structured_transform",
+        "source_summary",
+        "text_analysis",
+        "image_inspect",
+        "audio_transcribe",
+        "video_analyze"
+      ],
+      "title": "Task Type",
+      "type": "string"
+    },
+    "input_refs": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Input Refs",
+      "type": "array"
+    },
+    "workflow_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Workflow Id"
+    },
+    "mode": {
+      "default": "local",
+      "enum": [
+        "local",
+        "cloud",
+        "rehearsal"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "maxLength": 160,
+      "minLength": 1,
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "deadline_seconds": {
+      "default": 300,
+      "maximum": 86400,
+      "minimum": 1,
+      "title": "Deadline Seconds",
+      "type": "integer"
+    },
+    "max_cost_cny": {
+      "default": 0,
+      "maximum": 10,
+      "minimum": 0,
+      "title": "Max Cost Cny",
+      "type": "number"
+    },
+    "max_revisions": {
+      "default": 1,
+      "maximum": 2,
+      "minimum": 0,
+      "title": "Max Revisions",
+      "type": "integer"
+    },
+    "allow_partial": {
+      "default": false,
+      "title": "Allow Partial",
+      "type": "boolean"
+    },
+    "quality": {
+      "$ref": "#/$defs/Quality"
+    }
+  },
+  "required": [
+    "project_id",
+    "name",
+    "goal",
+    "task_type",
+    "idempotency_key"
+  ],
+  "title": "TaskInput",
+  "type": "object"
+}

@@ -1,0 +1,111 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "task_id": {
+      "title": "Task Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "succeeded",
+        "partial",
+        "failed",
+        "cancelled"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "local",
+        "cloud",
+        "rehearsal"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "reason_code": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason Code"
+    },
+    "artifacts": {
+      "items": {},
+      "title": "Artifacts",
+      "type": "array"
+    },
+    "quality_verdict": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Quality Verdict"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    },
+    "lineage": {
+      "items": {},
+      "title": "Lineage",
+      "type": "array"
+    },
+    "usage": {
+      "additionalProperties": true,
+      "title": "Usage",
+      "type": "object"
+    },
+    "version_refs": {
+      "items": {},
+      "title": "Version Refs",
+      "type": "array"
+    },
+    "content_withheld": {
+      "default": false,
+      "title": "Content Withheld",
+      "type": "boolean"
+    },
+    "withheld_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Withheld Reason"
+    },
+    "unavailable_source_refs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Unavailable Source Refs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "task_id",
+    "status",
+    "mode"
+  ],
+  "title": "ResultBundle",
+  "type": "object"
+}

@@ -1,0 +1,135 @@
+{
+  "$defs": {
+    "Member": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "agent_id",
+        "version"
+      ],
+      "title": "Member",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Description",
+      "type": "string"
+    },
+    "purpose": {
+      "default": "general",
+      "enum": [
+        "general",
+        "specialized"
+      ],
+      "title": "Purpose",
+      "type": "string"
+    },
+    "structure": {
+      "default": "atomic",
+      "enum": [
+        "atomic",
+        "composite"
+      ],
+      "title": "Structure",
+      "type": "string"
+    },
+    "capabilities": {
+      "items": {
+        "enum": [
+          "structured_transform",
+          "source_summary",
+          "text_analysis",
+          "image_inspect",
+          "audio_transcribe",
+          "video_analyze"
+        ],
+        "type": "string"
+      },
+      "maxItems": 6,
+      "minItems": 1,
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "modalities": {
+      "items": {
+        "enum": [
+          "text",
+          "structured",
+          "image",
+          "audio",
+          "video"
+        ],
+        "type": "string"
+      },
+      "title": "Modalities",
+      "type": "array"
+    },
+    "tool_ids": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 10,
+      "title": "Tool Ids",
+      "type": "array"
+    },
+    "instructions": {
+      "default": "",
+      "maxLength": 8000,
+      "title": "Instructions",
+      "type": "string"
+    },
+    "model_policy": {
+      "default": "local",
+      "enum": [
+        "local",
+        "cloud"
+      ],
+      "title": "Model Policy",
+      "type": "string"
+    },
+    "members": {
+      "items": {
+        "$ref": "#/$defs/Member"
+      },
+      "maxItems": 20,
+      "title": "Members",
+      "type": "array"
+    },
+    "parameters": {
+      "additionalProperties": true,
+      "title": "Parameters",
+      "type": "object"
+    }
+  },
+  "required": [
+    "project_id",
+    "name",
+    "capabilities"
+  ],
+  "title": "AgentInput",
+  "type": "object"
+}

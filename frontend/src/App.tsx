@@ -1,1065 +1,824 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import {
   Activity,
   ArrowRight,
-  AudioLines,
-  Bell,
-  BookOpen,
-  Boxes,
-  BrainCircuit,
-  Check,
+  Bot,
   ChevronRight,
-  ChevronsUpDown,
-  Command,
+  CircleHelp,
   Database,
-  FileCheck2,
   FlaskConical,
-  FolderOpen,
-  GitBranch,
-  HelpCircle,
-  LayoutDashboard,
-  LoaderCircle,
+  Gauge,
+  Layers3,
   LogOut,
   Menu,
   Network,
   Plus,
+  RefreshCw,
   Search,
   Settings2,
   ShieldCheck,
   Sparkles,
   Workflow,
   X,
-  Zap,
 } from "lucide-react";
-import { api, post, money, type RecordData } from "./api";
-import { type PageId, type PageProps, roleNames } from "./types";
+import { api, ApiError, post } from "./api";
+import { money, projectItems, taskSummary, taskTypes, time } from "./domain";
+import type { Bootstrap, Item, Mutation, Page, User } from "./types";
+import { Badge, Confirm, Empty, ErrorLine, Panel, SectionTitle } from "./ui";
+import { AgentsPage, DataPage, WorkflowsPage } from "./AssetPages";
+import TasksPage from "./TaskPages";
+import { modeName } from "./domain";
 import {
-  Badge,
-  Empty,
-  Field,
-  InlineMessage,
-  Modal,
-  ModeBadge,
-  Panel,
-  SectionTitle,
-  ActionButton,
-} from "./ui";
-import WorkflowEditor from "./WorkflowEditor";
-import LogoutDialog from "./LogoutDialog";
-import { ProjectProvider, useProject } from "./ProjectContext";
-import {
-  ProjectsPage,
+  ImprovementsPage,
   KnowledgePage,
-  AgentsPage,
-  SkillsPage,
-  WorkflowsPage,
-} from "./ResourcePages";
-import {
-  RunsPage,
-  ReportsPage,
-  EvaluationsPage,
-  SystemPage,
-  WorkflowRunLauncher,
-} from "./ExecutionPages";
-const navigation: { id: PageId; label: string; icon: any; group: string }[] = [
-  { id: "overview", label: "工作台", icon: LayoutDashboard, group: "研究空间" },
-  { id: "projects", label: "研究项目", icon: FolderOpen, group: "研究空间" },
-  { id: "knowledge", label: "资料与知识", icon: Database, group: "研究空间" },
-  { id: "agents", label: "智能体", icon: BrainCircuit, group: "能力编排" },
-  { id: "skills", label: "技能工具箱", icon: Boxes, group: "能力编排" },
-  { id: "workflows", label: "流程与模板", icon: Workflow, group: "能力编排" },
-  { id: "runs", label: "运行中心", icon: Activity, group: "执行与交付" },
-  { id: "reports", label: "审核与报告", icon: FileCheck2, group: "执行与交付" },
+  OperationsPage,
+} from "./ManagementPages";
+const nav: { id: Page; name: string; icon: any; group: string }[] = [
+  { id: "overview", name: "工作台总览", icon: Gauge, group: "工作空间" },
+  { id: "agents", name: "智能体资产", icon: Bot, group: "工作空间" },
+  { id: "tasks", name: "任务运行", icon: Activity, group: "工作空间" },
+  { id: "workflows", name: "协作流程", icon: Workflow, group: "资产与知识" },
+  { id: "data", name: "数据资产", icon: Database, group: "资产与知识" },
+  { id: "knowledge", name: "知识与记忆", icon: Layers3, group: "资产与知识" },
   {
-    id: "evaluations",
-    label: "样本评测",
+    id: "improvements",
+    name: "评测与改进",
     icon: FlaskConical,
-    group: "执行与交付",
+    group: "治理与运维",
   },
-  { id: "system", label: "系统与审计", icon: Settings2, group: "管理" },
+  { id: "operations", name: "平台运维", icon: Settings2, group: "治理与运维" },
 ];
+const roles: Record<string, string> = {
+  admin: "平台管理员",
+  operator: "项目操作员",
+  reviewer: "只读观察员",
+};
 export default function App() {
-  return (
-    <ProjectProvider>
-      <Workspace />
-    </ProjectProvider>
-  );
-}
-function Workspace() {
-  const [activeProject, setActiveProject] = useProject();
-  const [user, setUser] = useState<RecordData | null>(null),
-    [loading, setLoading] = useState(true),
-    [data, setData] = useState<RecordData | null>(null),
-    [page, setPage] = useState<PageId>("overview"),
-    [selectedId, setSelectedId] = useState<string | undefined>(),
-    [workflow, setWorkflow] = useState<RecordData | null>(null),
-    [toast, setToast] = useState<{ text: string; error?: boolean } | null>(
-      null,
-    ),
-    [connectionError, setConnectionError] = useState(""),
-    [mobileNav, setMobileNav] = useState(false),
-    [logoutOpen, setLogoutOpen] = useState(false);
-  const notify = useCallback(
-    (text: string, error = false) => setToast({ text, error }),
-    [],
-  );
+  const [user, setUser] = useState<User | null>(null),
+    [checking, setChecking] = useState(true),
+    [authError, setAuthError] = useState(""),
+    [data, setData] = useState<Bootstrap | null>(null),
+    [projectId, setProjectId] = useState(""),
+    [page, setPage] = useState<Page>("overview"),
+    [taskId, setTaskId] = useState<string | null>(null),
+    [agentId, setAgentId] = useState<string | null>(null),
+    [error, setError] = useState(""),
+    [lastSync, setLastSync] = useState(""),
+    [refreshing, setRefreshing] = useState(false),
+    [logout, setLogout] = useState(false),
+    [mobile, setMobile] = useState(false),
+    [toast, setToast] = useState<{ text: string; error: boolean } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
+    currentUser = useRef<string | null>(null);
+  currentUser.current = user?.id || null;
+  const notify = useCallback((text: string, error = false) => {
+    setToast({ text, error });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 6500);
+  }, []);
   const refresh = useCallback(async () => {
+    const expected = currentUser.current;
     try {
-      const d = await api("/bootstrap");
-      setData(d);
-      setUser(d.user || null);
-      setConnectionError("");
+      const value = await api<Bootstrap>("/v2/bootstrap");
+      if (currentUser.current !== expected) return;
+      setData(value);
+      setUser(value.user);
+      setError("");
+      setProjectId((old) =>
+        value.projects.some((p) => p.id === old)
+          ? old
+          : value.projects[0]?.id || "",
+      );
+      setLastSync(new Date().toISOString());
     } catch (e) {
-      if ((e as any).status === 401) {
+      if (e instanceof ApiError && e.status === 401) {
         setUser(null);
         setData(null);
-      } else setConnectionError((e as Error).message);
+        setAuthError("登录已过期，请重新登录。");
+      } else setError((e as Error).message);
+      throw e;
     }
   }, []);
   useEffect(() => {
-    refresh().finally(() => setLoading(false));
-  }, [refresh]);
-  useEffect(() => {
-    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
-  }, [page]);
+    let active = true;
+    api<User>("/auth/me")
+      .then((value) => active && setUser(value))
+      .catch((e) => {
+        if (active && (!(e instanceof ApiError) || e.status !== 401))
+          setAuthError("无法连接服务：" + e.message);
+      })
+      .finally(() => active && setChecking(false));
+    return () => {
+      active = false;
+    };
+  }, []);
   useEffect(() => {
     if (!user) return;
-    const t = setInterval(refresh, 4000);
-    return () => clearInterval(t);
-  }, [Boolean(user), refresh]);
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 6500);
-    return () => clearTimeout(t);
-  }, [toast]);
-  useEffect(() => {
-    if (
-      data &&
-      (!activeProject ||
-        !data.projects?.some((x: any) => x.id === activeProject))
-    )
-      setActiveProject(
-        data.projects?.find((x: any) => x.category === "technology")?.id ||
-          data.projects?.[0]?.id ||
-          "",
-      );
-  }, [data?.projects, activeProject]);
-  const go = (p: PageId, id?: string) => {
-    if (p === "knowledge" && id) setActiveProject(id);
-    setPage(p);
-    setSelectedId(id);
-    setMobileNav(false);
+    void refresh().catch(() => {});
+    const timer = setInterval(() => void refresh().catch(() => {}), 10000);
+    return () => clearInterval(timer);
+  }, [user?.id, refresh]);
+  useEffect(
+    () => () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    },
+    [],
+  );
+  const mutate: Mutation = async (fn, message) => {
+    try {
+      const value = await fn();
+      await refresh().catch(() => {});
+      if (message) notify(message);
+      return value;
+    } catch (e) {
+      notify((e as Error).message, true);
+      throw e;
+    }
   };
-  const canEdit = ["admin", "operator"].includes(user?.role),
-    canReview = ["admin", "reviewer"].includes(user?.role);
-  if (loading)
+  function go(next: Page) {
+    setPage(next);
+    setMobile(false);
+    setTaskId(null);
+    setAgentId(null);
+  }
+  function selectProject(id: string) {
+    setProjectId(id);
+    setTaskId(null);
+    setAgentId(null);
+  }
+  if (checking)
     return (
-      <div className="splash">
-        <div className="brand-symbol">
-          <Network />
-        </div>
-        <LoaderCircle className="spin" />
-        <p>正在连接航空情报平台…</p>
+      <div className="full-loading">
+        <span className="brand-mark">
+          <Network size={28} />
+        </span>
+        <p>正在连接航智平台…</p>
       </div>
     );
   if (!user)
     return (
       <Login
-        onLogin={async () => {
-          await refresh();
+        initialError={authError}
+        onLogin={(value) => {
+          setUser(value);
+          setAuthError("");
+          setData(null);
+          setProjectId("");
+          setPage("overview");
         }}
-        connectionError={connectionError}
       />
     );
-  if (!data)
-    return (
-      <div className="splash">
-        <InlineMessage error>
-          {connectionError || "无法加载工作台数据"}
-        </InlineMessage>
-        <button className="button" onClick={refresh}>
-          重试连接
-        </button>
-      </div>
-    );
-  const props: PageProps = {
-    data,
-    refresh,
-    notify,
-    canEdit,
-    canReview,
-    go,
-    editWorkflow: setWorkflow,
-    selectedId,
-  };
-  const pending = (data.runs || []).filter(
-    (r: any) => r.status === "waiting_review",
-  ).length;
+  const canEdit = user.role !== "reviewer",
+    scoped = (kind: keyof Bootstrap) =>
+      projectItems(data?.[kind] as Item[], projectId),
+    agents = scoped("agents"),
+    tasks = scoped("tasks"),
+    workflows = scoped("workflows"),
+    assets = scoped("data_assets"),
+    project = data?.projects.find((p) => p.id === projectId);
+  const common = { projectId, canEdit, mutate, notify },
+    openTask = (id: string) => {
+      setTaskId(id);
+      setPage("tasks");
+    },
+    openAgent = (id: string) => {
+      setAgentId(id);
+      setPage("agents");
+    };
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${mobileNav ? "open" : ""}`}>
-        <a
-          className="brand"
-          href="#"
-          onClick={(e) => {
-            e.preventDefault();
-            go("overview");
-          }}
-        >
-          <div className="brand-symbol">
-            <Network size={22} />
-          </div>
+      <a href="#main-content" className="skip-link">
+        跳到主要内容
+      </a>
+      {mobile && (
+        <button
+          className="sidebar-backdrop"
+          aria-label="关闭导航"
+          onClick={() => setMobile(false)}
+        />
+      )}
+      <aside className={`sidebar ${mobile ? "open" : ""}`}>
+        <div className="brand">
+          <span className="brand-mark">
+            <Network size={25} />
+          </span>
           <div>
-            <strong>
-              航智<span> AVIATION</span>
-            </strong>
-            <small>航空情报平台</small>
+            <strong>航智</strong>
+            <span>智能体管理平台</span>
           </div>
-        </a>
-        <div className="workspace-switch">
-          <div className="workspace-avatar">研</div>
-          <div>
-            <strong>航空情报工作空间</strong>
-            <small>LOCAL WORKSPACE</small>
-          </div>
-          <ChevronsUpDown size={14} />
+          <span className="version">v2</span>
         </div>
-        <nav>
-          {navigation.map((n, i) => {
-            const Icon = n.icon;
+        <div className="project-picker">
+          <label htmlFor="project-select">当前项目</label>
+          <select
+            id="project-select"
+            value={projectId}
+            onChange={(e) => selectProject(e.target.value)}
+          >
+            {data?.projects.length ? (
+              data.projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))
+            ) : (
+              <option value="">暂无可访问项目</option>
+            )}
+          </select>
+        </div>
+        <nav aria-label="主导航">
+          {nav.map((item, index) => {
+            const Icon = item.icon;
             return (
-              <div key={n.id}>
-                {(i === 0 || navigation[i - 1].group !== n.group) && (
-                  <div className="nav-group">{n.group}</div>
+              <div key={item.id}>
+                {(index === 0 || nav[index - 1].group !== item.group) && (
+                  <div className="nav-label">{item.group}</div>
                 )}
                 <button
-                  className={`nav-item ${page === n.id ? "active" : ""}`}
-                  onClick={() => go(n.id)}
+                  className={`nav-item ${page === item.id ? "active" : ""}`}
+                  aria-current={page === item.id ? "page" : undefined}
+                  onClick={() => go(item.id)}
                 >
-                  <Icon size={18} />
-                  <span>{n.label}</span>
-                  {n.id === "runs" && pending > 0 && <em>{pending}</em>}
-                  {page === n.id && <span className="active-dot" />}
+                  <Icon size={19} />
+                  {item.name}
+                  {item.id === "tasks" && taskSummary(tasks).active > 0 && (
+                    <span className="nav-count">
+                      {taskSummary(tasks).active}
+                    </span>
+                  )}
                 </button>
               </div>
             );
           })}
         </nav>
         <div className="sidebar-bottom">
-          <div className="runtime-indicator">
-            <span
-              className={connectionError ? "status-dot warning" : "status-dot"}
-            />
-            <span>
-              {connectionError ? "工作空间连接待恢复" : "工作空间已连接"}
-            </span>
-            <Badge>{connectionError ? "重连中" : "在线"}</Badge>
-          </div>
-          <div className="user-box">
-            <div className="user-avatar">
-              {(user.name || user.username || "U").slice(0, 1).toUpperCase()}
-            </div>
+          <div className="local-state">
+            <span className={`status-dot ${error ? "bad" : ""}`} />
             <div>
-              <strong>{user.name || user.username}</strong>
-              <small>{roleNames[user.role] || user.role}</small>
+              <strong>{error ? "连接异常" : "本地持久工作空间"}</strong>
+              <small>AgentOS · 权限与预算受控</small>
             </div>
-            <button
-              className="icon-button"
-              aria-label="退出登录"
-              title="退出登录"
-              onClick={() => setLogoutOpen(true)}
-            >
-              <LogOut size={16} />
-            </button>
           </div>
+          <button className="account" onClick={() => setLogout(true)}>
+            <span className="avatar">{user.name?.slice(0, 1) || "用"}</span>
+            <span>
+              <strong>{user.name || user.username}</strong>
+              <small>{roles[user.role]}</small>
+            </span>
+            <LogOut size={17} />
+          </button>
         </div>
       </aside>
-      <main className="main-shell">
+      <div className="main-shell">
         <header className="topbar">
           <div className="breadcrumb">
             <button
-              className="icon-button mobile-menu"
-              onClick={() => setMobileNav(!mobileNav)}
-              aria-label="展开导航"
+              className="icon-button mobile-toggle"
+              aria-label="打开导航"
+              onClick={() => setMobile(true)}
             >
-              <Menu size={20} />
+              <Menu size={21} />
             </button>
-            <span>航空情报工作空间</span>
-            <ChevronRight size={14} />
-            <strong>{navigation.find((x) => x.id === page)?.label}</strong>
+            <span>{project?.name || "平台"}</span>
+            <ChevronRight size={15} />
+            <strong>{nav.find((n) => n.id === page)?.name}</strong>
           </div>
-          <div className="topbar-right">
-            <span className="local-tag">
+          <div className="top-actions">
+            <span className={`connection ${error ? "error" : ""}`}>
               <span className="status-dot" />
-              服务就绪
+              {error
+                ? "同步中断"
+                : lastSync
+                  ? `已同步 ${time(lastSync).split(" ").pop()}`
+                  : "正在连接"}
             </span>
             <button
-              className="notification-button"
-              title="待审核运行"
-              aria-label="查看待审核运行"
-              onClick={() => go("reports")}
+              className="icon-button"
+              disabled={refreshing}
+              aria-label="刷新工作空间"
+              title="刷新持久记录"
+              onClick={async () => {
+                setRefreshing(true);
+                try {
+                  await refresh();
+                } catch {
+                } finally {
+                  setRefreshing(false);
+                }
+              }}
             >
-              <Bell size={18} />
-              {pending > 0 && <span />}
+              <RefreshCw size={18} className={refreshing ? "spin" : ""} />
             </button>
+            <span className="environment">
+              {data?.system.offline ? "离线部署" : "本机环境"}
+            </span>
           </div>
         </header>
-        {connectionError && (
-          <div className="connection-error">
-            连接暂时中断：{connectionError}
-            <button onClick={refresh}>重新连接</button>
-          </div>
-        )}
-        <div className="page-content" key={`${page}:${selectedId || ""}`}>
-          {page === "overview" ? (
-            <Overview {...props} />
-          ) : page === "projects" ? (
-            <ProjectsPage {...props} />
-          ) : page === "knowledge" ? (
-            <KnowledgePage {...props} />
-          ) : page === "agents" ? (
-            <AgentsPage {...props} />
-          ) : page === "skills" ? (
-            <SkillsPage {...props} />
-          ) : page === "workflows" ? (
-            <WorkflowsPage {...props} />
-          ) : page === "runs" ? (
-            <RunsPage {...props} />
-          ) : page === "reports" ? (
-            <ReportsPage {...props} />
-          ) : page === "evaluations" ? (
-            <EvaluationsPage {...props} />
-          ) : (
-            <SystemPage {...props} />
+        <main id="main-content" tabIndex={-1}>
+          {error && (
+            <ErrorLine>
+              同步失败：{error}。已加载的记录保留显示，请检查服务连接并刷新。
+            </ErrorLine>
           )}
-        </div>
+          {!data ? (
+            <div className="loading">正在加载平台数据…</div>
+          ) : !projectId && page !== "operations" ? (
+            <Empty
+              title="暂无可访问项目"
+              description={
+                canEdit
+                  ? "创建一个项目，隔离管理智能体、数据与任务。"
+                  : "请联系项目管理员添加您的项目访问权限。"
+              }
+              action={
+                canEdit && (
+                  <button className="primary" onClick={() => go("operations")}>
+                    管理项目
+                  </button>
+                )
+              }
+            />
+          ) : (
+            <>
+              {page === "overview" && (
+                <Overview
+                  data={data}
+                  project={project}
+                  agents={agents}
+                  tasks={tasks}
+                  assets={assets}
+                  workflows={workflows}
+                  go={go}
+                  openTask={openTask}
+                />
+              )}
+              {page === "agents" && (
+                <AgentsPage
+                  key={projectId}
+                  {...common}
+                  agents={agents}
+                  capabilities={
+                    Array.isArray(data.capabilities) ? data.capabilities : []
+                  }
+                  onTask={openTask}
+                  initialId={agentId}
+                />
+              )}
+              {page === "tasks" && (
+                <TasksPage
+                  key={projectId}
+                  {...common}
+                  tasks={tasks}
+                  agents={agents}
+                  assets={assets}
+                  workflows={workflows}
+                  schedules={scoped("schedules")}
+                  selectedId={taskId}
+                  onSelect={setTaskId}
+                  onAgent={openAgent}
+                />
+              )}
+              {page === "workflows" && (
+                <WorkflowsPage
+                  key={projectId}
+                  {...common}
+                  workflows={workflows}
+                  agents={agents}
+                />
+              )}
+              {page === "data" && (
+                <DataPage key={projectId} {...common} assets={assets} />
+              )}
+              {page === "knowledge" && (
+                <KnowledgePage
+                  key={projectId}
+                  {...common}
+                  connectors={scoped("connectors")}
+                  memories={scoped("memories")}
+                  assets={assets}
+                />
+              )}
+              {page === "improvements" && (
+                <ImprovementsPage
+                  key={projectId}
+                  {...common}
+                  isAdmin={user.role === "admin"}
+                  improvements={scoped("improvements")}
+                  evaluations={scoped("evaluations")}
+                  agents={agents}
+                  tasks={tasks}
+                />
+              )}
+              {page === "operations" && (
+                <OperationsPage
+                  data={data}
+                  user={user}
+                  projectId={projectId}
+                  mutate={mutate}
+                  notify={notify}
+                  onProject={selectProject}
+                />
+              )}
+            </>
+          )}
+        </main>
         <footer className="app-footer">
-          <span>航智 · 航空情报平台</span>
-          <span>证据可追溯 · 过程可审查 · 成本可控制</span>
+          <span>航智智能体管理平台</span>
+          <span>持久任务 · 独立版本 · 可追溯交付</span>
         </footer>
-      </main>
-      {workflow && (
-        <WorkflowEditor
-          key={workflow.id}
-          workflow={workflow}
-          agents={data.agents || []}
-          skills={data.skills || []}
-          canEdit={canEdit}
-          onClose={() => setWorkflow(null)}
-          onSaved={refresh}
-          notify={notify}
-          onRun={(id) => {
-            setWorkflow(null);
-            go("overview", `workflow:${id}`);
-          }}
-        />
+      </div>
+      {toast && (
+        <div
+          className={`toast ${toast.error ? "error" : ""}`}
+          role={toast.error ? "alert" : "status"}
+        >
+          {toast.text}
+          <button
+            aria-label="关闭消息"
+            className="icon-button"
+            onClick={() => setToast(null)}
+          >
+            <X size={16} />
+          </button>
+        </div>
       )}
-      {logoutOpen && (
-        <LogoutDialog
-          onClose={() => setLogoutOpen(false)}
+      {logout && (
+        <Confirm
+          title="退出当前登录？"
+          description="任务和计划继续由服务端执行。退出后需要重新验证身份才能访问项目。"
+          confirm="退出登录"
+          onClose={() => setLogout(false)}
           onConfirm={async () => {
             await post("/auth/logout");
-            setLogoutOpen(false);
-            setWorkflow(null);
-            setToast(null);
-            setMobileNav(false);
-            setSelectedId(undefined);
-            setPage("overview");
+            setLogout(false);
             setUser(null);
             setData(null);
           }}
         />
       )}
-      {toast && (
-        <div role="status" className={`toast ${toast.error ? "error" : ""}`}>
-          {toast.error ? <X size={18} /> : <Check size={18} />}
-          <span>{toast.text}</span>
-          <button
-            className="icon-button"
-            aria-label="关闭通知"
-            onClick={() => setToast(null)}
-          >
-            <X size={15} />
-          </button>
-        </div>
-      )}
     </div>
   );
 }
 function Login({
+  initialError,
   onLogin,
-  connectionError,
 }: {
-  onLogin: () => Promise<void>;
-  connectionError: string;
+  initialError: string;
+  onLogin: (user: User) => void;
 }) {
-  const [mode, setMode] = useState<"login" | "register">("login"),
+  const [register, setRegister] = useState(false),
     [username, setUsername] = useState(""),
     [password, setPassword] = useState(""),
     [name, setName] = useState(""),
-    [confirmation, setConfirmation] = useState(""),
-    [error, setError] = useState(""),
+    [error, setError] = useState(initialError),
     [busy, setBusy] = useState(false);
-  const registering = mode === "register";
-  function switchMode(next: "login" | "register") {
-    setMode(next);
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
     setError("");
-    setPassword("");
-    setConfirmation("");
+    try {
+      const user = await post(
+        register ? "/auth/register" : "/auth/login",
+        register ? { username, password, name } : { username, password },
+      );
+      onLogin(user.user);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
   }
   return (
-    <div className="login-page">
+    <div className="login-layout">
       <section className="login-story">
         <div className="brand">
-          <div className="brand-symbol">
-            <Network />
-          </div>
-          <div>
-            <strong>航智</strong>
-            <small>航空情报平台</small>
-          </div>
+          <span className="brand-mark">
+            <Network size={26} />
+          </span>
+          <strong>航智</strong>
+          <span>智能体管理平台</span>
         </div>
-        <div className="login-story-content">
-          <div className="eyebrow">AVIATION INTELLIGENCE</div>
+        <div className="login-message">
+          <span className="eyebrow">HANGZHI AGENT PLATFORM</span>
           <h1>
-            连接航空信息，
+            让每一种能力，
             <br />
-            洞察产业前沿。
+            成为可管理的资产。
           </h1>
           <p>
-            汇集航空技术、产业动态与研究资料。
+            组织智能体，连接可信数据，
             <br />
-            从情报检索到专题研判，让每个结论都有据可循。
+            让任务从目标走向可追溯的交付。
           </p>
-          <div className="login-flow">
-            <span>
-              <Search size={21} />
-              证据检索
-            </span>
-            <i />
-            <span>
-              <BrainCircuit size={21} />
-              协同分析
-            </span>
-            <i />
-            <span>
-              <FileCheck2 size={21} />
-              审核交付
-            </span>
+          <div className="login-diagram" aria-hidden="true">
+            <div>
+              <Database size={21} />
+              <span>数据与目标</span>
+            </div>
+            <ArrowRight size={22} />
+            <div className="accent">
+              <Bot size={23} />
+              <span>智能体协作</span>
+            </div>
+            <ArrowRight size={22} />
+            <div>
+              <ShieldCheck size={22} />
+              <span>自动校验</span>
+            </div>
+          </div>
+          <div className="login-principles">
+            <span>独立版本与上下文</span>
+            <span>自动评审与有限修订</span>
+            <span>预算与权限受控</span>
           </div>
         </div>
+        <small className="login-footnote">
+          基于自托管 Agno AgentOS · 本地管理工作空间
+        </small>
       </section>
-      <section className="login-form">
-        <div className="auth-tabs" role="tablist" aria-label="账号入口">
-          <button
-            type="button"
-            role="tab"
-            id="login-tab"
-            aria-controls="auth-panel"
-            aria-selected={!registering}
-            className={!registering ? "active" : ""}
-            disabled={busy}
-            onClick={() => switchMode("login")}
-          >
-            登录
-          </button>
-          <button
-            type="button"
-            role="tab"
-            id="register-tab"
-            aria-controls="auth-panel"
-            aria-selected={registering}
-            className={registering ? "active" : ""}
-            disabled={busy}
-            onClick={() => switchMode("register")}
-          >
-            注册
-          </button>
-        </div>
-        {registering && <div className="eyebrow">开启你的情报研究</div>}
-        <h2 className="login-heading">
-          {registering ? "创建账号" : "航空情报平台登录"}
-        </h2>
-        <p className="muted login-description">
-          {registering
-            ? "建立你的情报工作空间，开展研究与协作。"
-            : "继续情报检索、任务编排与专题研判"}
-        </p>
-        <form
-          id="auth-panel"
-          role="tabpanel"
-          aria-labelledby={registering ? "register-tab" : "login-tab"}
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setError("");
-            if (registering && password !== confirmation) {
-              setError("两次输入的密码不一致，请重新确认。");
-              return;
-            }
-            setBusy(true);
-            try {
-              await post(registering ? "/auth/register" : "/auth/login", {
-                username: username.trim(),
-                password,
-                ...(registering && name.trim() ? { name: name.trim() } : {}),
-              });
-              await onLogin();
-            } catch (err) {
-              setError((err as Error).message);
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          <Field
-            label="用户名"
-            hint={
-              registering
-                ? "3–32 位字母、数字或下划线，不区分大小写。"
-                : undefined
-            }
-          >
-            <input
-              name="username"
-              autoComplete="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="请输入用户名"
-              required
-              minLength={registering ? 3 : undefined}
-              maxLength={32}
-              pattern={registering ? "[A-Za-z0-9_]{3,32}" : undefined}
-              disabled={busy}
-            />
-          </Field>
-          {registering && (
-            <Field label="姓名或昵称（选填）">
+      <section className="login-form-side">
+        <form className="login-form" onSubmit={submit}>
+          <h2>{register ? "创建本地账户" : "登录工作空间"}</h2>
+          <p>
+            {register
+              ? "创建操作员身份，使用独立项目管理任务。"
+              : "使用本地账户访问获授权的项目与资产。"}
+          </p>
+          <fieldset disabled={busy}>
+            <label className="field">
+              <span>用户名</span>
               <input
-                name="name"
-                autoComplete="nickname"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                maxLength={40}
-                placeholder="方便在协作中识别你的称呼"
-                disabled={busy}
+                autoComplete="username"
+                required
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="请输入用户名"
               />
-            </Field>
-          )}
-          <Field
-            label="密码"
-            hint={registering ? "请输入 8–128 位密码。" : undefined}
-          >
-            <input
-              type="password"
-              name="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete={registering ? "new-password" : "current-password"}
-              placeholder={registering ? "设置登录密码" : "请输入密码"}
-              minLength={registering ? 8 : undefined}
-              maxLength={128}
-              required
-              disabled={busy}
-            />
-          </Field>
-          {registering && (
-            <Field label="确认密码">
+            </label>
+            {register && (
+              <label className="field">
+                <span>显示名称</span>
+                <input
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="您的姓名或工作名称"
+                />
+              </label>
+            )}
+            <label className="field">
+              <span>密码</span>
               <input
                 type="password"
-                name="confirm-password"
-                autoComplete="new-password"
-                value={confirmation}
-                onChange={(e) => setConfirmation(e.target.value)}
-                placeholder="请再次输入密码"
-                maxLength={128}
                 required
-                disabled={busy}
+                autoComplete={register ? "new-password" : "current-password"}
+                minLength={register ? 8 : undefined}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={register ? "8 至 128 位" : "请输入密码"}
               />
-            </Field>
-          )}
-          {(error || connectionError) && (
-            <InlineMessage error>{error || connectionError}</InlineMessage>
-          )}
-          <button
-            type="submit"
-            className="button primary login-submit"
-            disabled={busy}
-          >
-            <span>
-              {busy
-                ? registering
-                  ? "正在创建账号…"
-                  : "正在登录…"
-                : registering
-                  ? "注册并进入平台"
-                  : "登录并进入平台"}
-            </span>
-            {busy ? (
-              <LoaderCircle size={18} className="spin" />
-            ) : (
+            </label>
+            {error && <ErrorLine>{error}</ErrorLine>}
+            <button type="submit" className="primary login-submit">
+              {busy ? "正在验证…" : register ? "创建账户" : "登录"}
               <ArrowRight size={18} />
-            )}
-          </button>
+            </button>
+            <button
+              type="button"
+              className="login-switch"
+              onClick={() => {
+                setRegister(!register);
+                setError("");
+              }}
+            >
+              {register ? "已有账户？返回登录" : "没有账户？创建本地账户"}
+            </button>
+          </fieldset>
+          <div className="login-security">
+            <ShieldCheck size={16} />
+            <span>身份与项目权限由服务端验证</span>
+          </div>
         </form>
-        <p className="auth-switch">
-          {registering ? "已有账号？" : "还没有账号？"}
-          <button
-            className="text-button"
-            type="button"
-            disabled={busy}
-            onClick={() => switchMode(registering ? "login" : "register")}
-          >
-            {registering ? "立即登录" : "创建账号"}
-          </button>
-        </p>
       </section>
     </div>
   );
 }
 function Overview({
   data,
-  refresh,
-  notify,
-  canEdit,
+  project,
+  agents,
+  tasks,
+  assets,
+  workflows,
   go,
-  editWorkflow,
-  selectedId,
-}: PageProps) {
-  const [project, setProject] = useProject();
-  const [prompt, setPrompt] = useState(""),
-    [mode, setMode] = useState(data.system?.default_mode || "rehearsal"),
-    [launchMode, setLaunchMode] = useState<"new" | "existing">(
-      selectedId?.startsWith("workflow:") ? "existing" : "new",
-    ),
-    [job, setJob] = useState<RecordData | null>(null);
-  const runs = data.runs || [],
-    active = runs.filter((r: any) => ["running", "queued"].includes(r.status)),
-    pending = runs.filter((r: any) => r.status === "waiting_review");
-  useEffect(() => {
-    if (!job || job.status !== "running") return;
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const current = await api(`/planning/${job.id}`);
-        if (cancelled) return;
-        setJob(current);
-        if (current.status === "completed" && current.workflow_id) {
-          await refresh();
-          const workflows = await api("/workflows");
-          const created = (workflows || []).find(
-            (w: any) => w.id === current.workflow_id,
-          );
-          if (created) {
-            setJob(null);
-            editWorkflow(created);
-            notify("研究流程已生成，可在画布中检查并调整");
-          }
-        }
-      } catch (e) {
-        if (!cancelled)
-          setJob((j: any) =>
-            j ? { ...j, status: "failed", error: (e as Error).message } : j,
-          );
-      }
-    };
-    const t = setInterval(poll, 800);
-    poll();
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-    };
-  }, [job?.id, job?.status]);
-  const create = async () => {
-    if (!prompt.trim()) {
-      notify("请先描述你的研究任务", true);
-      return;
-    }
-    try {
-      const started = await post("/plan", {
-        prompt,
-        project_id: project,
-        mode,
-      });
-      setJob(started);
-    } catch (e) {
-      notify((e as Error).message, true);
-    }
-  };
+  openTask,
+}: {
+  data: Bootstrap;
+  project?: Item;
+  agents: Item[];
+  tasks: Item[];
+  assets: Item[];
+  workflows: Item[];
+  go: (page: Page) => void;
+  openTask: (id: string) => void;
+}) {
+  const realTasks = tasks.filter((t) => t.request?.mode !== "rehearsal"),
+    summary = taskSummary(realTasks),
+    recent = [...tasks]
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+      .slice(0, 6),
+    capabilities = Array.isArray(data.capabilities) ? data.capabilities : [];
   return (
     <>
       <SectionTitle
-        eyebrow="AVIATION INTELLIGENCE"
-        title="航空情报工作台"
-        detail="跟进专题任务、核查来源证据，与团队协同完成研究交付。"
+        eyebrow="WORKSPACE OVERVIEW"
+        title="工作台总览"
+        description={`${project?.name || "当前项目"} · 从可复用能力到可追溯任务`}
         actions={
-          <button className="button" onClick={() => go("workflows")}>
-            <Workflow size={16} />
-            浏览流程模板
+          <button className="primary" onClick={() => go("tasks")}>
+            <Plus size={18} />
+            进入任务工作台
           </button>
         }
       />
-      <section className="prompt-panel">
-        <div className="prompt-intro">
-          <div className="sparkle-circle">
-            <Sparkles size={21} />
+      <div className="overview-hero">
+        <div>
+          <span className="eyebrow">从目标到交付</span>
+          <h2>管理能力，协作执行。</h2>
+          <p>
+            以智能体为中心，连接数据、流程与自动评审。
+            <br />
+            每一次执行都保留版本、来源和真实结果。
+          </p>
+          <div className="actions">
+            <button onClick={() => go("agents")}>
+              管理智能体
+              <ArrowRight size={16} />
+            </button>
+            <button className="subtle" onClick={() => go("data")}>
+              接入数据
+            </button>
           </div>
+        </div>
+        <div className="hero-nodes" aria-hidden="true">
           <div>
-            <h2>发起研究任务</h2>
-            <p>创建新的研究流程，或复用已发布流程直接执行。</p>
+            <Database />
+            <span>授权数据</span>
           </div>
-          <span className="prompt-number">两种发起方式</span>
+          <div className="node-connector" />
+          <div className="hero-primary">
+            <Bot />
+            <span>智能体资产</span>
+            <small>定义 · 版本 · 实例</small>
+          </div>
+          <div className="node-connector" />
+          <div>
+            <ShieldCheck />
+            <span>可验证交付</span>
+          </div>
         </div>
-        <div className="launch-tabs" role="tablist" aria-label="发起方式">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={launchMode === "new"}
-            className={launchMode === "new" ? "active" : ""}
-            onClick={() => setLaunchMode("new")}
-          >
-            新建研究流程
-            <small>按需求生成可编辑模板</small>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={launchMode === "existing"}
-            className={launchMode === "existing" ? "active" : ""}
-            onClick={() => setLaunchMode("existing")}
-          >
-            复用现有流程
-            <small>选择已发布模板并运行</small>
-          </button>
-        </div>
-        {launchMode === "new" ? (
-          <>
-            <textarea
-              aria-label="研究任务描述"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="例如：对比民用航空复合材料的技术路线、适航认证进展与产业应用，输出附带来源的专题情报简报…"
-              rows={3}
-            />
-            <div className="prompt-tools">
-              <div className="prompt-options">
-                <select
-                  aria-label="研究项目"
-                  value={project}
-                  onChange={(e) => setProject(e.target.value)}
-                >
-                  <option value="">选择研究项目</option>
-                  {(data.projects || []).map((p: any) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  aria-label="执行模式"
-                  value={mode}
-                  onChange={(e) => setMode(e.target.value)}
-                >
-                  <option value="rehearsal">本地演练</option>
-                  <option value="live">真实模型 · 计费</option>
-                </select>
-              </div>
-              <ActionButton
-                className="button primary"
-                disabled={!canEdit || !project || job?.status === "running"}
-                onClick={create}
-              >
-                生成并编辑流程
-                <ArrowRight size={17} />
-              </ActionButton>
-            </div>
-            <div className="prompt-disclaimer">
-              <ModeBadge mode={mode} />
-              <span>
-                {mode === "rehearsal"
-                  ? "先使用本地规则生成流程模板；检查、发布后可从“复用现有流程”发起运行。"
-                  : "先使用 DeepSeek 生成流程模板；模型请求经过统一预算网关。"}
-              </span>
-            </div>
-          </>
-        ) : (
-          <WorkflowRunLauncher
-            key={selectedId || "workflow-launcher"}
-            page={{
-              data,
-              refresh,
-              notify,
-              canEdit,
-              canReview: false,
-              go,
-              editWorkflow,
-              selectedId,
-            }}
-            initialWorkflowId={
-              selectedId?.startsWith("workflow:")
-                ? selectedId.slice("workflow:".length)
-                : undefined
-            }
-            onStarted={(run) => go("runs", run.id)}
-          />
-        )}
-      </section>
-      <div className="metrics-grid">
-        {[
-          {
-            label: "研究项目",
-            value: data.projects?.length || 0,
-            icon: FolderOpen,
-            note: "已建立的研究空间",
-            page: "projects",
-          },
-          {
-            label: "正在运行",
-            value: active.length,
-            icon: Activity,
-            note: "来自实际执行状态",
-            page: "runs",
-          },
-          {
-            label: "待人工审核",
-            value: pending.length,
-            icon: ShieldCheck,
-            note: "等待审核后继续执行",
-            page: "reports",
-          },
-          {
-            label: "模型计费上界",
-            value: `¥ ${money(data.budget?.spent_cny)}`,
-            icon: Zap,
-            note: `预算余量 ¥ ${Number(data.budget?.remaining_cny || 0).toFixed(2)}`,
-            page: "system",
-          },
-        ].map((m) => (
-          <button
-            className="metric-card"
-            key={m.label}
-            onClick={() => go(m.page as PageId)}
-          >
-            <div>
-              <span>{m.label}</span>
-              <m.icon size={19} />
-            </div>
-            <strong>{m.value}</strong>
-            <small>
-              {m.note}
-              <ArrowRight size={14} />
-            </small>
-          </button>
-        ))}
+      </div>
+      <div className="metric-grid four">
+        <button className="metric" onClick={() => go("agents")}>
+          <span>
+            已发布智能体
+            <Bot size={17} />
+          </span>
+          <strong>
+            {agents.filter((a) => a.status === "published").length}
+          </strong>
+          <small>
+            项目内 {agents.filter((a) => a.status !== "destroyed").length}{" "}
+            个定义
+          </small>
+        </button>
+        <button className="metric" onClick={() => go("tasks")}>
+          <span>
+            进行中的真实任务
+            <Activity size={17} />
+          </span>
+          <strong>{summary.active}</strong>
+          <small>不包含配置演练</small>
+        </button>
+        <button className="metric" onClick={() => go("tasks")}>
+          <span>
+            成功终态 / 终态样本
+            <ShieldCheck size={17} />
+          </span>
+          <strong>
+            {summary.terminal
+              ? `${summary.succeeded} / ${summary.terminal}`
+              : "尚无样本"}
+          </strong>
+          <small>当前项目全部真实任务 · 部分 / 失败 / 取消计入终态</small>
+        </button>
+        <button className="metric" onClick={() => go("operations")}>
+          <span>
+            全项目可用预算
+            <WalletIcon />
+          </span>
+          <strong>¥ {money(data.budget?.remaining_cny)}</strong>
+          <small>历史累计上限 ¥ {data.budget?.limit_cny ?? "—"}</small>
+        </button>
       </div>
       <div className="overview-columns">
         <Panel
-          title="最近研究任务"
-          detail="从规划到交付，跟进每一步进展"
+          title="最近任务"
           actions={
-            <button className="text-button" onClick={() => go("runs")}>
+            <button className="text-button" onClick={() => go("tasks")}>
               查看全部
-              <ArrowRight size={14} />
+              <ArrowRight size={15} />
             </button>
           }
         >
-          {runs.length ? (
-            <div className="run-table">
-              {runs.slice(0, 5).map((r: any) => (
+          {recent.length ? (
+            <div className="recent-tasks">
+              {recent.map((t) => (
                 <button
-                  key={r.id}
-                  className="recent-run"
-                  onClick={() => go("runs", r.id)}
+                  key={t.id}
+                  className="recent-row"
+                  onClick={() => openTask(t.id)}
                 >
-                  <div className="file-tile">
-                    <FileCheck2 size={20} />
+                  <span className="recent-icon">
+                    <Activity size={18} />
+                  </span>
+                  <div>
+                    <strong>{t.name || t.request?.name || t.id}</strong>
+                    <small>
+                      {taskTypes[t.request?.task_type]} ·{" "}
+                      {modeName(t.request?.mode)} · {time(t.created_at)}
+                    </small>
                   </div>
-                  <div className="recent-run-text">
-                    <strong>{r.name || r.workflow_name || r.prompt}</strong>
-                    <small>{r.prompt?.slice(0, 60) || r.workflow_name}</small>
-                  </div>
-                  <Badge status={r.status} />
-                  <ChevronRight size={15} />
+                  <Badge status={t.status} />
+                  <ChevronRight size={16} />
                 </button>
               ))}
             </div>
           ) : (
             <Empty
-              title="你的第一项研究，从这里开始"
-              detail="描述一个任务，或从已有流程模板发起一次演练。"
+              title="任务记录从这里开始"
+              description="先登记数据，再提交带质量约束的任务。执行记录将自动保存在当前项目。"
               action={
-                <button className="button" onClick={() => go("workflows")}>
-                  选择模板
-                  <ArrowRight size={15} />
+                <button onClick={() => go("data")}>
+                  接入第一份数据
+                  <ArrowRight size={16} />
                 </button>
               }
             />
           )}
         </Panel>
-        <Panel title="工作空间就绪情况" detail="真实配置与资源状态">
-          <div className="readiness-row">
-            <div>
+        <div className="overview-side">
+          <Panel title="工作空间资源">
+            <button className="resource-row" onClick={() => go("data")}>
               <Database size={18} />
-              <span>知识资料</span>
-            </div>
-            <strong>{data.documents?.length || 0} 份</strong>
-          </div>
-          <div className="readiness-row">
-            <div>
-              <BrainCircuit size={18} />
-              <span>可用智能体</span>
-            </div>
-            <strong>
-              {
-                (data.agents || []).filter((a: any) => a.enabled !== false)
-                  .length
-              }{" "}
-              个
-            </strong>
-          </div>
-          <div className="readiness-row">
-            <div>
-              <Boxes size={18} />
-              <span>技能</span>
-            </div>
-            <strong>
-              {data.capability_stats?.skills ?? data.skills?.length ?? 0} 项
-            </strong>
-          </div>
-          <div className="readiness-row">
-            <div>
-              <Zap size={18} />
-              <span>工具（健康 / 全部）</span>
-            </div>
-            <strong>
-              {data.capability_stats
-                ? `${data.capability_stats.healthy_tools} / ${data.capability_stats.tools}`
-                : (data.tools?.length ?? 0)}{" "}
-              个
-            </strong>
-          </div>
-          <div className="readiness-row">
-            <div>
-              <Network size={18} />
-              <span>MCP 服务</span>
-            </div>
-            <strong>
-              {data.capability_stats?.mcp_servers ??
-                data.mcp_servers?.length ??
-                0}{" "}
-              个
-            </strong>
-          </div>
-          <div className="readiness-row">
-            <div>
-              <Zap size={18} />
-              <span>DeepSeek 凭据</span>
-            </div>
-            <Badge status={data.system?.key_configured ? "ready" : "pending"}>
-              {data.system?.key_configured ? "已配置" : "未配置"}
-            </Badge>
-          </div>
-          <div className="workspace-note">
-            <ShieldCheck size={20} />
-            <p>
-              每个结论保留检索证据。关键步骤可插入人工审核，模型请求受项目预算约束。
-            </p>
-          </div>
-        </Panel>
-      </div>
-      <div className="section-subtitle">
-        <div>
-          <h2>从一个研究场景开始</h2>
-          <p>六条预置流程，覆盖三类场景，可按任务调整节点与执行参数。</p>
-        </div>
-        <button className="text-button" onClick={() => go("workflows")}>
-          全部模板
-          <ArrowRight size={15} />
-        </button>
-      </div>
-      <div className="template-grid">
-        {(data.workflows || []).slice(0, 3).map((w: any, i: number) => (
-          <button
-            className={`template-card tint-${i}`}
-            key={w.id}
-            onClick={() => editWorkflow(w)}
-          >
-            <div className="template-icon">
-              {i === 0 ? (
-                <BookOpen size={22} />
-              ) : i === 1 ? (
-                <Network size={22} />
-              ) : (
-                <GitBranch size={22} />
-              )}
-            </div>
-            <div>
-              <h3>{w.name}</h3>
-              <p>{w.description || "打开流程画布，配置你的研究任务。"}</p>
-              <span>
-                {w.nodes?.length || 0} 个节点 <ArrowRight size={14} />
-              </span>
-            </div>
-          </button>
-        ))}
-      </div>
-      {job && (
-        <Modal
-          title="正在生成研究流程"
-          onClose={() => job.status !== "running" && setJob(null)}
-        >
-          <div className="prompt-disclaimer">
-            <ModeBadge mode={job.mode || mode} />
-            <span>
-              {job.mode === "live"
-                ? "真实模型规划：生成 → 硬规则校验 → 不通过则携带错误原因让模型修复。"
-                : "本地规则规划：不调用模型。"}
-            </span>
-          </div>
-          <div className="readiness-row">
-            <div>
-              {job.status === "running" ? (
-                <LoaderCircle size={18} className="spin" />
-              ) : job.status === "completed" ? (
-                <Check size={18} />
-              ) : (
-                <X size={18} />
-              )}
-              <span>{job.stage || "排队中"}</span>
-            </div>
-          </div>
-          {(job.attempts || []).length > 0 && (
-            <div className="log-list">
-              {job.attempts.map((a: any, i: number) => (
-                <div className="log-entry" key={i}>
-                  <span>第 {a.attempt} 次</span>
-                  <code>
-                    {a.status === "validated"
-                      ? `校验通过（${a.nodes} 个节点 / ${a.edges} 条连线）`
-                      : `校验未通过：${a.error}`}
-                  </code>
+              <span>有效数据资产</span>
+              <strong>
+                {assets.filter((a) => a.status === "active").length}
+              </strong>
+              <ChevronRight size={15} />
+            </button>
+            <button className="resource-row" onClick={() => go("workflows")}>
+              <Workflow size={18} />
+              <span>已发布流程</span>
+              <strong>
+                {workflows.filter((w) => w.status === "published").length}
+              </strong>
+              <ChevronRight size={15} />
+            </button>
+            <button className="resource-row" onClick={() => go("operations")}>
+              <Activity size={18} />
+              <span>执行服务</span>
+              <Badge
+                status={data.system.worker_online ? "online" : "offline"}
+              />
+            </button>
+          </Panel>
+          <Panel title="能力边界">
+            <div className="capability-list">
+              {capabilities.map((c) => (
+                <div key={c.id}>
+                  <span>{c.name || taskTypes[c.id]}</span>
+                  <Badge status={c.available ? "ready" : "unsupported"}>
+                    {c.available ? "可用" : "待验证"}
+                  </Badge>
                 </div>
               ))}
             </div>
-          )}
-          {job.status === "failed" && (
-            <>
-              <InlineMessage error>
-                {job.error || "规划失败，未保存任何流程。"}
-              </InlineMessage>
-              <div className="modal-actions">
-                <button className="button" onClick={() => setJob(null)}>
-                  关闭
-                </button>
-              </div>
-            </>
-          )}
-          {job.status === "running" && (
-            <p className="muted">
-              正在规划，你可以看到每一次生成与校验的真实进展…
+            <p className="muted small">
+              能力由实际工具与模型提供；未验证的模态不会被当作成功处理。
             </p>
-          )}
-        </Modal>
-      )}
+          </Panel>
+        </div>
+      </div>
     </>
   );
+}
+function WalletIcon() {
+  return <span aria-hidden="true">¥</span>;
 }

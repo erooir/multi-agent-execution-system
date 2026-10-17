@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import math
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
-from .storage import DATA_DIR, store
-
-MODEL_ID = "deepseek-flash"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+# The lifetime budget belongs to this project, never to a disposable runtime directory.
+BUDGET_LEDGER_PATH = PROJECT_ROOT / ".local" / "budget.sqlite3"
+DATA_DIR = Path(os.environ.get("WORKBENCH_DATA_DIR", str(PROJECT_ROOT / ".local")))
+MODEL_ID = os.environ.get("HANGZHI_MODEL_ID", "deepseek-flash")
+PRICED_MODEL_IDS = frozenset({"deepseek-flash", "deepseek-v4-flash"})
 BUDGET_LIMIT_CNY = 300.0
 DEFAULT_OUTPUT_TOKENS = 8000
 MAX_OUTPUT_TOKENS = 8000
@@ -34,11 +39,17 @@ def get_api_key() -> str | None:
 
 
 def get_settings() -> dict:
+    # Retained for the old settings API; importing the gateway does not open legacy data.
+    from .storage import store
+
     saved = store.get("settings", "main") or {}
+    limit = float(saved.get("budget_limit_cny", BUDGET_LIMIT_CNY))
+    if not math.isfinite(limit) or not 0 < limit <= BUDGET_LIMIT_CNY:
+        raise ValueError("预算配置无效，已停止模型调用")
     return {
         "model": MODEL_ID,
         "base_url": "https://api.deepseek.com",
-        "budget_limit_cny": min(float(saved.get("budget_limit_cny", BUDGET_LIMIT_CNY)), BUDGET_LIMIT_CNY),
+        "budget_limit_cny": limit,
         "default_mode": saved.get("default_mode", "rehearsal"),
         "max_concurrent_runs": 2,
         "max_output_tokens": min(
@@ -53,6 +64,8 @@ def get_settings() -> dict:
 
 
 def save_settings(data: dict) -> dict:
+    from .storage import store
+
     old = get_settings()
     limit = float(data.get("budget_limit_cny", old["budget_limit_cny"]))
     if not 0 < limit <= BUDGET_LIMIT_CNY:

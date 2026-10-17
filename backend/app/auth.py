@@ -12,6 +12,7 @@ import secrets
 import sqlite3
 import time
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request, Response
@@ -21,11 +22,6 @@ from .storage import now, store
 PASSWORD_ITERATIONS = 600_000
 SESSION_SECONDS = 43_200
 RATE_WINDOW_SECONDS = 600
-LEGACY_USERS = (
-    {"id": "admin", "username": "admin", "name": "平台管理员", "role": "admin"},
-    {"id": "operator", "username": "operator", "name": "研究人员", "role": "operator"},
-    {"id": "reviewer", "username": "reviewer", "name": "审核专家", "role": "reviewer"},
-)
 PUBLIC_USER_FIELDS = ("id", "username", "name", "role")
 
 
@@ -57,22 +53,64 @@ def _insert_record(conn, kind: str, record: dict, *, ignore_existing: bool = Fal
     )
 
 
+def _bootstrap_password() -> str:
+    configured = os.environ.get("HANGZHI_ADMIN_PASSWORD")
+    if configured:
+        return _validate_password(configured)
+    # Bind the secret to the selected identity DB, including isolated test installations.
+    directory = Path(store.path).resolve().parent
+    credential_file = directory / "bootstrap-admin.json"
+    if credential_file.is_symlink() or credential_file.resolve().parent != directory:
+        raise RuntimeError("bootstrap_credentials_invalid: 初始化凭据不能是符号链接")
+    if credential_file.exists():
+        if credential_file.stat().st_size > 4096:
+            raise RuntimeError("bootstrap_credentials_invalid: 初始化凭据文件不合法")
+        try:
+            saved = json.loads(credential_file.read_text(encoding="utf-8"))
+            if saved.get("username") != "admin":
+                raise ValueError()
+            password = _validate_password(saved.get("password"))
+        except (ValueError, AttributeError, HTTPException) as exc:
+            raise RuntimeError("bootstrap_credentials_invalid: 请核对中断初始化留下的本地凭据") from exc
+        if os.name != "nt":
+            credential_file.chmod(0o600)
+        return password
+    password = secrets.token_urlsafe(24)
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(credential_file, flags, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        json.dump({"username": "admin", "password": password}, handle)
+        handle.flush()
+        os.fsync(handle.fileno())
+    return password
+
+
 def ensure_users() -> None:
-    """One-time, atomic migration; existing local accounts and sessions retain their identity."""
-    if store.get("auth_meta", "persisted_users_v1"):
-        return
-    legacy_password = os.environ.get("WORKBENCH_DEMO_PASSWORD", "demo12345")
-    migrated = [
-        {**user, "enabled": True, "password_hash": _hash_password(legacy_password)} for user in LEGACY_USERS
-    ]
+    """Initialize once under the same cross-process DB lock; never reset existing identities."""
     with store.lock, store.connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
         if conn.execute(
             "SELECT 1 FROM records WHERE kind='auth_meta' AND id='persisted_users_v1'"
         ).fetchone():
+            if not conn.execute("SELECT 1 FROM records WHERE kind='users' LIMIT 1").fetchone():
+                raise RuntimeError("auth_store_invalid: 初始化标记存在但账号缺失，请核对身份库备份")
             return
-        for user in migrated:
-            _insert_record(conn, "users", user, ignore_existing=True)
+        if not conn.execute("SELECT 1 FROM records WHERE kind='users' LIMIT 1").fetchone():
+            password = _bootstrap_password()
+            _insert_record(
+                conn,
+                "users",
+                {
+                    "id": "admin",
+                    "username": "admin",
+                    "name": "平台管理员",
+                    "role": "admin",
+                    "enabled": True,
+                    "password_hash": _hash_password(password),
+                },
+            )
+            # No existing identity owns these sessions; do not revive an old admin cookie.
+            conn.execute("DELETE FROM records WHERE kind='sessions'")
         _insert_record(conn, "auth_meta", {"id": "persisted_users_v1", "version": 1})
 
 
@@ -131,19 +169,33 @@ def _public_user(user: dict) -> dict:
 
 
 def _start_session(user: dict, response: Response, request: Request | None = None) -> dict:
-    if request:
-        previous_token = request.cookies.get("workbench_session")
-        if previous_token:
-            store.delete("sessions", hashlib.sha256(previous_token.encode()).hexdigest())
     token = secrets.token_urlsafe(32)
-    store.save(
-        "sessions",
-        {
-            "id": hashlib.sha256(token.encode()).hexdigest(),
-            "username": user["username"],
-            "expires_at": (datetime.now(UTC) + timedelta(seconds=SESSION_SECONDS)).isoformat(),
-        },
-    )
+    with store.lock, store.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT data FROM records WHERE kind='users' AND id=?", (user["id"],)).fetchone()
+        current = json.loads(row[0]) if row else None
+        if (
+            not current
+            or not current.get("enabled", True)
+            or current.get("password_hash") != user.get("password_hash")
+        ):
+            raise HTTPException(401, "身份状态已变更，请重新登录")
+        user = current
+        previous_token = request.cookies.get("workbench_session") if request else None
+        if previous_token:
+            conn.execute(
+                "DELETE FROM records WHERE kind='sessions' AND id=?",
+                (hashlib.sha256(previous_token.encode()).hexdigest(),),
+            )
+        _insert_record(
+            conn,
+            "sessions",
+            {
+                "id": hashlib.sha256(token.encode()).hexdigest(),
+                "username": user["username"],
+                "expires_at": (datetime.now(UTC) + timedelta(seconds=SESSION_SECONDS)).isoformat(),
+            },
+        )
     response.set_cookie(
         "workbench_session",
         token,
@@ -166,7 +218,7 @@ def _validate_name(name) -> str:
     if not isinstance(name, str):
         raise HTTPException(422, "显示名须为文字")
     name = name.strip()
-    if len(name) > 40 or not name.isprintable():
+    if len(name) > 40 or (name and not name.isprintable()):
         raise HTTPException(422, "显示名须为1至40个可打印字符")
     return name
 
@@ -269,6 +321,8 @@ def list_users() -> list[dict]:
 
 def create_user(body: dict, actor: dict) -> dict:
     """Admin-managed account creation; never self-serve, never another admin."""
+    if actor.get("role") != "admin":
+        raise HTTPException(403, "只有管理员可以管理账号")
     if set(body) - {"username", "password", "name", "role"}:
         raise HTTPException(422, "仅支持用户名、密码、显示名和角色")
     username = _username(body.get("username"))
@@ -289,6 +343,16 @@ def create_user(body: dict, actor: dict) -> dict:
     try:
         with store.lock, store.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            actor_row = conn.execute(
+                "SELECT data FROM records WHERE kind='users' AND id=?", (actor["id"],)
+            ).fetchone()
+            current_actor = json.loads(actor_row[0]) if actor_row else None
+            if (
+                not current_actor
+                or not current_actor.get("enabled", True)
+                or current_actor["role"] != "admin"
+            ):
+                raise HTTPException(403, "管理员身份已变更")
             _insert_record(conn, "users", user)
     except sqlite3.IntegrityError:
         raise HTTPException(409, "用户名已被使用") from None
@@ -297,11 +361,10 @@ def create_user(body: dict, actor: dict) -> dict:
 
 
 def update_user(user_id: str, body: dict, actor: dict) -> dict:
+    if actor.get("role") != "admin":
+        raise HTTPException(403, "只有管理员可以管理账号")
     if set(body) - {"name", "role", "enabled", "password"}:
         raise HTTPException(422, "仅支持修改显示名、角色、启用状态和密码")
-    target = store.get("users", user_id)
-    if not target:
-        raise HTTPException(404, "用户不存在")
     changes: dict = {}
     if "name" in body:
         name = _validate_name(body["name"])
@@ -318,32 +381,47 @@ def update_user(user_id: str, body: dict, actor: dict) -> dict:
         changes["enabled"] = body["enabled"]
     if "password" in body and body["password"] is not None:
         changes["password_hash"] = _hash_password(_validate_password(body["password"]))
-    if not changes:
-        return {**_public_user(target), "enabled": target.get("enabled", True)}
-    demoting_self = actor["username"] == target["username"] and (
-        changes.get("enabled") is False or changes.get("role", target["role"]) != "admin"
-    )
-    if actor["username"] == target["username"] and actor["role"] == "admin" and demoting_self:
-        raise HTTPException(400, "不能停用或降级自己的管理员账号")
-    loses_admin = target["role"] == "admin" and (
-        changes.get("enabled") is False or ("role" in changes and changes["role"] != "admin")
-    )
-    if loses_admin:
-        remaining = [
-            user
-            for user in store.list("users")
-            if user["username"] != target["username"]
-            and user.get("role") == "admin"
-            and user.get("enabled", True)
-        ]
-        if not remaining:
-            raise HTTPException(400, "至少需要保留一个可用的管理员账号")
-    target.update(changes)
-    store.save("users", target)
-    if changes.get("enabled") is False or "password_hash" in changes:
-        for session in store.list("sessions"):
-            if session.get("username") == target["username"]:
-                store.delete("sessions", session["id"])
+    with store.lock, store.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        actor_row = conn.execute(
+            "SELECT data FROM records WHERE kind='users' AND id=?", (actor["id"],)
+        ).fetchone()
+        current_actor = json.loads(actor_row[0]) if actor_row else None
+        if not current_actor or not current_actor.get("enabled", True) or current_actor["role"] != "admin":
+            raise HTTPException(403, "管理员身份已变更")
+        row = conn.execute("SELECT data FROM records WHERE kind='users' AND id=?", (user_id,)).fetchone()
+        target = json.loads(row[0]) if row else None
+        if not target:
+            raise HTTPException(404, "用户不存在")
+        if not changes:
+            return {**_public_user(target), "enabled": target.get("enabled", True)}
+        loses_admin = target["role"] == "admin" and (
+            changes.get("enabled") is False or ("role" in changes and changes["role"] != "admin")
+        )
+        if actor["id"] == target["id"] and loses_admin:
+            raise HTTPException(400, "不能停用或降级自己的管理员账号")
+        if loses_admin:
+            users = [
+                json.loads(item[0]) for item in conn.execute("SELECT data FROM records WHERE kind='users'")
+            ]
+            if not any(
+                user["id"] != target["id"] and user.get("role") == "admin" and user.get("enabled", True)
+                for user in users
+            ):
+                raise HTTPException(400, "至少需要保留一个可用的管理员账号")
+        target.update(changes)
+        target["updated_at"] = now()
+        conn.execute(
+            "UPDATE records SET data=?,updated_at=? WHERE kind='users' AND id=?",
+            (json.dumps(target, ensure_ascii=False), target["updated_at"], target["id"]),
+        )
+        if changes.get("enabled") is False or "password_hash" in changes or "role" in changes:
+            sessions = [
+                json.loads(item[0]) for item in conn.execute("SELECT data FROM records WHERE kind='sessions'")
+            ]
+            for session in sessions:
+                if session.get("username") == target["username"]:
+                    conn.execute("DELETE FROM records WHERE kind='sessions' AND id=?", (session["id"],))
     store.audit(
         "user.update",
         target["username"],

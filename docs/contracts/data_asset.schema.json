@@ -1,0 +1,91 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 150,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "modality": {
+      "enum": [
+        "text",
+        "structured",
+        "image",
+        "audio",
+        "video"
+      ],
+      "title": "Modality",
+      "type": "string"
+    },
+    "media_type": {
+      "default": "text/plain",
+      "maxLength": 100,
+      "title": "Media Type",
+      "type": "string"
+    },
+    "content": {
+      "title": "Content"
+    },
+    "source_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Source Id",
+      "type": "string"
+    },
+    "source_version": {
+      "default": "1",
+      "maxLength": 100,
+      "title": "Source Version",
+      "type": "string"
+    },
+    "provenance": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Provenance",
+      "type": "string"
+    },
+    "classification": {
+      "default": "local",
+      "enum": [
+        "local",
+        "public"
+      ],
+      "title": "Classification",
+      "type": "string"
+    },
+    "retention_days": {
+      "default": 30,
+      "maximum": 3650,
+      "minimum": 1,
+      "title": "Retention Days",
+      "type": "integer"
+    },
+    "expires_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expires At"
+    }
+  },
+  "required": [
+    "project_id",
+    "name",
+    "modality",
+    "content",
+    "source_id",
+    "provenance"
+  ],
+  "title": "AssetInput",
+  "type": "object"
+}

@@ -1,39 +1,33 @@
-# Demo acceptance record
+# 新版验证记录
 
-Verified locally on Windows on 2026-09-20. No private background document was uploaded, indexed automatically, or sent to an external model.
+日期：2026-10-17。本文件只记录 v2；旧版记录保留在归档标签。所有样例为小型合成数据，未向模型发送原始方案或交接材料。
 
-## Automated checks
+## 自动验证
 
-- Backend: 65 tests passed. Includes budget reservation concurrency, uncertain charges, endpoint/model allowlist, local-only evidence blocking, role enforcement, workflow validation/versioning, real Agno execution over mocked model HTTP, cancellation, report rejection/rework, output truncation detection, configured planner/writer instructions, report exports and 19 registration/authentication cases.
-- Python: Ruff lint and formatting checks passed (20 files including the repository guard).
-- Frontend: TypeScript and Vite production build passed; twelve tests cover DAG layout, legacy-layout collision handling and citation rendering while preserving Markdown links/code. Accessible form labels were checked against rendered markup.
-- One dependency deprecation warning remains in Starlette's test client for an AnyIO alias; it does not fail tests.
+本机 Windows / Python 3.12 / SQLite 验证领域契约、项目权限、幂等受理、不可变版本、复合权限、引用保护、租约令牌、重复领取、过期接管、检查点、取消、截止时间、自动质量修订、周期计划、来源撤回/过期、记忆权限继承、冻结评测与晋升回滚。身份与预算用隔离数据库测试，不占用真实模型额度。
 
-## Actual application checks
+预算测试覆盖最坏成本预留、并发累计上限、任务独立限额、外发权限、未知/异常用量保留占用、调用取消、历史账本固定路径、备份恢复防回滚和公开包排除规则。API验证包含角色/项目隔离、下载及撤回后的派生内容可见性。
 
-- Authenticated browser session through the Chinese product UI.
-- Live DeepSeek generated a 12-node workflow containing evidence checks, alternate paths, batch analysis, report generation and final review; draft saved and published through the canvas.
-- Live execution retrieved 18 local evidence chunks, ran analysis, and produced a report draft. A truncated output found during acceptance was rejected through the review UI. The gateway now checks provider completion reasons and fails incomplete output rather than recording success. Agno's implicit node retries and error-skipping are explicitly disabled.
-- Retrying with review feedback regenerated a complete six-section report; review edits and a functional-test approval were submitted through the UI. This approval validates the software workflow, not research conclusions.
-- A fresh live run then completed every active node from start through batch analysis, report, review and end without retries or output truncation. It produced a complete 1,536-character Markdown draft with 18 available source chunks. Bound/default writer and planner instructions are applied; disabled agents block calls.
-- Report-body citations render as compact numbered buttons. Clicking a citation opened the correct source excerpt, location and download link. Markdown, HTML and DOCX exports returned valid artifacts.
-- All 30 synthetic samples ran in local rehearsal mode through the actual API and reached their required review gate with analysis and resolvable evidence: 30/30 rule checks passed. This does not mean human review was completed or that model factual accuracy is 100%.
-- Keyword retrieval without selecting an individual document returned project-scoped evidence. Local OCR and cached BGE semantic retrieval were exercised; a real metered image-understanding call used a locally generated synthetic image.
-- Desktop and narrow preview layouts inspected. Graph view, workflow canvas, review forms and execution timeline loaded correctly.
-- Windows stop/start verified, including the virtual environment's child interpreter and release of port 8000.
+后端全量132项测试通过，无跳过（63.62秒）；包含真实PostgreSQL测试。前端12项单元测试及 TypeScript/Vite 生产构建通过；Python Ruff检查、32个文件格式检查、5份公开JSON Schema导出核对通过。Starlette 测试依赖的一条 AnyIO 弃用提示不影响断言结果。
 
-## Cost and deployment scope
+按用户授权安装PostgreSQL 17.11官方Windows二进制到忽略目录，独立测试实例仅绑定127.0.0.1:55432，不改变现有业务数据库。4个并发连接在独立临时schema初始化，随后验证并发幂等和 SKIP LOCKED 领取；完成后删除测试schema。SQLite另验证8个并发冷启动。CI也配置PostgreSQL17.11；其他机器未提供数据库时明确跳过，不能把SQL编译检查当作实测。
 
-At acceptance, fourteen metered requests had a conservative total of CNY 0.361968 and no unresolved reservations. This ledger estimate is based on twice the verified peak token rates, not the provider invoice. The persistent project ceiling is CNY 300. Tests use mocks and make no paid calls.
+## 实际运行
 
-The current implementation is a local demo with three local roles, synthetic sources and a private AgentOS runtime. Isolation-ready model substitution, production identity, tenant isolation, automatic knowledge-graph extraction and expert quality evaluation remain follow-up work.
+- 本机独立 API 与 Worker 运行；通过正式8000端口的生产静态界面注册合成测试账号、登记2条JSON数据、提交任务、自动完成并打开产物。输出与输入一致，事件持久化，实例释放，任务与智能体可双向追溯。
+- 通过浏览器创建智能体并发布不可变v1；预算显示、退出二次确认通过。生产页面无新增控制台错误。
+- 390px窄屏DOM几何检查无横向溢出，菜单能展开并跳转。浏览器窄屏截图接口失败，因此仅记录DOM/交互验收；桌面截图保存在忽略目录。
+- 使用合成公共图书馆开放时间文本完成1条真实云任务，执行和独立自动评审各调用1次，最终 succeeded、1项产物。统一网关记录2次请求，新增保守计费0.006536元，未决预留0。
+- 历史账本从64笔/5.732108元连续增加到66笔/5.738644元；累计上限300元，剩余294.261356元。金额是网关保守占用，不是供应方实扣账单。没有重建或清零账本。
+- 新版启动脚本在端口被其他服务占用时拒绝启动，且不改已有进程记录；停止脚本实际关闭API/Worker及相关子进程并释放8000端口。再次启动后旧云任务仍可读取，新的本地JSON任务成功、10条持久事件、实例释放，幂等重复返回同一任务，账本费用与66笔记录保持不变。
+- 停服一致性快照已通过哈希核验，包含身份库、业务库和完整历史账本。快照保存在忽略的.local/backups，未上传。
 
-## Interface and account refinement
+运行截图、任务响应和账本汇总仅在 .local/v2-ui-validation 与 .local/v2-validation，均不提交Git。
 
-- Applied the user-selected **航智 · 航空情报平台** brand and dark collaboration direction, with clearer workflow nodes. The four comparison mockups and official references remain available at `/style-options.html` and in `docs/DESIGN.md`.
-- Verified ordinary registration through the actual browser: automatic researcher sign-in, logout, later login and disabled administrator settings. The temporary verification identity was removed after logout; audit history was retained. Existing administrator sessions continued working after the backend restart.
-- Registration tests cover salted password hashes, case-insensitive duplicates, concurrent registration, extra role-field rejection, current persisted role/enabled checks, session rotation/logout, origin checks, persistent rate limits and one-time legacy migration.
-- Inspected all ten work areas, dark login/registration, knowledge graph, workflow configuration, execution timeline and report source modal. Long reports retain a readable light paper surface.
-- Checked desktop at 1440 px and narrow screens at 390 px. Navigation collapses into a drawer; task input and authentication forms remain usable without page-wide horizontal overflow. Body text is 16 px; supporting text is at least 13 px before canvas zoom.
-- Legacy flow positions that overlap the larger node cards are adjusted in memory with a visible layout-preview indicator. Saving remains explicit; valid non-overlapping positions and execution data are preserved. The editor opens at a readable 1× zoom near the start node and retains full-graph overview and return-to-start controls. Module navigation returns to the top without disrupting periodic data refreshes.
-- This refinement made no paid model calls; the persisted budget ledger remains unchanged.
+## 交付与剩余验收
+
+已准备 SQLite 停服一致性备份/恢复、历史费用合并保护、公开源码和静态资源哈希封装、固定依赖清单、Linux/Podman构建输入、使用/运维/接入文档。恢复策略在隔离测试库中验证，禁止把旧账本覆盖当前累计费用。
+
+尚未获得目标硬件、真实上游鉴权/分页/撤回协议及本地多模态模型。HTTP知识适配器可配置，尚未宣称接通真实上游；图片文件检查已实现，图像语义、音频转写和视频理解返回明确能力未支持。改进评测限定本地单原子节点，不能外推为多节点或云模型质量提升。
+
+目标机断网安装、完整wheel/模型权重/原生库闭包、许可证再分发、容器运行、容量/时限、跨主机恢复和外部接口联调保持待验收。封装清单保留 offline_acceptance=NOT_RUN，不以本机演练替代正式结论。
