@@ -25,6 +25,8 @@ import {
 } from "./ui";
 import { AgentForm, AssetForm, WorkflowForm } from "./Forms";
 import Graph from "./Graph";
+import { AgentDetails, AgentVersions } from "./AssetDetails";
+import { ParameterSummary } from "./ToolParameters";
 type Props = {
   projectId: string;
   canEdit: boolean;
@@ -39,11 +41,15 @@ export function AgentsPage({
   mutate,
   notify,
   onTask,
+  workflows = [],
+  onWorkflow,
   initialId,
 }: Props & {
   agents: Item[];
   capabilities: Item[];
   onTask: (id: string) => void;
+  workflows?: Item[];
+  onWorkflow?: (id: string) => void;
   initialId?: string | null;
 }) {
   const [search, setSearch] = useState(""),
@@ -64,6 +70,8 @@ export function AgentsPage({
     if (!fresh) return;
     let active = true;
     setDetailError("");
+    setVersions([]);
+    setInstances([]);
     Promise.all([
       api(idPath("agents", fresh.id) + "/versions"),
       api(idPath("agents", fresh.id) + "/instances"),
@@ -226,69 +234,31 @@ export function AgentsPage({
               </p>
             )}
             {tab === "definition" && (
-              <>
-                <p>{fresh.description || "无职责说明"}</p>
-                <div className="detail-grid">
-                  <span>用途</span>
-                  <strong>
-                    {fresh.purpose === "general" ? "通用" : "任务专用"}
-                  </strong>
-                  <span>结构</span>
-                  <strong>
-                    {fresh.structure === "atomic" ? "元智能体" : "复合智能体"}
-                  </strong>
-                  <span>模型策略</span>
-                  <strong>
-                    {fresh.model_policy === "local"
-                      ? "本地工具"
-                      : "统一模型网关"}
-                  </strong>
-                  <span>当前版本</span>
-                  <strong>{fresh.current_version || "尚未发布"}</strong>
-                </div>
-                <h3>能力与工具</h3>
-                <div className="tags">
-                  {fresh.capabilities?.map((x: string) => (
-                    <span key={x}>{taskTypes[x] || x}</span>
-                  ))}
-                  {fresh.tool_ids?.map((x: string) => (
-                    <code key={x}>{x}</code>
-                  ))}
-                </div>
-                <h3>执行指令</h3>
-                <pre className="prose">{fresh.instructions || "未设置"}</pre>
-                {fresh.members?.length > 0 && (
-                  <>
-                    <h3>复合成员</h3>
-                    {fresh.members.map((m: Item) => (
-                      <p key={m.agent_id}>
-                        {agents.find((a) => a.id === m.agent_id)?.name ||
-                          m.agent_id}{" "}
-                        · v{m.version}
-                      </p>
-                    ))}
-                  </>
-                )}
-                <JsonView value={fresh} />
-              </>
+              <AgentDetails
+                agent={fresh}
+                agents={agents}
+                workflows={workflows}
+                onAgent={(id) => {
+                  setSelected(agents.find((agent) => agent.id === id) || null);
+                  setTab("definition");
+                }}
+                onWorkflow={
+                  onWorkflow
+                    ? (id) => {
+                        setSelected(null);
+                        onWorkflow(id);
+                      }
+                    : undefined
+                }
+              />
             )}
-            {tab === "versions" &&
-              (versions.length ? (
-                versions.map((v) => (
-                  <article className="record" key={v.id}>
-                    <div className="row-between">
-                      <h3>版本 {v.version || v.version_number}</h3>
-                      <span className="muted">{time(v.created_at)}</span>
-                    </div>
-                    <JsonView value={v} label="配置快照与引用" />
-                  </article>
-                ))
-              ) : (
-                <Empty
-                  title="尚无发布版本"
-                  description="发布后保存不可变快照，可供流程与任务引用。"
-                />
-              ))}
+            {tab === "versions" && (
+              <AgentVersions
+                key={fresh.id}
+                versions={versions}
+                currentVersion={fresh.current_version}
+              />
+            )}
             {tab === "instances" &&
               (instances.length ? (
                 instances.map((i) => (
@@ -403,7 +373,8 @@ export function WorkflowsPage({
   canEdit,
   mutate,
   notify,
-}: Props & { workflows: Item[]; agents: Item[] }) {
+  initialId,
+}: Props & { workflows: Item[]; agents: Item[]; initialId?: string | null }) {
   const [edit, setEdit] = useState<Item | null | undefined>(),
     [selected, setSelected] = useState<Item | null>(null),
     [versions, setVersions] = useState<Item[]>([]),
@@ -411,8 +382,15 @@ export function WorkflowsPage({
     [publish, setPublish] = useState<Item | null>(null);
   const fresh = workflows.find((w) => w.id === selected?.id) || selected;
   useEffect(() => {
+    if (initialId)
+      setSelected(
+        workflows.find((workflow) => workflow.id === initialId) || null,
+      );
+  }, [initialId]);
+  useEffect(() => {
     if (!fresh) return;
     let active = true;
+    setVersions([]);
     api(idPath("workflows", fresh.id) + "/versions")
       .then((v) => active && setVersions(v))
       .catch((e) => notify(e.message, true));
@@ -498,14 +476,57 @@ export function WorkflowsPage({
               agents={agents}
               onNode={setRecord}
             />
+            <h3>节点绑定</h3>
+            <div className="binding-list">
+              {(fresh.nodes || []).map((node: Item) => (
+                <div key={node.id}>
+                  <button
+                    className="link-button"
+                    onClick={() => setRecord(node)}
+                  >
+                    {node.label}
+                    <ArrowUpRight size={14} />
+                  </button>
+                  <span>
+                    {agents.find((agent) => agent.id === node.agent_id)?.name ||
+                      node.agent_id}
+                  </span>
+                  <small>
+                    {node.agent_version
+                      ? `v${node.agent_version}`
+                      : "发布时冻结版本"}
+                  </small>
+                </div>
+              ))}
+            </div>
             <h3>发布版本</h3>
             {versions.length ? (
-              versions.map((v) => (
-                <JsonView
-                  key={v.id}
-                  value={v}
-                  label={`版本 ${v.version || v.version_number} · ${time(v.created_at)}`}
-                />
+              versions.map((version) => (
+                <article className="record" key={version.id}>
+                  <div className="row-between">
+                    <strong>
+                      v{version.version || version.version_number}
+                    </strong>
+                    <span className="muted">{time(version.created_at)}</span>
+                  </div>
+                  <p>
+                    {version.nodes?.length || 0} 个节点 ·{" "}
+                    {version.nodes?.reduce(
+                      (total: number, node: Item) =>
+                        total + (node.depends_on?.length || 0),
+                      0,
+                    ) || 0}{" "}
+                    条依赖
+                  </p>
+                  <div className="tags">
+                    {(version.nodes || []).map((node: Item) => (
+                      <span key={node.id}>
+                        {node.label} · v{node.agent_version || "—"}
+                      </span>
+                    ))}
+                  </div>
+                  <JsonView value={version} label="完整流程快照" />
+                </article>
               ))
             ) : (
               <p className="muted">尚无发布版本。</p>
@@ -527,7 +548,33 @@ export function WorkflowsPage({
       {record && (
         <Modal title="节点配置" onClose={() => setRecord(null)}>
           <div className="modal-body">
-            <pre>{JSON.stringify(record, null, 2)}</pre>
+            <h3>{record.label}</h3>
+            <div className="detail-grid">
+              <span>绑定智能体</span>
+              <strong>
+                {agents.find((agent) => agent.id === record.agent_id)?.name ||
+                  record.agent_id}
+              </strong>
+              <span>绑定版本</span>
+              <strong>
+                {record.agent_version
+                  ? `v${record.agent_version}`
+                  : "发布时冻结"}
+              </strong>
+              <span>前置节点</span>
+              <strong>
+                {record.depends_on
+                  ?.map(
+                    (id: string) =>
+                      fresh?.nodes?.find((node: Item) => node.id === id)
+                        ?.label || id,
+                  )
+                  .join("、") || "无，可直接开始"}
+              </strong>
+            </div>
+            <h3>节点执行参数</h3>
+            <ParameterSummary parameters={record.config} />
+            <JsonView value={record} label="完整节点配置" />
           </div>
         </Modal>
       )}

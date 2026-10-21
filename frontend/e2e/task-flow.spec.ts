@@ -27,13 +27,11 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
   await page.getByRole("button", { name: "登记 / 上传数据" }).click();
   let dialog = page.getByRole("dialog");
   await dialog.getByRole("button", { name: "上传文件", exact: true }).click();
-  await dialog
-    .getByLabel("选择文件")
-    .setInputFiles({
-      name: `${name}.json`,
-      mimeType: "application/json",
-      buffer: Buffer.from('[{"name":"A","amount":2},{"name":"B","amount":3}]'),
-    });
+  await dialog.getByLabel("选择文件").setInputFiles({
+    name: `${name}.json`,
+    mimeType: "application/json",
+    buffer: Buffer.from('[{"name":"A","amount":2},{"name":"B","amount":3}]'),
+  });
   await dialog
     .getByLabel("来源标识", { exact: true })
     .fill(`synthetic:browser:${name}`);
@@ -59,6 +57,11 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
       .getByRole("option", { name: "云端模型 · 计入累计预算" }),
   ).toHaveJSProperty("disabled", true);
   await dialog.getByRole("checkbox", { name: new RegExp(name) }).check();
+  await dialog.getByLabel("任务时效类型").selectOption("interactive");
+  await dialog
+    .getByRole("button", { name: "检查匹配与授权", exact: true })
+    .click();
+  await expect(dialog.getByRole("status")).toContainText("预检查通过");
   const fault = "**/api/v2/tasks/preflight";
   await page.route(fault, (route) =>
     route.fulfill({
@@ -85,6 +88,7 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
   );
   await dialog.getByRole("button", { name: "提交并自动执行" }).click();
   const task = await (await accepted).json();
+  expect(task.request.service_class).toBe("interactive");
   await expect(page.locator(".task-strip .badge")).toHaveText("成功", {
     timeout: 20000,
   });
@@ -100,14 +104,23 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
   await page.getByRole("button", { name: "查看所属任务" }).click();
   await expect(page.locator(".task-strip .badge")).toHaveText("成功");
   await page.getByRole("button", { name: /结果与产物/ }).click();
+  await expect(page.locator(".quality-results")).toContainText("记录格式");
+  await expect(page.locator(".quality-results .check-fail")).toHaveCount(0);
   await page.getByRole("button", { name: "查看内容", exact: true }).click();
-  await expect(page.getByRole("dialog").locator("pre.prose")).toContainText(
-    '"amount": 2',
-  );
+  await expect(
+    page.getByRole("dialog").getByRole("columnheader", { name: "amount" }),
+  ).toBeVisible();
+  await expect(page.getByRole("dialog").locator("tbody tr")).toHaveCount(2);
+  await page.getByRole("dialog").getByLabel("筛选产物记录").fill("B");
+  await expect(page.getByRole("dialog").locator("tbody tr")).toHaveCount(1);
+  await expect(page.getByRole("dialog").locator("tbody tr")).toContainText("3");
   await page.keyboard.press("Escape");
   const detail = await (
     await page.request.get(`/api/v2/tasks/${task.id}`)
   ).json();
+  expect(detail.snapshot.scheduling.policy_version).toBe(
+    "interactive-aging-v1",
+  );
   const artifact = detail.result.artifacts[0].id;
   expect(
     (await page.request.get(`/api/v2/artifacts/${artifact}/download`)).status(),
@@ -133,6 +146,22 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
   await expect(
     page.locator("tr").filter({ hasText: task.id }).locator(".badge"),
   ).toHaveText("成功");
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "工作台总览", exact: true })
+    .click();
+  await expect(page.locator(".operations-summary")).toContainText(
+    "1 个终态样本",
+  );
+  const metrics = await (
+    await page.request.get(`/api/v2/metrics?project_id=${project.id}`)
+  ).json();
+  expect(metrics.latency.sample_count).toBe(1);
+  expect(metrics.latency.p50_seconds).toBeGreaterThan(0);
+  await page.getByLabel("观测统计窗口").selectOption("168");
+  await expect(page.locator(".operations-summary")).toContainText(
+    "1 个终态样本",
+  );
   await page.screenshot({
     path: `../.local/browser-iteration.png`,
     fullPage: true,

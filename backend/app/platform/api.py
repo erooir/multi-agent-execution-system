@@ -636,6 +636,18 @@ def workers(user: dict = read):
     return workers_view(user)
 
 
+@router.get("/metrics", response_model=c.OperationalMetrics)
+def metrics(
+    project_id: str | None = None,
+    window_hours: int = Query(default=24, ge=1, le=720),
+    include_rehearsal: bool = False,
+    user: dict = read,
+):
+    return s.operational_metrics(
+        user, repo, project_id=project_id, window_hours=window_hours, include_rehearsal=include_rehearsal
+    )
+
+
 @router.get("/audits")
 def audits(user: dict = read):
     return s.visible("audits", user)[-200:]

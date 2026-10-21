@@ -28,7 +28,7 @@ Python/FastAPI + Agno 3.0.10 私有运行时，React/TypeScript 管理台。API 
 AgentSpec: id,project_id,name,description,purpose(general|specialized),structure(atomic|composite),capabilities[],modalities[],tool_ids[],instructions,model_policy(local|cloud),members[{agent_id,version}],parameters,status(draft|published|disabled|retired|destroyed),current_version。发布冻结配置和成员版本，检查循环及深度；复合上层local策略不允许cloud子节点。禁用阻止新任务，存量按快照执行；销毁保留tombstone并检查引用。
 WorkflowSpec: id,project_id,name,description,task_type,nodes[{id,label,agent_id,depends_on:[],config:{}}],status,current_version。发布验证DAG和已发布成员，冻结agent版本。未选流程则按能力匹配或白名单模板组装任务级配置，不生成代码。
 DataAsset: id,project_id,name,modality(text|structured|image|audio|video),media_type,content,source_id,source_version,provenance,classification(local|public),retention_days,expires_at,checksum,bytes,status(active|revoked)。文本/JSON内联受大小限制；文件content_ref只指向受控存储，不返回浏览器。只有public+cloud任务可外发。撤回/过期阻止读取并失效派生记忆，同时在任务/产物/评测的详情和集合查询中屏蔽派生内容，保留审计与来源标识。
-TaskRequest: project_id,name,goal,task_type(structured_transform|source_summary|text_analysis|image_inspect|audio_transcribe|video_analyze),input_refs[],workflow_id?,mode(local|cloud|rehearsal),idempotency_key,deadline_seconds(1..86400),max_cost_cny(0..10),max_revisions(0..2),allow_partial(false),quality{min_records?,required_fields?:[],min_length?}。项目内幂等，同键异内容409。
+TaskRequest: project_id,name,goal,task_type(structured_transform|source_summary|text_analysis|image_inspect|audio_transcribe|video_analyze),input_refs[],workflow_id?,mode(local|cloud|rehearsal),service_class(batch|interactive，默认batch),idempotency_key,deadline_seconds(1..86400),max_cost_cny(0..10),max_revisions(0..2),allow_partial(false),quality{min_records?,required_fields?:[],min_length?}。项目内幂等，同键异内容409。旧请求按契约默认值归一化比较，新增默认字段不破坏幂等。
 TaskRun: id,project_id,status(accepted|planning|queued|running|evaluating|revising|succeeded|partial|failed|cancelled),reason_code,request,snapshot,attempt,revision,cancel_requested,lease_owner,lease_token,lease_until,result,created_at,updated_at。
 ResultBundle: task_id,status,mode,reason_code,artifacts[],quality_verdict,warnings[],lineage[],usage,version_refs[]；来源不可用时增加content_withheld,withheld_reason,unavailable_source_refs并清除派生内容。
 Node: id,task_id,project_id,node_id,label,agent_id,agent_version,instance_id,status,attempt,output,error,started_at,finished_at。
@@ -50,3 +50,11 @@ PostgreSQL领取FOR UPDATE SKIP LOCKED；SQLite BEGIN IMMEDIATE。所有结果�
 ## 验收
 成功、缺数据、错Schema、重复键、越权、撤回、过期、不支持能力、模型错误、质量不合格、超时、取消、重复领取、过期接管和旧实例隔离。UI只显示持久状态和账本；无样本不显示成功率。上游接口、多模态、目标硬件和断网部署必须实际验证，不能由本机演练替代。
 技术核对：Agno固定版本由平台租约作唯一调度权威，AgentOS运行真实Workflow但不公开原生API。参考 https://docs.agno.com/agent-os/overview 和 https://docs.agno.com/telemetry 。模型目录参考 https://api-docs.deepseek.com/quick_start/pricing/ 。
+
+## 2026-10-21 调度与运行观测
+
+任务受理冻结 snapshot.scheduling：service_class、policy_version=interactive-aging-v1、aging_seconds=60 和 aging_at。领取顺序为取消清理、租约恢复、等待达到阈值的批量任务、交互任务、其他批量任务；同级按创建时间和 ID 排序。SQLite/PG 使用真实 JSON 查询排序和原有事务/行锁，不新增数据库列。已有任务按 batch 兼容，不抢占正在执行的任务；持续超容量时不承诺完成时限。first_claimed_at 在恢复后保留，所有取消终态记录真实 finished_at。
+
+GET /api/v2/metrics?project_id=&window_hours=24&include_rehearsal=false 返回类型化 OperationalMetrics。项目过滤在后端授权并以 SQL 窄字段投影读取，不加载源资料全文。counts/queue 为当前可见任务状态；latency/failure_reasons 仅以真实 finished_at 落入指定窗口的终态取样。端到端时延含排队，分位数线性插值；无样本返回 null，缺少 finished_at 不使用更新时间猜测。默认排除演练，响应明确窗口和样本数。非管理员或指定项目的查询，只统计关联当前可见任务的 Worker，不泄漏其他项目/主机信息。
+
+前端使用真实流程节点/依赖编辑 DAG；参数表单和可视化校验不替代后端发布校验。结果按已保存的表格、文本、来源片段和图片解码数据呈现；模型文本始终作为文本渲染，不执行 HTML。完整 JSON 只用于诊断，来源撤回仍由后端屏蔽。

@@ -90,6 +90,16 @@
       "title": "Mode",
       "type": "string"
     },
+    "service_class": {
+      "default": "batch",
+      "description": "交互任务优先；批量任务等待60秒后提升，不抢占运行任务，不承诺硬实时SLA",
+      "enum": [
+        "batch",
+        "interactive"
+      ],
+      "title": "Service Class",
+      "type": "string"
+    },
     "idempotency_key": {
       "maxLength": 160,
       "minLength": 1,

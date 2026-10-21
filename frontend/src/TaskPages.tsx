@@ -27,6 +27,8 @@ import {
 import { TaskForm } from "./Forms";
 import Graph from "./Graph";
 import { modeName } from "./domain";
+import { ArtifactContent, QualityView } from "./ResultViews";
+import { durationLabel, elapsedSeconds } from "./resultModel";
 type Props = {
   projectId: string;
   tasks: Item[];
@@ -339,10 +341,13 @@ function TaskDetail({
     [artifact, setArtifact] = useState<Item | null>(null);
   useEffect(() => {
     let active = true;
+    let refreshing = false;
     const controller = new AbortController();
     setTask(null);
     setError("");
     async function refresh() {
+      if (refreshing) return;
+      refreshing = true;
       try {
         const data = await api(idPath("tasks", id), {
           signal: controller.signal,
@@ -356,6 +361,8 @@ function TaskDetail({
       } catch (e) {
         if (active && (e as Error).name !== "AbortError")
           setError((e as Error).message);
+      } finally {
+        refreshing = false;
       }
     }
     void refresh();
@@ -366,6 +373,15 @@ function TaskDetail({
       window.clearInterval(timer);
     };
   }, [id, onTaskUpdated]);
+  useEffect(() => {
+    if (
+      task?.result?.content_withheld ||
+      task?.artifacts?.some((item: Item) => item.content_withheld)
+    ) {
+      setArtifact(null);
+      setInspect(null);
+    }
+  }, [task]);
   const graphNodes = useMemo(() => {
     if (!task) return [];
     const frozen =
@@ -446,10 +462,60 @@ function TaskDetail({
         <Badge status={task.status} />
         <span>{modeName(task.request?.mode)}</span>
         <span>
+          {task.request?.service_class === "interactive"
+            ? "交互任务"
+            : "批量任务"}
+        </span>
+        <span>
           修订 {task.revision ?? 0} / {task.request?.max_revisions ?? "—"}
         </span>
         <span className="mono">{task.id}</span>
         <small>最近同步 {time(updated)}</small>
+      </div>
+      <div className="task-outcome-grid">
+        <div>
+          <small>执行进度</small>
+          <strong>
+            {
+              (task.nodes || []).filter(
+                (n: Item) =>
+                  n.status === "succeeded" &&
+                  n.attempt === (task.revision || 0) + 1,
+              ).length
+            }{" "}
+            / {graphNodes.length} 节点
+          </strong>
+          <span>第 {(task.revision || 0) + 1} 轮实际执行</span>
+        </div>
+        <div>
+          <small>端到端耗时</small>
+          <strong>
+            {task.finished_at
+              ? durationLabel(elapsedSeconds(task.created_at, task.finished_at))
+              : "尚未结束"}
+          </strong>
+          <span>包含排队 · 时限 {task.request?.deadline_seconds} 秒</span>
+        </div>
+        <div>
+          <small>可交付产物</small>
+          <strong>{task.artifacts?.length || 0} 份</strong>
+          <button className="text-button" onClick={() => setTab("artifacts")}>
+            查看结果与质量依据
+          </button>
+        </div>
+        <div>
+          <small>本任务保守计费</small>
+          <strong>
+            {result.usage?.total_cny == null
+              ? "待结算"
+              : `¥ ${money(result.usage?.total_cny)}`}
+          </strong>
+          <span>
+            {result.usage?.accounting_complete === false
+              ? "含未确认费用，预留继续保留"
+              : "以网关记录为准"}
+          </span>
+        </div>
       </div>
       {error && (
         <ErrorLine>
@@ -563,9 +629,9 @@ function TaskDetail({
                     {typeof w === "string" ? w : JSON.stringify(w)}
                   </p>
                 ))}
-                <JsonView
-                  value={result.quality_verdict}
-                  label="确定性校验与自动评审证据"
+                <QualityView
+                  quality={result.quality_verdict}
+                  withheld={result.content_withheld}
                 />
                 <JsonView value={result.usage} label="实际资源使用" />
                 <JsonView value={result.lineage} label="来源血缘" />
@@ -696,11 +762,7 @@ function TaskDetail({
         >
           <div className="modal-body">
             <Badge status={artifact.quality_status || "unknown"} />
-            <pre className="prose">
-              {typeof artifact.content === "string"
-                ? artifact.content
-                : JSON.stringify(artifact.content, null, 2)}
-            </pre>
+            <ArtifactContent artifact={artifact} />
             <JsonView value={artifact.source_refs} label="来源引用" />
           </div>
         </Modal>

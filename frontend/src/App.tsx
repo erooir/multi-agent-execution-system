@@ -34,6 +34,8 @@ import { Badge, Confirm, Empty, ErrorLine, Panel, SectionTitle } from "./ui";
 import { AgentsPage, DataPage, WorkflowsPage } from "./AssetPages";
 import TasksPage from "./TaskPages";
 import { modeName } from "./domain";
+import MetricsPanel from "./MetricsPanel";
+import "./task-experience.css";
 import {
   ImprovementsPage,
   KnowledgePage,
@@ -68,6 +70,7 @@ export default function App() {
     [page, setPage] = useState<Page>("overview"),
     [taskId, setTaskId] = useState<string | null>(null),
     [agentId, setAgentId] = useState<string | null>(null),
+    [workflowId, setWorkflowId] = useState<string | null>(null),
     [error, setError] = useState(""),
     [lastSync, setLastSync] = useState(""),
     [refreshing, setRefreshing] = useState(false),
@@ -178,11 +181,13 @@ export default function App() {
     setMobile(false);
     setTaskId(null);
     setAgentId(null);
+    setWorkflowId(null);
   }
   function selectProject(id: string) {
     setProjectId(id);
     setTaskId(null);
     setAgentId(null);
+    setWorkflowId(null);
   }
   if (checking)
     return (
@@ -395,6 +400,11 @@ export default function App() {
                   key={projectId}
                   {...common}
                   agents={agents}
+                  workflows={workflows}
+                  onWorkflow={(id) => {
+                    setWorkflowId(id);
+                    setPage("workflows");
+                  }}
                   capabilities={
                     Array.isArray(data.capabilities) ? data.capabilities : []
                   }
@@ -423,6 +433,7 @@ export default function App() {
                   {...common}
                   workflows={workflows}
                   agents={agents}
+                  initialId={workflowId}
                 />
               )}
               {page === "data" && (
@@ -680,14 +691,15 @@ function Overview({
           </button>
         }
       />
-      <div className="overview-hero">
+      <div className="overview-hero compact">
         <div>
           <span className="eyebrow">从目标到交付</span>
-          <h2>管理能力，协作执行。</h2>
+          <h2>从智能体资产开始组织任务</h2>
           <p>
-            以智能体为中心，连接数据、流程与自动评审。
-            <br />
-            每一次执行都保留版本、来源和真实结果。
+            {agents.filter((a) => a.status === "published").length}{" "}
+            个已发布智能体 ·{" "}
+            {workflows.filter((w) => w.status === "published").length}{" "}
+            个可复用流程
           </p>
           <div className="actions">
             <button onClick={() => go("agents")}>
@@ -717,6 +729,7 @@ function Overview({
           </div>
         </div>
       </div>
+      {project?.id && <MetricsPanel key={project.id} projectId={project.id} />}
       <div className="metric-grid four">
         <button className="metric" onClick={() => go("agents")}>
           <span>
@@ -753,11 +766,13 @@ function Overview({
         </button>
         <button className="metric" onClick={() => go("operations")}>
           <span>
-            全项目可用预算
+            本机历史账本余额
             <WalletIcon />
           </span>
           <strong>¥ {money(data.budget?.remaining_cny)}</strong>
-          <small>历史累计上限 ¥ {data.budget?.limit_cny ?? "—"}</small>
+          <small>
+            项目累计上限 ¥ {data.budget?.limit_cny ?? "—"} · 多机调用需合并账本
+          </small>
         </button>
       </div>
       <div className="overview-columns">
@@ -837,8 +852,19 @@ function Overview({
               {capabilities.map((c) => (
                 <div key={c.id}>
                   <span>{c.name || taskTypes[c.id]}</span>
-                  <Badge status={c.available ? "ready" : "unsupported"}>
-                    {c.available ? "可用" : "待验证"}
+                  <Badge
+                    status={
+                      c.available &&
+                      (!data.system.offline || c.modes?.includes("local"))
+                        ? "ready"
+                        : "unsupported"
+                    }
+                  >
+                    {!c.available
+                      ? "待接入"
+                      : data.system.offline && !c.modes?.includes("local")
+                        ? "离线不可用"
+                        : "已接入"}
                   </Badge>
                 </div>
               ))}

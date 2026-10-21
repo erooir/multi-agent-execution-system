@@ -8,7 +8,7 @@ import sqlite3
 import time
 import uuid
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import (
@@ -22,7 +22,9 @@ from sqlalchemy import (
     Table,
     UniqueConstraint,
     and_,
+    case,
     create_engine,
+    func,
     or_,
     select,
 )
@@ -50,6 +52,8 @@ KINDS = [
     "audits",
 ]
 TERMINAL = {"succeeded", "partial", "failed", "cancelled"}
+QUEUE_AGING_SECONDS = 60
+QUEUE_POLICY_VERSION = "interactive-aging-v1"
 metadata = MetaData()
 tables = {}
 for kind in KINDS:
@@ -210,6 +214,35 @@ class Repository:
         rows = [self._record(row) for row in self.connection.execute(query)]
         return [row for row in rows if all(row.get(k) == v for k, v in filters.items())]
 
+    def operational_tasks(self, project_ids):
+        """Read only scheduling/timing columns; do not materialize source snapshots."""
+        if not project_ids:
+            return []
+        if self.connection is None:
+            with self.engine.connect() as conn:
+                return Repository(engine=self.engine, connection=conn).operational_tasks(project_ids)
+        table = tables["tasks"]
+        query = select(
+            *[
+                table.c[key]
+                for key in (
+                    "id",
+                    "project_id",
+                    "status",
+                    "created_at",
+                    "updated_at",
+                    "lease_owner",
+                    "lease_token",
+                    "lease_until",
+                )
+            ],
+            table.c.payload["finished_at"].as_string().label("finished_at"),
+            table.c.payload["reason_code"].as_string().label("reason_code"),
+            table.c.payload["request"]["mode"].as_string().label("mode"),
+            table.c.payload["snapshot"]["scheduling"]["service_class"].as_string().label("service_class"),
+        ).where(table.c.project_id.in_(project_ids))
+        return [dict(row._mapping) for row in self.connection.execute(query)]
+
     def put(self, kind, record):
         if self.connection is None:
             with self.transaction() as tx:
@@ -279,13 +312,36 @@ class Repository:
     def claim(self, worker_id, lease_seconds=30):
         with self.transaction() as tx:
             table = tables["tasks"]
+            claimed_at = datetime.now(UTC)
+            current_time = claimed_at.timestamp()
             query = select(table).where(
                 and_(
                     ~table.c.status.in_(TERMINAL),
-                    or_(table.c.lease_owner.is_(None), table.c.lease_until < time.time()),
+                    or_(table.c.lease_owner.is_(None), table.c.lease_until < current_time),
                 )
             )
-            query = query.order_by(table.c.created_at).limit(1)
+            # JSON expressions compile to native PostgreSQL/SQLite extraction;
+            # existing schema-v1 databases need no new columns or migration.
+            # Every normal batch ages ahead of new interactive work. Cleanup and
+            # lease recovery still take precedence; running work is not preempted.
+            policy = table.c.payload["snapshot"]["scheduling"]
+            service_class = func.coalesce(policy["service_class"].as_string(), "batch")
+            aging_at = policy["aging_at"].as_string()
+            aged = or_(
+                aging_at <= claimed_at.isoformat(),
+                and_(
+                    aging_at.is_(None),
+                    table.c.created_at <= (claimed_at - timedelta(seconds=QUEUE_AGING_SECONDS)).isoformat(),
+                ),
+            )
+            priority = case(
+                (table.c.cancel_requested.is_(True), 0),
+                (table.c.lease_token > 0, 1),
+                (and_(service_class == "batch", aged), 2),
+                (service_class == "interactive", 3),
+                else_=4,
+            )
+            query = query.order_by(priority, table.c.created_at, table.c.id).limit(1)
             if self.engine.dialect.name == "postgresql":
                 query = query.with_for_update(skip_locked=True)
             task = self._record(tx.connection.execute(query).first())
@@ -295,8 +351,9 @@ class Repository:
             task.update(
                 lease_owner=worker_id,
                 lease_token=task.get("lease_token", 0) + 1,
-                lease_until=time.time() + lease_seconds,
+                lease_until=current_time + lease_seconds,
             )
+            task.setdefault("first_claimed_at", claimed_at.isoformat())
             task = tx.put("tasks", task)
             tx.event(
                 task["id"],

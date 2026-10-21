@@ -2025,3 +2025,391 @@ fieldset {
   font-size: 14px;
   line-height: 1.6;
 }
+/* Asset composition workspace: dark surfaces, readable nodes and explicit bindings. */
+.modal.wide:has(.workflow-builder) {
+  width: min(1320px, calc(100vw - 32px));
+  max-width: 1320px;
+}
+.workflow-builder {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--sidebar);
+}
+.builder-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px;
+  background: var(--surface);
+}
+.builder-toolbar h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+.builder-toolbar p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.builder-toolbar button {
+  flex-shrink: 0;
+}
+.builder-add {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  padding: 14px 18px;
+  border-block: 1px solid var(--line);
+}
+.builder-add .field {
+  flex: 1;
+  margin: 0;
+}
+.builder-add button {
+  margin-bottom: 1px;
+}
+.builder-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  min-height: 570px;
+}
+.builder-canvas {
+  position: relative;
+  min-width: 0;
+  min-height: 570px;
+  background: #151619;
+}
+.builder-canvas .react-flow {
+  position: absolute;
+  inset: 0;
+}
+.builder-canvas-empty {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  text-align: center;
+  gap: 12px;
+  padding: 35px;
+  color: var(--muted);
+}
+.builder-canvas-empty strong {
+  color: var(--text);
+  font-size: 19px;
+}
+.builder-canvas-empty span {
+  max-width: 300px;
+  font-size: 14px;
+}
+.builder-node {
+  width: 268px;
+  min-height: 150px;
+  border: 1px solid #525767;
+  border-left: 4px solid var(--accent);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: 0 7px 15px #0003;
+  padding: 15px;
+}
+.builder-node.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  background: #272435;
+}
+.builder-node.invalid {
+  border-left-color: var(--warn);
+}
+.builder-node .node-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.builder-node .node-head > div {
+  min-width: 0;
+}
+.builder-node .node-head small {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+}
+.builder-node .node-head strong {
+  display: block;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+.builder-node p {
+  margin: 13px 0;
+  color: var(--secondary);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.builder-node .node-foot {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.builder-node .react-flow__handle {
+  width: 12px;
+  height: 12px;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+}
+.builder-inspector {
+  border-left: 1px solid var(--line);
+  padding: 18px;
+  background: var(--surface);
+  max-height: 690px;
+  overflow-y: auto;
+}
+.builder-inspector > .field {
+  margin-block: 16px;
+}
+.builder-inspector h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+.builder-inspector .form-grid {
+  grid-template-columns: 1fr;
+}
+.builder-inspector .note {
+  font-size: 13px;
+}
+.dependency-picker {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px;
+  margin-block: 20px;
+}
+.dependency-picker legend {
+  padding-inline: 5px;
+  font-weight: 600;
+}
+.dependency-picker .check {
+  display: flex;
+  margin-bottom: 10px;
+}
+.dependency-picker small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.builder-validation {
+  padding: 14px 18px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+.builder-validation.valid {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--good);
+  background: #19312844;
+}
+.builder-validation.needs-attention {
+  color: var(--warn);
+}
+.builder-validation ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+.workflow-builder > .error-line,
+.workflow-builder > .warning {
+  margin: 12px 18px;
+}
+.parameter-editor .note {
+  margin-top: 0;
+}
+.advanced-parameters {
+  margin-block: 14px;
+}
+.advanced-parameters summary {
+  cursor: pointer;
+  color: var(--secondary);
+  font-size: 13px;
+}
+.advanced-parameters .field {
+  margin-top: 12px;
+}
+.parameter-summary {
+  padding-left: 20px;
+  color: var(--secondary);
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.parameter-summary li {
+  margin-block: 7px;
+}
+.tool-id {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+}
+.asset-description {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-block: 20px;
+}
+.asset-description > svg {
+  color: var(--accent);
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+.asset-description h3 {
+  margin: 0;
+}
+.asset-description p {
+  margin: 8px 0 0;
+  color: var(--secondary);
+}
+.asset-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-block: 20px;
+}
+.asset-summary-grid section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+}
+.asset-summary-grid span,
+.asset-summary-grid small {
+  color: var(--muted);
+  font-size: 13px;
+}
+.asset-summary-grid strong {
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+.asset-detail-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-block: 18px;
+}
+.binding-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.binding-list > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  background: var(--surface2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.binding-list > div > :first-child {
+  margin-right: auto;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.binding-list small {
+  color: var(--muted);
+}
+.binding-list .link-button {
+  padding: 0;
+  text-align: left;
+}
+.version-comparison {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  margin-top: 20px;
+}
+.version-comparison h3 {
+  margin-top: 0;
+}
+.version-diff {
+  border-top: 1px solid var(--line);
+  padding-block: 12px;
+}
+.version-diff h4 {
+  margin: 0 0 8px;
+  color: var(--accent);
+}
+.version-diff > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.version-diff section {
+  min-width: 0;
+  padding: 12px;
+  background: var(--surface2);
+  border-radius: 6px;
+}
+.version-diff section > small {
+  display: block;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.version-value {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+  font-size: 12px;
+  max-height: 250px;
+  overflow: auto;
+}
+.version-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.current-version {
+  font-size: 12px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  padding: 4px 7px;
+  border-radius: 5px;
+  margin-left: 8px;
+}
+@media (max-width: 1000px) {
+  .builder-workspace {
+    grid-template-columns: minmax(0, 1fr) 300px;
+  }
+}
+@media (max-width: 720px) {
+  .builder-workspace {
+    grid-template-columns: 1fr;
+  }
+  .builder-canvas {
+    min-height: 360px;
+  }
+  .builder-inspector {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    max-height: none;
+  }
+  .builder-toolbar,
+  .builder-add {
+    flex-wrap: wrap;
+  }
+  .builder-add .field {
+    flex-basis: 100%;
+  }
+  .asset-summary-grid,
+  .asset-detail-columns {
+    grid-template-columns: 1fr;
+  }
+  .version-diff > div {
+    grid-template-columns: 1fr;
+  }
+}

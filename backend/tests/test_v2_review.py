@@ -8,9 +8,12 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy.dialects import postgresql
 
+from backend.app import config, storage
+from backend.app import model_gateway as gateway_module
 from backend.app.model_gateway import BudgetLedger, ModelGateway
 from backend.app.platform import improvement, knowledge, runtime, service
 from backend.app.platform.db import ConcurrentWrite, Repository
+from backend.app.storage import Store
 
 ADMIN = {"id": "review-admin", "role": "admin"}
 
@@ -20,7 +23,20 @@ def db(tmp_path, monkeypatch):
     result = Repository(f"sqlite:///{(tmp_path / 'review.sqlite3').as_posix()}")
     for module in (service, improvement, knowledge):
         monkeypatch.setattr(module, "repo", result)
-    monkeypatch.setattr(runtime, "model_gateway", ModelGateway(BudgetLedger(tmp_path / "billing.sqlite3")))
+    # Intake imports the module gateway independently from runtime. Both must use
+    # this test ledger/settings rather than the developer's key and budget file.
+    gateway = ModelGateway(BudgetLedger(tmp_path / "billing.sqlite3"))
+    monkeypatch.setattr(runtime, "model_gateway", gateway)
+    monkeypatch.setattr(gateway_module, "model_gateway", gateway)
+    monkeypatch.setattr(storage, "store", Store(tmp_path / "settings.sqlite3"))
+    monkeypatch.setattr(config, "get_api_key", lambda: None)
+    monkeypatch.setattr(gateway_module, "get_api_key", lambda: None)
+
+    async def unexpected_provider_call(*args, **kwargs):
+        pytest.fail("Domain review fixtures must never call a model provider")
+
+    monkeypatch.setattr(gateway, "complete", unexpected_provider_call)
+    monkeypatch.setattr(gateway, "run_agent", unexpected_provider_call)
     return result
 
 
@@ -224,7 +240,7 @@ def test_memory_inherits_permissions_and_requires_real_parsed_source(db):
     assert error.value.code == "unverified_memory"
 
 
-async def test_runtime_verifies_frozen_payload_and_composite_model_boundary(db):
+async def test_runtime_verifies_frozen_payload_and_composite_model_boundary(db, monkeypatch):
     project, asset = fixtures(db)
     task = service.create_task(
         {
@@ -242,6 +258,9 @@ async def test_runtime_verifies_frozen_payload_and_composite_model_boundary(db):
     db.put("tasks", task)
     finished = await runtime.process_claim(db, db.claim("w"), "w")
     assert finished["reason_code"] == "input_changed"
+    # Only admission sees a synthetic credential. The model provider remains
+    # blocked above; the runtime policy must reject the composite before any call.
+    monkeypatch.setattr(config, "get_api_key", lambda: "explicit-synthetic-fixture")
     task = service.create_task(
         {
             "project_id": project["id"],
@@ -270,4 +289,27 @@ async def test_runtime_verifies_frozen_payload_and_composite_model_boundary(db):
     db.put("tasks", task)
     finished = await runtime.process_claim(db, db.claim("w"), "w")
     assert finished["reason_code"] == "model_denied"
+    assert runtime.model_gateway.ledger.usage()["request_count"] == 0
+
+
+def test_review_cloud_admission_requires_explicit_fixture_credentials(db):
+    project, asset = fixtures(db)
+    with pytest.raises(service.DomainError) as error:
+        service.create_task(
+            {
+                "project_id": project["id"],
+                "name": "Missing credential",
+                "goal": "Extract",
+                "task_type": "source_summary",
+                "input_refs": [asset["id"]],
+                "idempotency_key": "keyless",
+                "mode": "cloud",
+                "max_cost_cny": 1,
+            },
+            ADMIN,
+            db,
+        )
+    assert error.value.code == "model_not_configured"
+    assert db.list("tasks") == []
+    assert gateway_module.model_gateway is runtime.model_gateway
     assert runtime.model_gateway.ledger.usage()["request_count"] == 0

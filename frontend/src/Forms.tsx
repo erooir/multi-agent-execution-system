@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { api, post, put, idPath } from "./api";
 import { parseObject, splitList, taskTypes } from "./domain";
 import type { Item, Mutation } from "./types";
 import type { components } from "./generated/api";
 import { Field, FormModal } from "./ui";
+import ToolParameters from "./ToolParameters";
+import WorkflowBuilder from "./WorkflowBuilder";
+import { workflowIssues } from "./workflowEditorModel";
 const modalities: Record<string, string> = {
   text: "文本",
   structured: "结构化数据",
@@ -223,21 +225,43 @@ export function AgentForm({
           ))}
         </div>
       </div>
-      <Field label="允许工具 ID" hint="工具由服务端白名单验证，以逗号分隔。">
-        <input
-          value={form.tool_ids.join(", ")}
-          onChange={(e) =>
-            update(
-              "tool_ids",
-              e.target.value.split(",").map((x) => x.trim()),
+      <fieldset className="capability-picker">
+        <legend>授权固定工具</legend>
+        <p className="note">从服务端能力目录选择，任务仅能调用已授权工具。</p>
+        <div className="check-grid">
+          {capabilities
+            .filter((capability) => capability.tool_id)
+            .map((capability) => (
+              <label className="check" key={capability.id}>
+                <input
+                  type="checkbox"
+                  checked={form.tool_ids.includes(capability.tool_id)}
+                  onChange={() => toggle("tool_ids", capability.tool_id)}
+                />
+                <span>
+                  {taskTypes[capability.id] || capability.id}
+                  <small className="tool-id">{capability.tool_id}</small>
+                </span>
+              </label>
+            ))}
+          {form.tool_ids
+            .filter(
+              (id: string) =>
+                id &&
+                !capabilities.some((capability) => capability.tool_id === id),
             )
-          }
-          placeholder={capabilities
-            .map((c) => c.tool_id)
-            .filter(Boolean)
-            .join(", ")}
-        />
-      </Field>
+            .map((id: string) => (
+              <label className="check" key={id}>
+                <input
+                  type="checkbox"
+                  checked
+                  onChange={() => toggle("tool_ids", id)}
+                />
+                {id} · 目录中未找到
+              </label>
+            ))}
+        </div>
+      </fieldset>
       <Field label="执行指令">
         <textarea
           rows={5}
@@ -318,17 +342,13 @@ export function AgentForm({
           </fieldset>
         </>
       )}
-      <Field
-        label="工具参数 JSON"
-        hint="允许 operation、select_fields、filter、sort_by、descending、deduplicate、max_chars；参数由服务端白名单验证。"
-      >
-        <textarea
-          className="mono"
-          rows={4}
-          value={parameters}
-          onChange={(e) => setParameters(e.target.value)}
-        />
-      </Field>
+      <h3>默认执行参数</h3>
+      <ToolParameters
+        value={parameters}
+        onChange={setParameters}
+        structured={form.capabilities.includes("structured_transform")}
+        text={form.capabilities.includes("source_summary")}
+      />
       {form.structure === "composite" && (
         <div className="field">
           <span>固定成员版本</span>
@@ -357,11 +377,54 @@ export function AgentForm({
                     }
                   />
                   {a.name}
-                  <small>v{a.current_version}</small>
+                  <small>
+                    v
+                    {form.members.find(
+                      (member: Item) => member.agent_id === a.id,
+                    )?.version || a.current_version}
+                    {form.members.some(
+                      (member: Item) =>
+                        member.agent_id === a.id &&
+                        member.version !== a.current_version,
+                    ) && `（目录当前 v${a.current_version}）`}
+                  </small>
                 </label>
               ))}
           </div>
-          <small>发布时检查循环、深度与每个成员的有效权限。</small>
+          {form.members
+            .filter(
+              (member: Item) =>
+                !agents.some(
+                  (agent) =>
+                    agent.id === member.agent_id &&
+                    agent.status === "published",
+                ),
+            )
+            .map((member: Item) => (
+              <div className="warning row-between" key={member.agent_id}>
+                <span>
+                  {agents.find((agent) => agent.id === member.agent_id)?.name ||
+                    member.agent_id}{" "}
+                  · v{member.version} 当前不可用
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    update(
+                      "members",
+                      form.members.filter(
+                        (item: Item) => item.agent_id !== member.agent_id,
+                      ),
+                    )
+                  }
+                >
+                  移除成员
+                </button>
+              </div>
+            ))}
+          <small>
+            保留已绑定版本；取消后重新勾选可绑定当前发布版。发布时检查循环、深度与成员权限。
+          </small>
         </div>
       )}
       <p className="note">
@@ -393,6 +456,7 @@ export function TaskForm({
     input_refs: [],
     workflow_id: "",
     mode: "local",
+    service_class: "batch",
     deadline_seconds: 300,
     max_cost_cny: 0,
     max_revisions: 1,
@@ -403,6 +467,11 @@ export function TaskForm({
   });
   const [catalog, setCatalog] = useState<Item[]>([]);
   const [catalogError, setCatalogError] = useState("");
+  const [preview, setPreview] = useState<
+    components["schemas"]["TaskPreflight"] | null
+  >(null);
+  const [previewError, setPreviewError] = useState("");
+  const [previewBusy, setPreviewBusy] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     api(`/v2/capabilities?project_id=${encodeURIComponent(projectId)}`, {
@@ -425,8 +494,36 @@ export function TaskForm({
       required_fields: (initial?.quality?.required_fields || []).join(", "),
     }),
     [interval, setInterval] = useState(86400);
+  const previewInput = useRef("");
+  previewInput.current = JSON.stringify({ form, quality });
   const update = (key: string, value: any) =>
     setForm({ ...form, [key]: value });
+  useEffect(() => {
+    setPreview(null);
+    setPreviewError("");
+  }, [form, quality]);
+  function taskRequest(): components["schemas"]["TaskInput"] {
+    return {
+      name: form.name,
+      goal: form.goal,
+      task_type: form.task_type,
+      input_refs: form.input_refs,
+      mode: form.mode,
+      service_class: form.service_class,
+      idempotency_key: form.idempotency_key,
+      deadline_seconds: form.deadline_seconds,
+      max_cost_cny: form.max_cost_cny,
+      max_revisions: form.max_revisions,
+      allow_partial: form.allow_partial,
+      use_project_knowledge: form.use_project_knowledge,
+      project_id: projectId,
+      workflow_id: form.workflow_id || null,
+      quality: {
+        ...quality,
+        required_fields: splitList(quality.required_fields),
+      },
+    };
+  }
   return (
     <FormModal
       wide
@@ -434,25 +531,7 @@ export function TaskForm({
       onClose={onClose}
       submit={schedule ? "创建计划" : "提交并自动执行"}
       onSubmit={async () => {
-        const task: components["schemas"]["TaskInput"] = {
-          name: form.name,
-          goal: form.goal,
-          task_type: form.task_type,
-          input_refs: form.input_refs,
-          mode: form.mode,
-          idempotency_key: form.idempotency_key,
-          deadline_seconds: form.deadline_seconds,
-          max_cost_cny: form.max_cost_cny,
-          max_revisions: form.max_revisions,
-          allow_partial: form.allow_partial,
-          use_project_knowledge: form.use_project_knowledge,
-          project_id: projectId,
-          workflow_id: form.workflow_id || null,
-          quality: {
-            ...quality,
-            required_fields: splitList(quality.required_fields),
-          },
-        };
+        const task = taskRequest();
         const result = await mutate(
           async () => {
             await post("/v2/tasks/preflight", task);
@@ -654,6 +733,18 @@ export function TaskForm({
         </p>
       )}
       <h3>资源与质量约束</h3>
+      <Field
+        label="任务时效类型"
+        hint="交互任务优先；批量任务等待 60 秒后提升顺序。不会中断正在执行的任务。"
+      >
+        <select
+          value={form.service_class}
+          onChange={(e) => update("service_class", e.target.value)}
+        >
+          <option value="batch">批量处理 · 允许排队</option>
+          <option value="interactive">交互请求 · 优先调度</option>
+        </select>
+      </Field>
       <div className="form-grid three">
         <Field label="端到端时限（秒）">
           <input
@@ -735,6 +826,50 @@ export function TaskForm({
           />
         </Field>
       )}
+      <section className="preflight-summary">
+        <button
+          type="button"
+          disabled={previewBusy}
+          onClick={async () => {
+            const expectedInput = previewInput.current;
+            setPreviewBusy(true);
+            setPreviewError("");
+            setPreview(null);
+            try {
+              const result = await post("/v2/tasks/preflight", taskRequest());
+              if (previewInput.current === expectedInput) setPreview(result);
+            } catch (error) {
+              if (previewInput.current === expectedInput)
+                setPreviewError((error as Error).message);
+            } finally {
+              setPreviewBusy(false);
+            }
+          }}
+        >
+          {previewBusy ? "正在检查…" : "检查匹配与授权"}
+        </button>
+        <p className="muted small">
+          查看将使用的智能体版本，不创建任务、不调用模型。提交时会再次验证。
+        </p>
+        {previewError && (
+          <p className="warning" role="alert">
+            {previewError}
+          </p>
+        )}
+        {preview && (
+          <div role="status">
+            <strong>预检查通过</strong>
+            <div className="tags">
+              {preview.selected_agents?.map((agent) => (
+                <span key={String(agent.agent_id)}>
+                  {String(agent.name)} · v{String(agent.version)}
+                </span>
+              ))}
+            </div>
+            {preview.existing_task_id && <p>相同请求已存在，将返回原任务。</p>}
+          </div>
+        )}
+      </section>
       <details>
         <summary>请求标识</summary>
         <Field label="幂等键" hint="相同项目内同键同内容只创建一个任务。">
@@ -974,13 +1109,6 @@ export function WorkflowForm({
   );
   const update = (key: string, value: any) =>
     setForm({ ...form, [key]: value });
-  const nodeUpdate = (i: number, key: string, value: any) =>
-    update(
-      "nodes",
-      form.nodes.map((n: Item, index: number) =>
-        index === i ? { ...n, [key]: value } : n,
-      ),
-    );
   return (
     <FormModal
       wide
@@ -988,7 +1116,8 @@ export function WorkflowForm({
       onClose={onClose}
       submit="保存流程"
       onSubmit={() => {
-        if (!form.nodes.length) throw new Error("请至少添加一个节点");
+        const issues = workflowIssues(form.nodes, agents, form.task_type);
+        if (issues.length) throw new Error(issues.join("；"));
         const body = {
           project_id: projectId,
           name: form.name,
@@ -1042,122 +1171,16 @@ export function WorkflowForm({
           onChange={(e) => update("description", e.target.value)}
         />
       </Field>
-      <div className="panel-title">
-        <h3>协作节点</h3>
-        <button
-          type="button"
-          onClick={() =>
-            update("nodes", [
-              ...form.nodes,
-              {
-                id: `node-${crypto.randomUUID().slice(0, 8)}`,
-                label: "处理节点",
-                agent_id:
-                  agents.find((a) => a.status === "published")?.id || "",
-                depends_on: [],
-                config: {},
-              },
-            ])
-          }
-        >
-          <Plus size={16} />
-          添加节点
-        </button>
-      </div>
-      {form.nodes.map((node: Item, i: number) => (
-        <div className="node-edit" key={node.id}>
-          <div className="row-between">
-            <code>{node.id}</code>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label={`删除节点 ${node.label}`}
-              onClick={() =>
-                update(
-                  "nodes",
-                  form.nodes
-                    .filter((_: Item, n: number) => n !== i)
-                    .map((n: Item) => ({
-                      ...n,
-                      depends_on: n.depends_on.filter(
-                        (id: string) => id !== node.id,
-                      ),
-                    })),
-                )
-              }
-            >
-              <Trash2 size={16} />
-            </button>
-          </div>
-          <div className="form-grid">
-            <Field label="节点名称">
-              <input
-                required
-                value={node.label}
-                onChange={(e) => nodeUpdate(i, "label", e.target.value)}
-              />
-            </Field>
-            <Field label="绑定智能体">
-              <select
-                required
-                value={node.agent_id}
-                onChange={(e) => nodeUpdate(i, "agent_id", e.target.value)}
-              >
-                <option value="">选择已发布智能体</option>
-                {agents
-                  .filter((a) => a.status === "published")
-                  .map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name} · v{a.current_version}
-                    </option>
-                  ))}
-              </select>
-            </Field>
-          </div>
-          <div className="field">
-            <span>前置依赖</span>
-            <div className="check-grid">
-              {form.nodes
-                .filter((n: Item) => n.id !== node.id)
-                .map((n: Item) => (
-                  <label className="check" key={n.id}>
-                    <input
-                      type="checkbox"
-                      checked={node.depends_on.includes(n.id)}
-                      onChange={() =>
-                        nodeUpdate(
-                          i,
-                          "depends_on",
-                          node.depends_on.includes(n.id)
-                            ? node.depends_on.filter(
-                                (id: string) => id !== n.id,
-                              )
-                            : [...node.depends_on, n.id],
-                        )
-                      }
-                    />
-                    {n.label}
-                  </label>
-                ))}
-            </div>
-          </div>
-          <Field
-            label="节点参数 JSON"
-            hint="节点参数覆盖智能体默认参数，由后端白名单校验。"
-          >
-            <textarea
-              className="mono"
-              value={
-                configTexts[node.id] ??
-                JSON.stringify(node.config || {}, null, 2)
-              }
-              onChange={(e) =>
-                setConfigTexts({ ...configTexts, [node.id]: e.target.value })
-              }
-            />
-          </Field>
-        </div>
-      ))}
+      <WorkflowBuilder
+        nodes={form.nodes}
+        agents={agents}
+        taskType={form.task_type}
+        onChange={(nodes) => update("nodes", nodes)}
+        configTexts={configTexts}
+        onConfigChange={(id, value) =>
+          setConfigTexts((current) => ({ ...current, [id]: value }))
+        }
+      />
       <p className="note">
         发布时检查循环依赖与智能体可用性，并冻结各节点的智能体版本。任务自动评审由执行协调器负责。
       </p>

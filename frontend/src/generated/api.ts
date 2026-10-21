@@ -676,6 +676,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Metrics */
+        get: operations["metrics_api_v2_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/audits": {
         parameters: {
             query?: never;
@@ -1013,6 +1030,13 @@ export interface components {
              */
             description: string;
         };
+        /** FailureCount */
+        FailureCount: {
+            /** Reason Code */
+            reason_code: string;
+            /** Count */
+            count: number;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1049,6 +1073,25 @@ export interface components {
              */
             limit: number;
         };
+        /** LatencyMetrics */
+        LatencyMetrics: {
+            /** Sample Count */
+            sample_count: number;
+            /** P50 Seconds */
+            p50_seconds: number | null;
+            /** P95 Seconds */
+            p95_seconds: number | null;
+            /**
+             * Excluded Count
+             * @description 缺少完成时间的全部可见终态记录，以及窗口内开始时间无效的记录数
+             */
+            excluded_count: number;
+            /**
+             * Definition
+             * @default 受理至终态的实际耗时，包含排队；按 finished_at 落入窗口取样
+             */
+            definition: string;
+        };
         /** Member */
         Member: {
             /** Agent Id */
@@ -1075,6 +1118,43 @@ export interface components {
              */
             retention_days: number;
         };
+        /** MetricsWindow */
+        MetricsWindow: {
+            /** Start */
+            start: string;
+            /** End */
+            end: string;
+            /** Hours */
+            hours: number;
+        };
+        /** OperationalMetrics */
+        OperationalMetrics: {
+            /** Generated At */
+            generated_at: string;
+            window: components["schemas"]["MetricsWindow"];
+            /** Project Ids */
+            project_ids: string[];
+            /** Include Rehearsal */
+            include_rehearsal: boolean;
+            /** Excluded Rehearsal Count */
+            excluded_rehearsal_count: number;
+            /**
+             * Counts Scope
+             * @default 可见项目全部当前记录；排队/运行是当前状态，终态耗时和失败原因按窗口取样
+             */
+            counts_scope: string;
+            counts: components["schemas"]["TaskCounts"];
+            /** Status Counts */
+            status_counts: {
+                [key: string]: number;
+            };
+            queue: components["schemas"]["QueueMetrics"];
+            latency: components["schemas"]["LatencyMetrics"];
+            /** Failure Reasons */
+            failure_reasons: components["schemas"]["FailureCount"][];
+            workers: components["schemas"]["WorkerMetrics"];
+            scheduling: components["schemas"]["SchedulingPolicy"];
+        };
         /** ProjectInput */
         ProjectInput: {
             /** Name */
@@ -1100,6 +1180,17 @@ export interface components {
              */
             min_length: number;
         };
+        /** QueueMetrics */
+        QueueMetrics: {
+            /** Waiting Count */
+            waiting_count: number;
+            /** Oldest Wait Seconds */
+            oldest_wait_seconds: number | null;
+            /** By Service Class */
+            by_service_class: {
+                [key: string]: number;
+            };
+        };
         /** ScheduleInput */
         ScheduleInput: {
             /** Project Id */
@@ -1117,6 +1208,20 @@ export interface components {
             /** Next Run At */
             next_run_at?: string | null;
         };
+        /** SchedulingPolicy */
+        SchedulingPolicy: {
+            /** Policy Version */
+            policy_version: string;
+            /** Aging Seconds */
+            aging_seconds: number;
+            /**
+             * Preemptive
+             * @default false
+             */
+            preemptive: boolean;
+            /** Order */
+            order: string[];
+        };
         /** SkillReference */
         SkillReference: {
             /** Skill Id */
@@ -1126,6 +1231,17 @@ export interface components {
              * @default 1.0.0
              */
             version: string;
+        };
+        /** TaskCounts */
+        TaskCounts: {
+            /** Total */
+            total: number;
+            /** Queued */
+            queued: number;
+            /** Active */
+            active: number;
+            /** Terminal */
+            terminal: number;
         };
         /** TaskInput */
         TaskInput: {
@@ -1150,6 +1266,13 @@ export interface components {
              * @enum {string}
              */
             mode: "local" | "cloud" | "rehearsal";
+            /**
+             * Service Class
+             * @description 交互任务优先；批量任务等待60秒后提升，不抢占运行任务，不承诺硬实时SLA
+             * @default batch
+             * @enum {string}
+             */
+            service_class: "batch" | "interactive";
             /** Idempotency Key */
             idempotency_key: string;
             /**
@@ -1279,6 +1402,27 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** WorkerMetrics */
+        WorkerMetrics: {
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "global" | "project_associated";
+            /** Total */
+            total: number;
+            /** Online */
+            online: number;
+            /** Stale */
+            stale: number;
+            /** Stopped */
+            stopped: number;
+            /**
+             * Stale After Seconds
+             * @default 45
+             */
+            stale_after_seconds: number;
         };
         /** WorkflowInput */
         WorkflowInput: {
@@ -2706,6 +2850,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    metrics_api_v2_metrics_get: {
+        parameters: {
+            query?: {
+                project_id?: string | null;
+                window_hours?: number;
+                include_rehearsal?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationalMetrics"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -7,11 +7,12 @@ import hashlib
 import json
 import os
 import uuid
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .contracts import AgentInput, AssetInput, TaskInput, ToolParameters, WorkflowInput
-from .db import ROOT, TERMINAL, now, repo
+from .db import QUEUE_AGING_SECONDS, QUEUE_POLICY_VERSION, ROOT, TERMINAL, now, repo
 from .tool_registry import freeze_bindings, permissions, validate_frozen
 
 ASSET_DIR = ROOT / ".local" / "platform-assets"
@@ -129,6 +130,150 @@ def visible(kind, user, repository=None):
         if user["role"] == "admin" or user["id"] in p.get("members", [])
     }
     return [r for r in repository.list(kind) if r.get("project_id") in projects]
+
+
+def operational_metrics(
+    user, repository=None, *, project_id=None, window_hours=24, include_rehearsal=False, current_time=None
+):
+    """Aggregate persisted evidence; never infer missing finish times or hidden projects."""
+    repository = repository or repo
+    current = current_time or datetime.now(UTC)
+    start = current - timedelta(hours=window_hours)
+    if project_id is not None:
+        project_access(project_id, user, repository=repository)
+        project_ids = [project_id]
+    else:
+        project_ids = sorted(
+            project["id"]
+            for project in repository.list("projects")
+            if user.get("role") == "admin" or user["id"] in project.get("members", [])
+        )
+    tasks = repository.operational_tasks(project_ids)
+    excluded_rehearsal = 0
+    if not include_rehearsal:
+        excluded_rehearsal = sum(task.get("mode") == "rehearsal" for task in tasks)
+        tasks = [task for task in tasks if task.get("mode") != "rehearsal"]
+
+    def parsed(value):
+        try:
+            return timestamp(value)
+        except DomainError:
+            return None
+
+    def percentile(samples, quantile):
+        if not samples:
+            return None
+        values = sorted(samples)
+        position = (len(values) - 1) * quantile
+        lower = int(position)
+        upper = min(lower + 1, len(values) - 1)
+        return round(values[lower] + (values[upper] - values[lower]) * (position - lower), 3)
+
+    status_counts = Counter(task["status"] for task in tasks)
+    active = [task for task in tasks if task["status"] not in TERMINAL]
+    waiting = [
+        task
+        for task in active
+        if not task.get("lease_owner") or task.get("lease_until", 0) < current.timestamp()
+    ]
+    queue_by_class = {"batch": 0, "interactive": 0}
+    waiting_ages = []
+    for task in waiting:
+        service_class = task.get("service_class") or "batch"
+        queue_by_class[service_class if service_class in queue_by_class else "batch"] += 1
+        # Recovery wait starts at lease expiry, not at the original task's intake.
+        if task.get("lease_token", 0) and task.get("lease_until", 0):
+            wait_start = datetime.fromtimestamp(task["lease_until"], UTC)
+        elif task.get("lease_token", 0):
+            wait_start = parsed(task.get("updated_at"))
+        else:
+            wait_start = parsed(task.get("created_at"))
+        if wait_start is not None:
+            waiting_ages.append(max(0, (current - wait_start).total_seconds()))
+
+    durations, failure_reasons = [], Counter()
+    excluded = 0
+    for task in tasks:
+        if task["status"] not in TERMINAL:
+            continue
+        finished = parsed(task.get("finished_at"))
+        created = parsed(task.get("created_at"))
+        if finished is None:
+            # Old cancellation records may lack finished_at. updated_at can also
+            # change for maintenance, so it is never substituted as a measurement.
+            excluded += 1
+            continue
+        if not start <= finished <= current:
+            continue
+        if task["status"] in {"failed", "partial"}:
+            failure_reasons[task.get("reason_code") or "unspecified"] += 1
+        if created is None or created > finished:
+            excluded += 1
+            continue
+        durations.append((finished - created).total_seconds())
+
+    workers = repository.list("workers")
+    global_workers = user.get("role") == "admin" and project_id is None
+    if not global_workers:
+        active_ids = {task["id"] for task in active}
+        lease_owners = {task.get("lease_owner") for task in active}
+        workers = [
+            worker
+            for worker in workers
+            if worker["id"] in lease_owners or active_ids.intersection(worker.get("active_task_ids", []))
+        ]
+    worker_counts = Counter()
+    for worker in workers:
+        heartbeat = parsed(worker.get("heartbeat_at"))
+        age = (current - heartbeat).total_seconds() if heartbeat else None
+        health = (
+            "stopped"
+            if worker.get("status") == "stopped"
+            else "online"
+            if age is not None and 0 <= age < 45
+            else "stale"
+        )
+        worker_counts[health] += 1
+    return {
+        "generated_at": current.isoformat(),
+        "window": {"start": start.isoformat(), "end": current.isoformat(), "hours": window_hours},
+        "project_ids": project_ids,
+        "include_rehearsal": include_rehearsal,
+        "excluded_rehearsal_count": excluded_rehearsal,
+        "counts": {
+            "total": len(tasks),
+            "queued": len(waiting),
+            "active": len(active) - len(waiting),
+            "terminal": len(tasks) - len(active),
+        },
+        "status_counts": dict(sorted(status_counts.items())),
+        "queue": {
+            "waiting_count": len(waiting),
+            "oldest_wait_seconds": round(max(waiting_ages), 3) if waiting_ages else None,
+            "by_service_class": queue_by_class,
+        },
+        "latency": {
+            "sample_count": len(durations),
+            "p50_seconds": percentile(durations, 0.5),
+            "p95_seconds": percentile(durations, 0.95),
+            "excluded_count": excluded,
+        },
+        "failure_reasons": [
+            {"reason_code": reason, "count": count}
+            for reason, count in sorted(failure_reasons.items(), key=lambda item: (-item[1], item[0]))
+        ],
+        "workers": {
+            "scope": "global" if global_workers else "project_associated",
+            "total": len(workers),
+            **{key: worker_counts[key] for key in ("online", "stale", "stopped")},
+        },
+        "scheduling": {
+            "policy_version": QUEUE_POLICY_VERSION,
+            "aging_seconds": QUEUE_AGING_SECONDS,
+            "preemptive": False,
+            "order": ["cancel_requested", "lease_recovery", "aged_batch", "interactive", "batch"],
+        },
+    }
 
 
 def audit(tx, project_id, action, entity_id, user, detail=None):
@@ -708,6 +853,13 @@ def create_task(body, user, repository=None, *, preflight=False):
                 "warnings": ["网络连通不代表密钥或模型调用已验证"] if body["mode"] == "cloud" else [],
             }
         task_id = uuid.uuid4().hex
+        accepted_at = datetime.now(UTC)
+        scheduling = {
+            "service_class": body["service_class"],
+            "policy_version": QUEUE_POLICY_VERSION,
+            "aging_seconds": QUEUE_AGING_SECONDS,
+            "aging_at": (accepted_at + timedelta(seconds=QUEUE_AGING_SECONDS)).isoformat(),
+        }
         task = tx.put(
             "tasks",
             {
@@ -719,17 +871,27 @@ def create_task(body, user, repository=None, *, preflight=False):
                 "request": body,
                 "request_hash": digest(body),
                 "idempotency_key": body["idempotency_key"],
-                "snapshot": {"agents": agents, "workflow": workflow, "inputs": inputs},
+                "snapshot": {
+                    "agents": agents,
+                    "workflow": workflow,
+                    "inputs": inputs,
+                    "scheduling": scheduling,
+                },
+                "created_at": accepted_at.isoformat(),
                 "attempt": 0,
                 "revision": 0,
                 "trace_id": task_id,
                 "created_by": user["id"],
                 "authorization": {key: user[key] for key in ("id", "role", "username") if key in user},
-                "deadline_at": (datetime.now(UTC) + timedelta(seconds=body["deadline_seconds"])).isoformat(),
+                "deadline_at": (accepted_at + timedelta(seconds=body["deadline_seconds"])).isoformat(),
                 "result": None,
             },
         )
-        tx.event(task_id, "task.accepted", {"mode": body["mode"], "input_count": len(inputs)})
+        tx.event(
+            task_id,
+            "task.accepted",
+            {"mode": body["mode"], "input_count": len(inputs), "service_class": body["service_class"]},
+        )
         audit(tx, body["project_id"], "task.accepted", task_id, user)
         return task
 
@@ -746,6 +908,7 @@ def cancel_task(task_id, user, repository=None):
             task.update(
                 status="cancelled",
                 reason_code="cancelled_by_user",
+                finished_at=now(),
                 result={
                     "task_id": task_id,
                     "status": "cancelled",

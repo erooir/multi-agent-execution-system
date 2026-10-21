@@ -1590,6 +1590,74 @@
         }
       }
     },
+    "/api/v2/metrics": {
+      "get": {
+        "summary": "Metrics",
+        "operationId": "metrics_api_v2_metrics_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "window_hours",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 720,
+              "minimum": 1,
+              "default": 24,
+              "title": "Window Hours"
+            }
+          },
+          {
+            "name": "include_rehearsal",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Rehearsal"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationalMetrics"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/audits": {
       "get": {
         "summary": "Audits",
@@ -2322,6 +2390,25 @@
         ],
         "title": "ConnectorInput"
       },
+      "FailureCount": {
+        "properties": {
+          "reason_code": {
+            "type": "string",
+            "title": "Reason Code"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reason_code",
+          "count"
+        ],
+        "title": "FailureCount"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -2418,6 +2505,55 @@
         ],
         "title": "KnowledgeQuery"
       },
+      "LatencyMetrics": {
+        "properties": {
+          "sample_count": {
+            "type": "integer",
+            "title": "Sample Count"
+          },
+          "p50_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50 Seconds"
+          },
+          "p95_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95 Seconds"
+          },
+          "excluded_count": {
+            "type": "integer",
+            "title": "Excluded Count",
+            "description": "缺少完成时间的全部可见终态记录，以及窗口内开始时间无效的记录数"
+          },
+          "definition": {
+            "type": "string",
+            "title": "Definition",
+            "default": "受理至终态的实际耗时，包含排队；按 finished_at 落入窗口取样"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sample_count",
+          "p50_seconds",
+          "p95_seconds",
+          "excluded_count"
+        ],
+        "title": "LatencyMetrics"
+      },
       "Member": {
         "properties": {
           "agent_id": {
@@ -2494,6 +2630,107 @@
         ],
         "title": "MemoryInput"
       },
+      "MetricsWindow": {
+        "properties": {
+          "start": {
+            "type": "string",
+            "title": "Start"
+          },
+          "end": {
+            "type": "string",
+            "title": "End"
+          },
+          "hours": {
+            "type": "integer",
+            "title": "Hours"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "start",
+          "end",
+          "hours"
+        ],
+        "title": "MetricsWindow"
+      },
+      "OperationalMetrics": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "title": "Generated At"
+          },
+          "window": {
+            "$ref": "#/components/schemas/MetricsWindow"
+          },
+          "project_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Project Ids"
+          },
+          "include_rehearsal": {
+            "type": "boolean",
+            "title": "Include Rehearsal"
+          },
+          "excluded_rehearsal_count": {
+            "type": "integer",
+            "title": "Excluded Rehearsal Count"
+          },
+          "counts_scope": {
+            "type": "string",
+            "title": "Counts Scope",
+            "default": "可见项目全部当前记录；排队/运行是当前状态，终态耗时和失败原因按窗口取样"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/TaskCounts"
+          },
+          "status_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Status Counts"
+          },
+          "queue": {
+            "$ref": "#/components/schemas/QueueMetrics"
+          },
+          "latency": {
+            "$ref": "#/components/schemas/LatencyMetrics"
+          },
+          "failure_reasons": {
+            "items": {
+              "$ref": "#/components/schemas/FailureCount"
+            },
+            "type": "array",
+            "title": "Failure Reasons"
+          },
+          "workers": {
+            "$ref": "#/components/schemas/WorkerMetrics"
+          },
+          "scheduling": {
+            "$ref": "#/components/schemas/SchedulingPolicy"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "generated_at",
+          "window",
+          "project_ids",
+          "include_rehearsal",
+          "excluded_rehearsal_count",
+          "counts",
+          "status_counts",
+          "queue",
+          "latency",
+          "failure_reasons",
+          "workers",
+          "scheduling"
+        ],
+        "title": "OperationalMetrics"
+      },
       "ProjectInput": {
         "properties": {
           "name": {
@@ -2545,6 +2782,40 @@
         "type": "object",
         "title": "Quality"
       },
+      "QueueMetrics": {
+        "properties": {
+          "waiting_count": {
+            "type": "integer",
+            "title": "Waiting Count"
+          },
+          "oldest_wait_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Wait Seconds"
+          },
+          "by_service_class": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Service Class"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "waiting_count",
+          "oldest_wait_seconds",
+          "by_service_class"
+        ],
+        "title": "QueueMetrics"
+      },
       "ScheduleInput": {
         "properties": {
           "project_id": {
@@ -2593,6 +2864,38 @@
         ],
         "title": "ScheduleInput"
       },
+      "SchedulingPolicy": {
+        "properties": {
+          "policy_version": {
+            "type": "string",
+            "title": "Policy Version"
+          },
+          "aging_seconds": {
+            "type": "integer",
+            "title": "Aging Seconds"
+          },
+          "preemptive": {
+            "type": "boolean",
+            "title": "Preemptive",
+            "default": false
+          },
+          "order": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Order"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "policy_version",
+          "aging_seconds",
+          "order"
+        ],
+        "title": "SchedulingPolicy"
+      },
       "SkillReference": {
         "properties": {
           "skill_id": {
@@ -2613,6 +2916,35 @@
           "skill_id"
         ],
         "title": "SkillReference"
+      },
+      "TaskCounts": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "queued": {
+            "type": "integer",
+            "title": "Queued"
+          },
+          "active": {
+            "type": "integer",
+            "title": "Active"
+          },
+          "terminal": {
+            "type": "integer",
+            "title": "Terminal"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "total",
+          "queued",
+          "active",
+          "terminal"
+        ],
+        "title": "TaskCounts"
       },
       "TaskInput": {
         "properties": {
@@ -2672,6 +3004,16 @@
             ],
             "title": "Mode",
             "default": "local"
+          },
+          "service_class": {
+            "type": "string",
+            "enum": [
+              "batch",
+              "interactive"
+            ],
+            "title": "Service Class",
+            "description": "交互任务优先；批量任务等待60秒后提升，不抢占运行任务，不承诺硬实时SLA",
+            "default": "batch"
           },
           "idempotency_key": {
             "type": "string",
@@ -3002,6 +3344,49 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WorkerMetrics": {
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "global",
+              "project_associated"
+            ],
+            "title": "Scope"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "online": {
+            "type": "integer",
+            "title": "Online"
+          },
+          "stale": {
+            "type": "integer",
+            "title": "Stale"
+          },
+          "stopped": {
+            "type": "integer",
+            "title": "Stopped"
+          },
+          "stale_after_seconds": {
+            "type": "integer",
+            "title": "Stale After Seconds",
+            "default": 45
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "scope",
+          "total",
+          "online",
+          "stale",
+          "stopped"
+        ],
+        "title": "WorkerMetrics"
       },
       "WorkflowInput": {
         "properties": {

@@ -1,0 +1,233 @@
+.task-outcome-grid,
+.monitor-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin: 20px 0;
+}
+.task-outcome-grid > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  min-width: 0;
+}
+.task-outcome-grid strong {
+  font-size: 20px;
+}
+.task-outcome-grid span,
+.task-outcome-grid small {
+  font-size: 13px;
+  color: var(--muted);
+}
+.monitor-grid > div {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 8px 10px;
+  align-content: start;
+  min-width: 0;
+  padding-right: 14px;
+  border-right: 1px solid var(--line);
+}
+.monitor-grid > div:last-child {
+  border: 0;
+}
+.monitor-grid svg {
+  color: var(--accent);
+  margin-top: 3px;
+}
+.monitor-grid strong,
+.monitor-grid small {
+  grid-column: 2;
+}
+.monitor-grid strong {
+  font-size: 25px;
+}
+.monitor-grid strong.latency-value {
+  font-size: 18px;
+  line-height: 1.7;
+}
+.monitor-grid small {
+  color: var(--muted);
+  font-size: 13px;
+}
+.monitor-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  border-top: 1px solid var(--line);
+  padding-top: 15px;
+}
+.failure-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.failure-chips > span {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.failure-chips strong {
+  color: var(--warn);
+  margin-left: 12px;
+}
+.result-heading {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 20px 0 14px;
+}
+.result-heading svg {
+  color: var(--accent);
+}
+.quality-output {
+  margin: 14px 0;
+}
+.check-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.check-grid > div {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  background: var(--surface2);
+  border-radius: 6px;
+  padding: 11px 13px;
+}
+.check-grid small {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.check-pass svg,
+.check-pass small {
+  color: var(--good);
+}
+.check-fail svg,
+.check-fail small {
+  color: var(--bad);
+}
+.model-review {
+  margin-top: 14px;
+  border-left: 3px solid var(--accent);
+  padding: 14px 18px;
+  background: var(--surface2);
+  border-radius: 0 6px 6px 0;
+}
+.model-review h4 {
+  margin: 14px 0 6px;
+}
+.result-prose {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.85;
+  font-size: 16px;
+  padding: 20px;
+  background: var(--surface2);
+  border-radius: 8px;
+  margin: 16px 0;
+}
+.evidence-card {
+  margin: 14px 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 16px 18px;
+  overflow-wrap: anywhere;
+}
+.evidence-card blockquote {
+  white-space: pre-wrap;
+  margin: 10px 0;
+  line-height: 1.8;
+}
+.evidence-card figcaption,
+.evidence-card small {
+  color: var(--muted);
+  font-size: 13px;
+}
+.result-table {
+  max-height: 470px;
+  margin-bottom: 16px;
+}
+.result-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface2);
+  z-index: 1;
+}
+.result-table td {
+  max-width: 400px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.preflight-summary {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  padding: 16px;
+  border-radius: 6px;
+  margin: 18px 0;
+}
+.preflight-summary .tags {
+  margin-top: 10px;
+}
+.overview-hero.compact {
+  padding: 22px 26px;
+  margin-bottom: 20px;
+}
+.overview-hero.compact h2 {
+  font-size: 23px;
+  margin: 6px 0;
+}
+.overview-hero.compact p {
+  margin: 8px 0;
+}
+.overview-hero.compact .hero-nodes {
+  max-width: 430px;
+}
+@media (max-width: 1100px) {
+  .task-outcome-grid,
+  .monitor-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .monitor-grid > div:nth-child(2) {
+    border: 0;
+  }
+}
+@media (max-width: 600px) {
+  .task-outcome-grid,
+  .monitor-grid,
+  .check-grid {
+    grid-template-columns: 1fr;
+  }
+  .monitor-grid > div {
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 14px;
+  }
+  .monitor-foot {
+    display: block;
+  }
+  .task-outcome-grid > div {
+    padding: 14px;
+  }
+  .overview-hero.compact {
+    padding: 18px;
+  }
+  .result-prose {
+    padding: 14px;
+  }
+  .operations-summary .panel-title {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+}

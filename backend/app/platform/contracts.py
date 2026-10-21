@@ -249,6 +249,9 @@ class TaskInput(Contract):
     input_refs: list[str] = Field(default_factory=list, max_length=50)
     workflow_id: str | None = None
     mode: Literal["local", "cloud", "rehearsal"] = "local"
+    service_class: Literal["batch", "interactive"] = Field(
+        default="batch", description="交互任务优先；批量任务等待60秒后提升，不抢占运行任务，不承诺硬实时SLA"
+    )
     idempotency_key: str = Field(min_length=1, max_length=160)
     deadline_seconds: int = Field(default=300, ge=1, le=86400)
     max_cost_cny: float = Field(default=0, ge=0, le=10, allow_inf_nan=False)
@@ -256,6 +259,70 @@ class TaskInput(Contract):
     allow_partial: bool = False
     use_project_knowledge: bool = False
     quality: Quality = Field(default_factory=Quality)
+
+
+class MetricsWindow(Contract):
+    start: str
+    end: str
+    hours: int
+
+
+class TaskCounts(Contract):
+    total: int
+    queued: int
+    active: int
+    terminal: int
+
+
+class QueueMetrics(Contract):
+    waiting_count: int
+    oldest_wait_seconds: float | None
+    by_service_class: dict[str, int]
+
+
+class LatencyMetrics(Contract):
+    sample_count: int
+    p50_seconds: float | None
+    p95_seconds: float | None
+    excluded_count: int = Field(description="缺少完成时间的全部可见终态记录，以及窗口内开始时间无效的记录数")
+    definition: str = "受理至终态的实际耗时，包含排队；按 finished_at 落入窗口取样"
+
+
+class FailureCount(Contract):
+    reason_code: str
+    count: int
+
+
+class WorkerMetrics(Contract):
+    scope: Literal["global", "project_associated"]
+    total: int
+    online: int
+    stale: int
+    stopped: int
+    stale_after_seconds: int = 45
+
+
+class SchedulingPolicy(Contract):
+    policy_version: str
+    aging_seconds: int
+    preemptive: bool = False
+    order: list[str]
+
+
+class OperationalMetrics(Contract):
+    generated_at: str
+    window: MetricsWindow
+    project_ids: list[str]
+    include_rehearsal: bool
+    excluded_rehearsal_count: int
+    counts_scope: str = "可见项目全部当前记录；排队/运行是当前状态，终态耗时和失败原因按窗口取样"
+    counts: TaskCounts
+    status_counts: dict[str, int]
+    queue: QueueMetrics
+    latency: LatencyMetrics
+    failure_reasons: list[FailureCount]
+    workers: WorkerMetrics
+    scheduling: SchedulingPolicy
 
 
 class ScheduleInput(Contract):
