@@ -100,12 +100,38 @@ test("真实资产编排：定义表单、不可变版本差异、可视化依�
   await dialog.getByLabel("节点名称", { exact: true }).fill("整理来源");
   await dialog.getByRole("button", { name: "添加节点", exact: true }).click();
   await dialog.getByLabel("节点名称", { exact: true }).fill("整理结果");
+  const canvas = dialog.locator(".builder-canvas");
+  await expect(canvas).toHaveAttribute("aria-busy", "false");
+  const viewport = canvas.locator(".react-flow__viewport");
+  const transformBeforeConnection = await viewport.evaluate(
+    (element) => element.style.transform,
+  );
+  const positionsBeforeConnection = await canvas
+    .locator(".react-flow__node")
+    .evaluateAll((elements) =>
+      elements.map((element) => (element as HTMLElement).style.transform),
+    );
+
   await dialog.getByRole("checkbox", { name: "整理来源", exact: true }).check();
   await expect(dialog.locator(".react-flow__edge")).toHaveCount(1);
   await dialog
     .getByRole("checkbox", { name: "整理来源", exact: true })
     .uncheck();
   await expect(dialog.locator(".react-flow__edge")).toHaveCount(0);
+  await expect(canvas).toHaveAttribute("aria-busy", "false");
+  // Dependency edits must leave the camera and endpoints in place. The user
+  // can explicitly arrange the graph after drawing their connections.
+  expect(await viewport.evaluate((element) => element.style.transform)).toBe(
+    transformBeforeConnection,
+  );
+  expect(
+    await canvas
+      .locator(".react-flow__node")
+      .evaluateAll((elements) =>
+        elements.map((element) => (element as HTMLElement).style.transform),
+      ),
+  ).toEqual(positionsBeforeConnection);
+
   await dialog.locator(".builder-canvas").scrollIntoViewIfNeeded();
   const sourceHandle = dialog
     .locator(".react-flow__node")

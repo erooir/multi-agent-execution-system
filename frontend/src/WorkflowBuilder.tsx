@@ -63,16 +63,30 @@ function BuilderNode({ data, selected }: any) {
 }
 const nodeTypes = { builder: BuilderNode };
 
-function FitCanvas({ signature }: { signature: string }) {
+function FitCanvas({
+  signature,
+  onReady,
+}: {
+  signature: string;
+  onReady: (signature: string) => void;
+}) {
   const initialized = useNodesInitialized();
   const { fitView } = useReactFlow();
   useEffect(() => {
     if (!initialized) return;
+    let cancelled = false;
     const frame = requestAnimationFrame(() => {
-      void fitView({ padding: 0.2, maxZoom: 1, duration: 150 });
+      // Automatic camera motion must finish before handles become interactive.
+      // A transition can move the drop target after a pointer drag has started.
+      void fitView({ padding: 0.2, maxZoom: 1, duration: 0 }).then(() => {
+        if (!cancelled) onReady(signature);
+      });
     });
-    return () => cancelAnimationFrame(frame);
-  }, [initialized, signature, fitView]);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
+  }, [initialized, signature, fitView, onReady]);
   return null;
 }
 
@@ -96,8 +110,13 @@ export default function WorkflowBuilder({
   const [connectionError, setConnectionError] = useState("");
   const [positions, setPositions] = useState<
     Record<string, { x: number; y: number }>
-  >({});
+  >(() =>
+    Object.fromEntries(
+      graphLayout(nodes).map((node) => [node.id, node.position]),
+    ),
+  );
   const [layoutRevision, setLayoutRevision] = useState(0);
+  const [fittedSignature, setFittedSignature] = useState("");
   const [canvasNodes, setCanvasNodes, onCanvasNodesChange] =
     useNodesState<Node>([]);
   const available = agents.filter(
@@ -107,6 +126,10 @@ export default function WorkflowBuilder({
   const issues = workflowIssues(nodes, agents, taskType);
   const selected = nodes.find((node) => node.id === selectedId) || nodes[0];
   const bound = agents.find((agent) => agent.id === selected?.agent_id);
+  // Edges are deliberately excluded: connecting/disconnecting must not move
+  // either endpoint or the viewport underneath an ongoing pointer gesture.
+  const layoutSignature = `${layoutRevision}:${nodes.map((node) => node.id).join(";")}`;
+  const canvasReady = nodes.length === 0 || fittedSignature === layoutSignature;
   const graph = useMemo(() => {
     const layout = graphLayout(nodes);
     return {
@@ -179,7 +202,15 @@ export default function WorkflowBuilder({
     ]);
     setSelectedId(id);
     setConnectionError("");
-    setPositions({});
+    setPositions((current) => ({
+      ...current,
+      [id]: {
+        x: nodes.length
+          ? Math.max(...graph.nodes.map((node) => node.position.x)) + 368
+          : 0,
+        y: 0,
+      },
+    }));
   }
   return (
     <section className="workflow-builder" aria-label="可视化流程编辑器">
@@ -193,7 +224,11 @@ export default function WorkflowBuilder({
         <button
           type="button"
           onClick={() => {
-            setPositions({});
+            setPositions(
+              Object.fromEntries(
+                graphLayout(nodes).map((node) => [node.id, node.position]),
+              ),
+            );
             setLayoutRevision((value) => value + 1);
           }}
         >
@@ -236,14 +271,14 @@ export default function WorkflowBuilder({
         </p>
       )}
       <div className="builder-workspace">
-        <div className="builder-canvas">
+        <div className="builder-canvas" aria-busy={!canvasReady}>
           <ReactFlow
             nodes={canvasNodes}
             edges={graph.edges}
             nodeTypes={nodeTypes}
             colorMode="dark"
-            fitView
-            fitViewOptions={{ padding: 0.2 }}
+            nodesConnectable={canvasReady}
+            nodesDraggable={canvasReady}
             minZoom={0.2}
             maxZoom={1.5}
             onNodeClick={(_, node) => setSelectedId(node.id)}
@@ -274,7 +309,8 @@ export default function WorkflowBuilder({
           >
             <Background gap={24} />
             <FitCanvas
-              signature={`${layoutRevision}:${nodes.map((node) => `${node.id}:${node.depends_on.join(",")}`).join(";")}`}
+              signature={layoutSignature}
+              onReady={setFittedSignature}
             />
             <Controls showInteractive={false} />
             <MiniMap

@@ -6,7 +6,9 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
 }) => {
   const name = `浏览器验收-${Date.now()}`;
   await page.goto("/");
-  await page.getByLabel("用户名", { exact: true }).fill("admin");
+  await page
+    .getByLabel("用户名", { exact: true })
+    .fill(process.env.HANGZHI_SMOKE_USERNAME || "admin");
   await page
     .getByLabel("密码", { exact: true })
     .fill(process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password");
