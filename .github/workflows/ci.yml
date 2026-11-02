@@ -30,16 +30,16 @@ jobs:
         with:
           version: "0.11.16"
       - name: Install Python dependencies
-        run: uv sync --frozen --python 3.12
+        run: uv sync --frozen --extra dameng --extra vision --python 3.12
       - name: Test backend without paid model calls
-        run: uv run pytest -q
+        run: uv run --no-sync pytest -q
       - name: Check Python style
         run: |
-          uv run ruff check backend scripts tools/smoke.py
-          uv run ruff format --check backend scripts tools/smoke.py
+          uv run --no-sync ruff check backend scripts tools/smoke.py
+          uv run --no-sync ruff format --check backend scripts tools/smoke.py
       - name: Check integration schema drift
         run: |
-          uv run python -m scripts.export_contracts
+          uv run --no-sync python -m scripts.export_contracts
           git diff --exit-code -- docs/contracts
       - uses: actions/setup-node@v4
         with:
@@ -65,9 +65,9 @@ jobs:
         run: |
           mkdir -p .local
           npm --prefix frontend exec -- playwright install --with-deps chromium
-          uv run uvicorn backend.app.main:app --host 127.0.0.1 --port 8100 > /tmp/browser-api.log 2>&1 &
+          uv run --no-sync uvicorn backend.app.main:app --host 127.0.0.1 --port 8100 > /tmp/browser-api.log 2>&1 &
           api_pid=$!
-          uv run python -m backend.app.platform.worker > /tmp/browser-worker.log 2>&1 &
+          uv run --no-sync python -m backend.app.platform.worker > /tmp/browser-worker.log 2>&1 &
           worker_pid=$!
           trap 'kill "$worker_pid" "$api_pid" || true' EXIT
           for attempt in $(seq 1 30); do

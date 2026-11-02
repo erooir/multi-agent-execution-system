@@ -176,6 +176,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/casework/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Case Catalog */
+        get: operations["case_catalog_api_v2_casework_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/casework/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Install Cases */
+        post: operations["install_cases_api_v2_casework_install_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/casework/semantic-evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Public Evidence */
+        post: operations["create_public_evidence_api_v2_casework_semantic_evidence_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/tasks/{task_id}/semantic-evidence/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Public Evidence Report */
+        get: operations["public_evidence_report_api_v2_tasks__task_id__semantic_evidence_report_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/agents/activity/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Agent Activity */
+        get: operations["agent_activity_api_v2_agents_activity_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/model/connectivity": {
         parameters: {
             query?: never;
@@ -642,6 +727,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/artifacts/{artifact_id}/case-package": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Case Package */
+        get: operations["case_package_api_v2_artifacts__artifact_id__case_package_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/budget": {
         parameters: {
             query?: never;
@@ -878,7 +980,7 @@ export interface components {
              */
             structure: "atomic" | "composite";
             /** Capabilities */
-            capabilities: ("structured_transform" | "source_summary" | "text_analysis" | "image_inspect" | "audio_transcribe" | "video_analyze")[];
+            capabilities: ("structured_transform" | "source_summary" | "text_analysis" | "image_inspect" | "audio_transcribe" | "video_analyze" | "case_analysis")[];
             /** Modalities */
             modalities?: ("text" | "structured" | "image" | "audio" | "video")[];
             /** Tool Ids */
@@ -987,6 +1089,11 @@ export interface components {
              * @default
              */
             modality: string;
+            /**
+             * Csv Encoding
+             * @default utf-8
+             */
+            csv_encoding: string;
         };
         /** CapabilityCatalog */
         CapabilityCatalog: {
@@ -1165,6 +1272,30 @@ export interface components {
              */
             description: string;
         };
+        /** PublicEvidenceRequest */
+        PublicEvidenceRequest: {
+            /** Project Id */
+            project_id: string;
+            /** Input Refs */
+            input_refs: string[];
+            /**
+             * Focus
+             * @default claim_check
+             * @enum {string}
+             */
+            focus: "claim_check" | "timeline" | "comparison" | "scientific_terms";
+            /** Idempotency Key */
+            idempotency_key: string;
+            /** Max Cost Cny */
+            max_cost_cny: number;
+            /**
+             * Public Egress Authorized
+             * @constant
+             */
+            public_egress_authorized: true;
+            /** Case Task Id */
+            case_task_id?: string | null;
+        };
         /** Quality */
         Quality: {
             /**
@@ -1255,7 +1386,15 @@ export interface components {
              * Task Type
              * @enum {string}
              */
-            task_type: "structured_transform" | "source_summary" | "text_analysis" | "image_inspect" | "audio_transcribe" | "video_analyze";
+            task_type: "structured_transform" | "source_summary" | "text_analysis" | "image_inspect" | "audio_transcribe" | "video_analyze" | "case_analysis";
+            /** Case Id */
+            case_id?: string | null;
+            /**
+             * Case Scope
+             * @default reference
+             * @enum {string}
+             */
+            case_scope: "reference" | "sample";
             /** Input Refs */
             input_refs?: string[];
             /** Workflow Id */
@@ -1439,7 +1578,7 @@ export interface components {
              * Task Type
              * @enum {string}
              */
-            task_type: "structured_transform" | "source_summary" | "text_analysis" | "image_inspect" | "audio_transcribe" | "video_analyze";
+            task_type: "structured_transform" | "source_summary" | "text_analysis" | "image_inspect" | "audio_transcribe" | "video_analyze" | "case_analysis";
             /** Nodes */
             nodes: components["schemas"]["WorkflowNode"][];
         };
@@ -1764,6 +1903,164 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    case_catalog_api_v2_casework_catalog_get: {
+        parameters: {
+            query: {
+                project_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    install_cases_api_v2_casework_install_post: {
+        parameters: {
+            query: {
+                project_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_public_evidence_api_v2_casework_semantic_evidence_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicEvidenceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    public_evidence_report_api_v2_tasks__task_id__semantic_evidence_report_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_activity_api_v2_agents_activity_summary_get: {
+        parameters: {
+            query: {
+                project_id: string;
+                window_hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2784,6 +3081,37 @@ export interface operations {
         };
     };
     download_api_v2_artifacts__artifact_id__download_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    case_package_api_v2_artifacts__artifact_id__case_package_get: {
         parameters: {
             query?: never;
             header?: never;

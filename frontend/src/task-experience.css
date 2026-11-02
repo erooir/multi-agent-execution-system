@@ -231,3 +231,41 @@
     gap: 10px;
   }
 }
+.case-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 285px), 1fr));
+  gap: 14px;
+}
+.case-grid .panel {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  overflow-wrap: anywhere;
+}
+.case-grid .panel h3,
+.case-grid .panel p {
+  margin: 0;
+}
+.case-grid .panel > button {
+  margin-top: auto;
+  align-self: flex-start;
+}
+.case-grid details {
+  font-size: 0.82rem;
+}
+.case-products details {
+  margin: 0.65rem 0;
+  padding: 0.65rem;
+  border: 1px solid var(--border, #3b3b43);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.case-products pre {
+  white-space: pre-wrap;
+  max-height: 20rem;
+  overflow: auto;
+}
+.case-products img {
+  max-width: 100%;
+  max-height: 25rem;
+}

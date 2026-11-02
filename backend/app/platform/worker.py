@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 
 from ..storage import store
+from .dameng import supports_row_lock
 from .db import Repository, now, repo, tables
 from .runtime import process_claim, timestamp
 
@@ -39,7 +40,7 @@ def schedule_due(repository: Repository, *, current_time: float | None = None) -
             continue
         with repository.transaction() as tx:
             query = select(tables["schedules"]).where(tables["schedules"].c.id == schedule["id"])
-            if repository.engine.dialect.name == "postgresql":
+            if supports_row_lock(repository.engine):
                 query = query.with_for_update(skip_locked=True)
             locked = tx.connection.execute(query).first()
             if locked is None:

@@ -1,18 +1,26 @@
 # 航智智能体管理平台架构 v2
 
+### 用例分析扩展（2026-11-02）
+
+在现有平台中引入 case_analysis 任务类型和固定案例配置，不新建旁路执行服务。TaskRequest.case_id 指定分析和交付契约。项目内发布的资料解析、领域计算与证据核查智能体组成版本化工作流；受理时冻结输入、算法签名和全部版本，原任务 Worker、Agno Workflow 和独立复核仍是状态权威。用户提供的记录只作为数据，不能选择可执行代码或越过授权。审核要求来源版本、位置、产品存在性和任务特定约束，缺口进入有限修订或真实终态。项目监测读取真实节点、实例、尝试、耗时和错误。
+
+当前开发模式允许公开资料通过统一网关调用云模型。部署方显式启用 HANGZHI_OFFLINE=true 时，API 与 Worker 均关闭模型外发；两种模式使用相同数据权限、预算和任务历史。
+
+正式业务及身份运行在达梦 DM8，历史预算账本独立保留。达梦真机验证见 DAMENG.md，旧版 PostgreSQL 记录仅代表历史兼容验证。
+
 2026-10-17。新版共享契约。旧业务由 Git 归档保留，私有原文只保存在忽略目录。
 
 ## 系统边界
-智能体定义、不可变版本、运行实例分离。任务自动规划、执行、确定性校验、评审与有界修订，没有人工审核等待状态。首批支持结构化数据整理、来源文本整理/摘要、图片元数据检查。音频转写、图像语义和视频理解未验证时返回 unsupported_capability。local 是真实确定性工具；cloud 是网关模型；rehearsal 显著标记且不冒充离线推理。
+智能体定义、不可变版本、运行实例分离。任务自动规划、执行、确定性校验、评审与有界修订，没有人工审核等待状态。通用任务支持结构化数据、来源文本与图片检查。用例任务还支持本地 OCR、带时间码的 ASR、辅助翻译、受限视觉匹配与空间计算。具体输入与覆盖边界见[用例手册](CASEWORK.md)。local 使用本机工具或已配置的本地模型，cloud 通过统一网关调用授权模型，rehearsal 显式标记为演练。
 
 ## 部署与数据
-Python/FastAPI + Agno 3.0.10 私有运行时，React/TypeScript 管理台。API 和独立 Worker 共享 SQLAlchemy 数据库；HANGZHI_DATABASE_URL 配置 PostgreSQL 正式部署，默认 SQLite .local/platform-v2.sqlite3 用于本机开发。schema_version 显式管理，不迁移旧任务。
+Python/FastAPI + Agno 3.0.10 私有运行时，React/TypeScript 管理台。API 和独立 Worker 共享 SQLAlchemy 数据库；正式启动必须设置达梦连接和 HANGZHI_REQUIRE_DM=true。SQLite 用于隔离测试或显式历史维护。schema_version 显式管理，迁移工具从已停服、通过校验的旧库导入原有任务、版本和有序事件。
 实体表：projects, agents, agent_versions, workflows, workflow_versions, data_assets, tasks, nodes, instances, artifacts, events, schedules, evaluations, improvements, memories, connectors, workers, audits。每表独立主键、项目、状态、时间与配置；任务有幂等键、租约持有者、递增 token、过期时间、取消标记。状态与事件事务提交，事件表作为可重放通知源。冷启动建表和schema标记串行化：SQLite写事务、PostgreSQL事务级advisory lock；业务更新使用行锁及updated_at冲突检查。
-身份密码/会话复用已验证组件，身份库保留 .local/workbench.sqlite3，只访问身份与设置类别。新部署不生成固定默认密码。admin 全局管理；operator 操作所属项目；reviewer 只读。所有实体读取和写入均验证项目成员。
+身份密码/会话复用已验证组件，正式身份、权限与设置由达梦保存，既有密码散列随停服迁移保留。历史 SQLite 身份源库只用于维护。新部署不生成固定默认密码。admin 全局管理；operator 操作所属项目；reviewer 只读。所有实体读取和写入均验证项目成员。
 预算固定历史 .local/budget.sqlite3，不随新库目录迁移。所有模型调用只经过 backend/app/model_gateway.py，保留最坏预留、不确定费用、8000输出上限与300元历史累计上限。AgentOS原生执行API不公开。禁遥测、CDN、自动下载。
 
 ## API
-业务前缀 /api/v2；身份 /api/auth/login|register|me|logout，账号管理 /api/users。集合为数组。领域错误 {detail:{code,message}}；身份保留detail字符串，Pydantic校验错误使用FastAPI标准detail数组。写入校验同源和后端角色。领域输入拒绝未知字段；请求体流在解析前限制12MB，单文件10MB、内联数据2MB。并发陈旧写入返回409。
+业务前缀 /api/v2；身份 /api/auth/login|register|me|logout，账号管理 /api/users。集合为数组。领域错误 {detail:{code,message}}；身份保留detail字符串，Pydantic校验错误使用FastAPI标准detail数组。写入校验同源和后端角色。领域输入拒绝未知字段；内联资料限2MB，普通文件限10MB，音频与视频上传限128MB，请求体在解析前按路由限制。并发陈旧写入返回409。
 - GET /health；GET /bootstrap 返回 {user,projects,agents,workflows,tasks,data_assets,schedules,improvements,connectors,memories,evaluations,capabilities,workers,budget,stats,system}，管理员另有users。
 - GET/POST /projects；PUT /projects/{id}/members（admin）。
 - GET/POST /agents；GET/PUT /agents/{id}；POST /agents/{id}/publish|disable|enable|retire；DELETE /agents/{id}；GET /agents/{id}/versions|instances。
@@ -42,7 +50,7 @@ platform/service.py 负责定义/数据/任务受理；platform/contracts.py 是
 platform/runtime.py 提供 async process_claim(repository,task,worker_id) 以及 runtime_workflow()；platform/worker.py 独立CLI调度、心跳及计划。领域对象只依赖新Repository；模型和身份是显式保留边界。
 
 ## 恢复与质量
-PostgreSQL领取FOR UPDATE SKIP LOCKED；SQLite BEGIN IMMEDIATE。所有结果经过租约令牌验证；旧worker不能写入。完成节点复用。外部调用前记录in_flight，接管未确认调用返回execution_uncertain，禁止盲重放付费请求。取消在途调用不能提前宣称释放。
+达梦按调度顺序选择候选任务，对候选行逐一加锁并重验。PostgreSQL兼容分支使用FOR UPDATE SKIP LOCKED；SQLite BEGIN IMMEDIATE。所有结果经过租约令牌验证；旧worker不能写入。完成节点复用。外部调用前记录in_flight，接管未确认调用返回execution_uncertain，禁止盲重放付费请求。取消在途调用不能提前宣称释放。
 硬Schema/来源/权限校验不能被模型自评分覆盖，评审上下文独立，同一模型的相关偏差仍需在评审结论中明确。有界修订失败保留原始问题；仅allow_partial时可部分交付。评测目前限定local_atomic_single_node：冻结至少两个真实终态任务样本、基线和候选，最后一个作保留样本；实际重放、记录输出与耗时，禁止硬回归且要求可测增益。数据集和候选均作哈希完整性校验，晋升前复核证据、来源状态和版本。回滚仅切换稳定版本指针，不删除历史，新发布使用最大历史版本+1。
 
 自动改进仅在HANGZHI_AUTO_IMPROVE=true时运行，当前只可依据真实质量失败调整本地提取式文本max_chars；不得修改代码、权限或权重，仍需相同冻结评测门槛。未知能力明确失败。真实上游及模型接入需要实际契约样例与运行证据。

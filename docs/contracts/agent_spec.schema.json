@@ -108,7 +108,8 @@
           "text_analysis",
           "image_inspect",
           "audio_transcribe",
-          "video_analyze"
+          "video_analyze",
+          "case_analysis"
         ],
         "type": "string"
       },

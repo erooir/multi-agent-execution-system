@@ -895,9 +895,8 @@ export function OperationsPage({
             <ShieldCheck size={22} />
             <div>
               <strong>
-                整个项目历史累计上限：人民币{" "}
-                {typeof budget.limit_cny === "number" ? budget.limit_cny : "—"}{" "}
-                元
+                整个项目历史累计上限：人民币 {budget.project_cap_cny ?? "—"} 元
+                · 本机领取上限 {budget.limit_cny ?? "—"} 元
               </strong>
               <p>
                 业务存储重建不会重置预算。所有付费调用在统一网关预留最坏费用，未确认调用继续保留预留。

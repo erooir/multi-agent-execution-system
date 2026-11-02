@@ -2,6 +2,14 @@
 
 所有服务默认仅监听127.0.0.1，部署到受控内网前应配置身份、成员和网络边界。API前缀/api/v2；认证使用/api/auth/login返回的HttpOnly会话。不能通过前端按钮代替权限验证。机器服务身份须作为独立受限账号配置，不共享管理员凭据。
 
+## 可选的公开资料语义取证
+
+正式离线部署不需要此能力，`HANGZHI_OFFLINE=true` 时禁止云任务。联网开发/验收环境中，operator/admin 可显式发起 `POST /api/v2/casework/semantic-evidence`。提供 `project_id`、1–12个 `input_refs`、`focus`（`claim_check`、`timeline` 或 `comparison`）、`idempotency_key`、本任务正数费用上限 `max_cost_cny`（此入口至多0.8元）及 `public_egress_authorized: true`。返回202和标准任务ID。同键同内容复用任务，有差异返回冲突。0.8元仅是该辅助入口的单任务限制，不能修改全项目历史累计账本。
+
+只交给模型明确选择并获准外发的公开文本或结构化来源。入口不接收自由提示词，不自动附加项目知识，不转发用例任务目标、报告或中间产物。若提供 `case_task_id`，必须是同项目已经交付结果的用例任务，全部冻结输入和产物引用必须与本次引用一致；不能只挑出其中公开部分来掩盖私有输入。来源版本和校验和须匹配，后续外发仍经既有统一网关、真实工具、执行期权限复查、独立自动评审及有限修订。
+
+成功任务可鉴权下载 `GET /api/v2/tasks/{id}/semantic-evidence/report`（UTF-8纯文本）。报告给出来源编号、版本、逐字摘录的字符区间或计算记录校验标识。区间针对**已登记的文本表示**；若输入为原件节选，须另外保留原件哈希、页码和提取/规范化方法。报告是模型的辅助解释，不改变原用例终态、确定性复算或覆盖范围。未通过审核、资料撤回、过期、重新分类或变更时，不提供该报告。
+
 ## 数据
 使用data_asset.schema.json，必填project_id/name/modality/content/source_id/provenance。source_version默认1；classification默认local。原始媒体通过/data-assets/upload的multipart file上传，另附project_id/source_id/provenance等元数据。文件路径不是外部可指定的content_ref。缺字段返回422，越权403，已撤回或过期409，过大413。
 

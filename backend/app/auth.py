@@ -9,7 +9,6 @@ import json
 import os
 import re
 import secrets
-import sqlite3
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -17,6 +16,7 @@ from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request, Response
 
+from .identity_records import DuplicateIdentity
 from .storage import now, store
 
 PASSWORD_ITERATIONS = 600_000
@@ -43,14 +43,10 @@ def _verify_password(password: str, encoded: str) -> bool:
         return False
 
 
-def _insert_record(conn, kind: str, record: dict, *, ignore_existing: bool = False) -> None:
+def _insert_record(tx, kind: str, record: dict) -> None:
     record.setdefault("created_at", now())
     record["updated_at"] = now()
-    statement = "INSERT OR IGNORE" if ignore_existing else "INSERT"
-    conn.execute(
-        f"{statement} INTO records(kind,id,data,updated_at) VALUES(?,?,?,?)",
-        (kind, record["id"], json.dumps(record, ensure_ascii=False), record["updated_at"]),
-    )
+    tx.insert(kind, record)
 
 
 def _bootstrap_password() -> str:
@@ -87,18 +83,15 @@ def _bootstrap_password() -> str:
 
 def ensure_users() -> None:
     """Initialize once under the same cross-process DB lock; never reset existing identities."""
-    with store.lock, store.connect() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        if conn.execute(
-            "SELECT 1 FROM records WHERE kind='auth_meta' AND id='persisted_users_v1'"
-        ).fetchone():
-            if not conn.execute("SELECT 1 FROM records WHERE kind='users' LIMIT 1").fetchone():
+    with store.transaction() as tx:
+        if tx.get("auth_meta", "persisted_users_v1"):
+            if not tx.any("users"):
                 raise RuntimeError("auth_store_invalid: 初始化标记存在但账号缺失，请核对身份库备份")
             return
-        if not conn.execute("SELECT 1 FROM records WHERE kind='users' LIMIT 1").fetchone():
+        if not tx.any("users"):
             password = _bootstrap_password()
             _insert_record(
-                conn,
+                tx,
                 "users",
                 {
                     "id": "admin",
@@ -110,8 +103,8 @@ def ensure_users() -> None:
                 },
             )
             # No existing identity owns these sessions; do not revive an old admin cookie.
-            conn.execute("DELETE FROM records WHERE kind='sessions'")
-        _insert_record(conn, "auth_meta", {"id": "persisted_users_v1", "version": 1})
+            tx.delete("sessions")
+        _insert_record(tx, "auth_meta", {"id": "persisted_users_v1", "version": 1})
 
 
 def _username(value) -> str:
@@ -144,14 +137,10 @@ def _rate_limit(request: Request | None, action: str, username: str = "") -> Non
     if action == "login":
         keys.append((f"login:username:{username}", 10))
     current_time = time.time()
-    with store.lock, store.connect() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with store.transaction() as tx:
         for raw_key, limit in keys:
             key = hashlib.sha256(raw_key.encode()).hexdigest()
-            row = conn.execute(
-                "SELECT data FROM records WHERE kind='auth_limits' AND id=?", (key,)
-            ).fetchone()
-            record = json.loads(row[0]) if row else {"id": key, "started_at": current_time, "count": 0}
+            record = tx.get("auth_limits", key) or {"id": key, "started_at": current_time, "count": 0}
             if current_time - record["started_at"] >= RATE_WINDOW_SECONDS:
                 record.update(started_at=current_time, count=0)
             if record["count"] >= limit:
@@ -160,8 +149,8 @@ def _rate_limit(request: Request | None, action: str, username: str = "") -> Non
                     429, "尝试次数过多，请稍后再试", headers={"Retry-After": str(retry_after)}
                 )
             record["count"] += 1
-            conn.execute("DELETE FROM records WHERE kind='auth_limits' AND id=?", (key,))
-            _insert_record(conn, "auth_limits", record)
+            tx.delete("auth_limits", key)
+            _insert_record(tx, "auth_limits", record)
 
 
 def _public_user(user: dict) -> dict:
@@ -170,10 +159,8 @@ def _public_user(user: dict) -> dict:
 
 def _start_session(user: dict, response: Response, request: Request | None = None) -> dict:
     token = secrets.token_urlsafe(32)
-    with store.lock, store.connect() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute("SELECT data FROM records WHERE kind='users' AND id=?", (user["id"],)).fetchone()
-        current = json.loads(row[0]) if row else None
+    with store.transaction() as tx:
+        current = tx.get("users", user["id"])
         if (
             not current
             or not current.get("enabled", True)
@@ -183,12 +170,9 @@ def _start_session(user: dict, response: Response, request: Request | None = Non
         user = current
         previous_token = request.cookies.get("workbench_session") if request else None
         if previous_token:
-            conn.execute(
-                "DELETE FROM records WHERE kind='sessions' AND id=?",
-                (hashlib.sha256(previous_token.encode()).hexdigest(),),
-            )
+            tx.delete("sessions", hashlib.sha256(previous_token.encode()).hexdigest())
         _insert_record(
-            conn,
+            tx,
             "sessions",
             {
                 "id": hashlib.sha256(token.encode()).hexdigest(),
@@ -241,11 +225,10 @@ def register(body: dict, response: Response, request: Request | None = None) -> 
         "password_hash": _hash_password(password),
     }
     try:
-        with store.lock, store.connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
+        with store.transaction() as tx:
             # The records primary key enforces uniqueness even across server processes.
-            _insert_record(conn, "users", user)
-    except sqlite3.IntegrityError:
+            _insert_record(tx, "users", user)
+    except DuplicateIdentity:
         raise HTTPException(409, "用户名已被使用") from None
     store.audit("register", username, {"role": "operator"}, username)
     return _start_session(user, response, request)
@@ -341,20 +324,16 @@ def create_user(body: dict, actor: dict) -> dict:
         "password_hash": _hash_password(password),
     }
     try:
-        with store.lock, store.connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            actor_row = conn.execute(
-                "SELECT data FROM records WHERE kind='users' AND id=?", (actor["id"],)
-            ).fetchone()
-            current_actor = json.loads(actor_row[0]) if actor_row else None
+        with store.transaction() as tx:
+            current_actor = tx.get("users", actor["id"])
             if (
                 not current_actor
                 or not current_actor.get("enabled", True)
                 or current_actor["role"] != "admin"
             ):
                 raise HTTPException(403, "管理员身份已变更")
-            _insert_record(conn, "users", user)
-    except sqlite3.IntegrityError:
+            _insert_record(tx, "users", user)
+    except DuplicateIdentity:
         raise HTTPException(409, "用户名已被使用") from None
     store.audit("user.create", username, {"role": role}, actor["username"])
     return {**_public_user(user), "enabled": True, "created_at": user.get("created_at")}
@@ -381,16 +360,11 @@ def update_user(user_id: str, body: dict, actor: dict) -> dict:
         changes["enabled"] = body["enabled"]
     if "password" in body and body["password"] is not None:
         changes["password_hash"] = _hash_password(_validate_password(body["password"]))
-    with store.lock, store.connect() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        actor_row = conn.execute(
-            "SELECT data FROM records WHERE kind='users' AND id=?", (actor["id"],)
-        ).fetchone()
-        current_actor = json.loads(actor_row[0]) if actor_row else None
+    with store.transaction() as tx:
+        current_actor = tx.get("users", actor["id"])
         if not current_actor or not current_actor.get("enabled", True) or current_actor["role"] != "admin":
             raise HTTPException(403, "管理员身份已变更")
-        row = conn.execute("SELECT data FROM records WHERE kind='users' AND id=?", (user_id,)).fetchone()
-        target = json.loads(row[0]) if row else None
+        target = tx.get("users", user_id)
         if not target:
             raise HTTPException(404, "用户不存在")
         if not changes:
@@ -401,9 +375,7 @@ def update_user(user_id: str, body: dict, actor: dict) -> dict:
         if actor["id"] == target["id"] and loses_admin:
             raise HTTPException(400, "不能停用或降级自己的管理员账号")
         if loses_admin:
-            users = [
-                json.loads(item[0]) for item in conn.execute("SELECT data FROM records WHERE kind='users'")
-            ]
+            users = tx.list("users")
             if not any(
                 user["id"] != target["id"] and user.get("role") == "admin" and user.get("enabled", True)
                 for user in users
@@ -411,17 +383,12 @@ def update_user(user_id: str, body: dict, actor: dict) -> dict:
                 raise HTTPException(400, "至少需要保留一个可用的管理员账号")
         target.update(changes)
         target["updated_at"] = now()
-        conn.execute(
-            "UPDATE records SET data=?,updated_at=? WHERE kind='users' AND id=?",
-            (json.dumps(target, ensure_ascii=False), target["updated_at"], target["id"]),
-        )
+        tx.replace("users", target)
         if changes.get("enabled") is False or "password_hash" in changes or "role" in changes:
-            sessions = [
-                json.loads(item[0]) for item in conn.execute("SELECT data FROM records WHERE kind='sessions'")
-            ]
+            sessions = tx.list("sessions")
             for session in sessions:
                 if session.get("username") == target["username"]:
-                    conn.execute("DELETE FROM records WHERE kind='sessions' AND id=?", (session["id"],))
+                    tx.delete("sessions", session["id"])
     store.audit(
         "user.update",
         target["username"],

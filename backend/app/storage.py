@@ -8,9 +8,14 @@ import sqlite3
 import threading
 import time
 import uuid
-from contextlib import closing
+from contextlib import closing, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+
+from sqlalchemy import create_engine
+
+from .identity_records import DMIdentityStore, SQLiteRecords
+from .platform.dameng import database_url
 
 
 def now() -> str:
@@ -43,6 +48,12 @@ class Store:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA busy_timeout=30000")
         return conn
+
+    @contextmanager
+    def transaction(self):
+        with self.lock, closing(self.connect()) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            yield SQLiteRecords(conn)
 
     def list(self, kind: str) -> list[dict]:
         with self.connect() as conn:
@@ -94,4 +105,14 @@ class Store:
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = Path(os.environ.get("WORKBENCH_DATA_DIR", str(ROOT / ".local")))
-store = Store(DATA_DIR / "workbench.sqlite3")
+
+
+def _identity_store():
+    url = database_url(None, ROOT / ".local" / "platform-v2.sqlite3")
+    if url.get_backend_name() == "dm":
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        return DMIdentityStore(create_engine(url, pool_pre_ping=True, hide_parameters=True), DATA_DIR)
+    return Store(DATA_DIR / "workbench.sqlite3")
+
+
+store = _identity_store()

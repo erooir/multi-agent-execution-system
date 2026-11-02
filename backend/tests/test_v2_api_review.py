@@ -116,7 +116,19 @@ async def test_withdrawn_sources_hidden_on_all_collection_paths(db):
         },
     )
     service.revoke_asset(a["id"], ADMIN, db)
-    with TestClient(application()) as client:
+    app = application()
+    app.dependency_overrides[api.edit.dependency] = lambda: ADMIN
+    with TestClient(app) as client:
+        original = db.get("tasks", task["id"])
+        original["quality_verdict"] = {"issues": [{"message": "WITHDRAWN_SENTINEL"}]}
+        original["result"]["quality_verdict"] = original["quality_verdict"]
+        db.put("tasks", original)
+        for response in (
+            client.post("/api/v2/tasks", json=task_body(p, a)),
+            client.post(f"/api/v2/tasks/{task['id']}/cancel"),
+        ):
+            assert response.status_code in {200, 202}
+            assert response.json()["content_withheld"] and "WITHDRAWN_SENTINEL" not in response.text
         for path in [
             "/bootstrap",
             "/tasks",

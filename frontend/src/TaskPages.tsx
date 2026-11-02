@@ -633,6 +633,37 @@ function TaskDetail({
                   quality={result.quality_verdict}
                   withheld={result.content_withheld}
                 />
+                {task.scientific_review_note?.issues?.length > 0 && (
+                  <div className="warning" role="note">
+                    <strong>确定性复核补记 · 术语复核部分通过</strong>
+                    {task.scientific_review_note.issues.map(
+                      (
+                        issue: {
+                          message: string;
+                          source_id: string;
+                          start: number;
+                        },
+                        i: number,
+                      ) => (
+                        <p key={i}>
+                          {issue.message} 来源 {issue.source_id}，字符位置{" "}
+                          {issue.start}。
+                        </p>
+                      ),
+                    )}
+                  </div>
+                )}
+                {task.semantic_evidence &&
+                  task.status === "succeeded" &&
+                  !result.content_withheld && (
+                    <a
+                      className="button"
+                      download
+                      href={`/api/v2/tasks/${encodeURIComponent(task.id)}/semantic-evidence/report`}
+                    >
+                      下载中文取证报告
+                    </a>
+                  )}
                 <JsonView value={result.usage} label="实际资源使用" />
                 <JsonView value={result.lineage} label="来源血缘" />
                 <JsonView value={result} label="完整结果包" />

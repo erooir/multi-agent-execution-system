@@ -55,9 +55,32 @@
         "text_analysis",
         "image_inspect",
         "audio_transcribe",
-        "video_analyze"
+        "video_analyze",
+        "case_analysis"
       ],
       "title": "Task Type",
+      "type": "string"
+    },
+    "case_id": {
+      "anyOf": [
+        {
+          "pattern": "^[BTG](0[1-9]|10)$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Case Id"
+    },
+    "case_scope": {
+      "default": "reference",
+      "enum": [
+        "reference",
+        "sample"
+      ],
+      "title": "Case Scope",
       "type": "string"
     },
     "input_refs": {

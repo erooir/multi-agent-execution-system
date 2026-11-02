@@ -17,10 +17,11 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from sqlalchemy import select
 
 from .. import auth
-from ..model_gateway import model_gateway
+from ..model_gateway import HARD_CAP, model_gateway
 from . import contracts as c
 from . import service as s
 from .db import TERMINAL, now, repo, tables
+from .public_evidence import PublicEvidenceRequest
 
 router = APIRouter(prefix="/api/v2")
 identity = APIRouter(prefix="/api")
@@ -105,7 +106,8 @@ def budget_view():
         return {
             "available": False,
             "error": "ledger_missing_or_invalid",
-            "limit_cny": 300,
+            "project_cap_cny": HARD_CAP,
+            "limit_cny": None,
             "spent_cny": None,
             "reserved_cny": None,
             "remaining_cny": None,
@@ -238,6 +240,59 @@ def bootstrap(user: dict = read):
 @router.get("/projects")
 def projects(user: dict = read):
     return [p for p in repo.list("projects") if user["role"] == "admin" or user["id"] in p["members"]]
+
+
+@router.get("/casework/catalog")
+def case_catalog(project_id: str, user: dict = read):
+    from ..casework.team import assigned_workflow, catalog
+
+    s.project_access(project_id, user)
+    flows = {w["id"]: w for w in repo.list("workflows", project_id)}
+    return [
+        {
+            "id": code,
+            **profile,
+            "workflow_id": assigned_workflow(project_id, code),
+            "installed": flows.get(assigned_workflow(project_id, code), {}).get("status") == "published",
+        }
+        for code, profile in sorted(catalog().items())
+    ]
+
+
+@router.post("/casework/install")
+def install_cases(project_id: str, user: dict = edit):
+    from ..casework.team import install
+
+    return install(project_id, user, repo)
+
+
+@router.post("/casework/semantic-evidence", status_code=202)
+def create_public_evidence(body: PublicEvidenceRequest, user: dict = edit):
+    from .public_evidence import submit
+
+    return submit(body, user, repo)
+
+
+@router.get("/tasks/{task_id}/semantic-evidence/report")
+def public_evidence_report(task_id: str, user: dict = read):
+    from .public_evidence import report
+
+    content = report(task_id, user, repo)
+    return Response(
+        content,
+        media_type="text/plain",
+        headers={
+            "Content-Disposition": f'attachment; filename="public-evidence-{quote(task_id, safe="")}.txt"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.get("/agents/activity/summary")
+def agent_activity(project_id: str, window_hours: int = Query(168, ge=1, le=720), user: dict = read):
+    from ..casework.monitor import activity
+
+    return activity(project_id, user, repo, window_hours)
 
 
 @router.post("/model/connectivity")
@@ -391,14 +446,20 @@ async def upload(
     classification: str = Form("local"),
     retention_days: int = Form(30),
     modality: str = Form(""),
+    csv_encoding: str = Form("utf-8"),
     user: dict = edit,
 ):
     s.project_access(project_id, user, True)
-    content = await file.read(10_000_001)
-    if not content or len(content) > 10_000_000:
-        s.fail("input_too_large", "文件不能为空且不能超过10MB", 413)
     filename = file.filename or "upload"
     suffix = Path(filename).suffix.lower()
+    max_bytes = (
+        128_000_000
+        if suffix in {".mp3", ".mp4", ".wav", ".flac", ".mov", ".webm", ".m4a", ".ogg"}
+        else 10_000_000
+    )
+    content = await file.read(max_bytes + 1)
+    if not content or len(content) > max_bytes:
+        s.fail("input_too_large", f"文件不能为空或超过{max_bytes // 1_000_000}MB", 413)
     allowed_suffixes = {
         ".txt",
         ".md",
@@ -421,16 +482,32 @@ async def upload(
         ".mp4",
         ".webm",
         ".mov",
+        ".pdf",
+        ".docx",
+        ".xlsx",
+        ".geojson",
+        ".srt",
+        ".vtt",
     }
     if suffix not in allowed_suffixes:
         s.fail(
             "unsupported_format",
-            "仅接受 UTF-8 文本/JSON/CSV 或登记支持的图片、音视频文件；DOCX/PDF尚未接入",
+            "文件格式未接入",
             422,
         )
     media_type = mimetypes.guess_type(filename)[0] or (
         "application/json" if suffix == ".jsonl" else "application/octet-stream"
     )
+    media_type = {
+        ".csv": "text/csv",
+        ".jsonl": "application/x-ndjson",
+        ".geojson": "application/geo+json",
+        ".srt": "application/x-subrip",
+        ".vtt": "text/vtt",
+        ".pdf": "application/pdf",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }.get(suffix, media_type)
     inferred = (
         "image"
         if media_type.startswith("image/")
@@ -439,22 +516,29 @@ async def upload(
         else "video"
         if media_type.startswith("video/")
         else "structured"
-        if filename.lower().endswith((".csv", ".json", ".jsonl"))
+        if suffix in {".csv", ".json", ".jsonl", ".xlsx", ".geojson"}
         else "text"
     )
     if modality and modality != inferred:
         s.fail("modality_mismatch", "文件类型与声明模态不一致", 422)
     value = None
-    if inferred in ("text", "structured"):
+    if inferred in ("text", "structured") and suffix not in {".pdf", ".docx", ".xlsx"}:
         try:
-            value = content.decode("utf-8-sig")
+            if suffix == ".csv" and csv_encoding not in {"utf-8", "windows-1252"}:
+                s.fail("unsupported_format", "CSV编码仅支持UTF-8或显式声明的Windows-1252", 422)
+            encoding = "cp1252" if suffix == ".csv" and csv_encoding == "windows-1252" else "utf-8-sig"
+            value = content.decode(encoding)
+            if encoding == "cp1252":
+                media_type += ";charset=windows-1252"
         except UnicodeDecodeError:
             s.fail("unsupported_format", "文本文件目前仅接受 UTF-8 txt / md / JSON / CSV", 422)
-        if filename.lower().endswith(".json"):
+        if suffix in {".json", ".geojson"}:
             try:
                 value = json.loads(value)
             except ValueError:
                 s.fail("invalid_json", "JSON文件无法解析", 422)
+        if suffix == ".csv" and (len(content) > 1_900_000 or csv_encoding == "windows-1252"):
+            value = None  # Retain the hashed file, do not duplicate its entire text into every DB row.
     if inferred == "image":
         from io import BytesIO
 
@@ -511,7 +595,7 @@ def tasks(user: dict = read):
 
 @router.post("/tasks", status_code=202)
 def create_task(body: c.TaskInput, user: dict = edit):
-    return s.safe_task(s.create_task(body.model_dump(), user))
+    return task_view(s.create_task(body.model_dump(), user))
 
 
 @router.get("/tasks/{task_id}")
@@ -521,7 +605,7 @@ def task(task_id: str, user: dict = read):
 
 @router.post("/tasks/{task_id}/cancel")
 def cancel(task_id: str, user: dict = edit):
-    return s.safe_task(s.cancel_task(task_id, user))
+    return task_view(s.cancel_task(task_id, user))
 
 
 @router.get("/tasks/{task_id}/result")
@@ -622,6 +706,29 @@ def download(artifact_id: str, user: dict = read):
         media_type=record.get("media_type", "application/json"),
         headers={
             "Content-Disposition": f"attachment; filename*=UTF-8''{quote('artifact-' + artifact_id + '.txt', safe='')}"
+        },
+    )
+
+
+@router.get("/artifacts/{artifact_id}/case-package")
+def case_package(artifact_id: str, user: dict = read):
+    from ..casework.delivery import bundle
+
+    record = artifact_record(artifact_id, user)
+    if record["type"] != "case_report" or not record.get("content"):
+        s.fail("unsupported_output", "当前产物不是可交付的用例报告", 422)
+    task = s.required("tasks", record["task_id"], user)
+    payload = bundle(
+        record["content"],
+        {"task_id": task["id"], "name": task["name"], "status": task["status"], "revision": task["revision"]},
+    )
+    artifact_record(artifact_id, user)
+    return Response(
+        payload,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="case-{record["content"]["case_id"]}.zip"',
+            "Cache-Control": "no-store",
         },
     )
 

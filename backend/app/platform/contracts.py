@@ -11,6 +11,7 @@ TaskType = Literal[
     "image_inspect",
     "audio_transcribe",
     "video_analyze",
+    "case_analysis",
 ]
 
 
@@ -33,6 +34,9 @@ class Member(Contract):
 
 
 class ToolParameters(Contract):
+    case_stage: Literal["prepare", "analyze", "review"] | None = None
+    case_scope: str | None = Field(default=None, pattern=r"^[BTG](0[1-9]|10)$")
+    case_strategy: Literal["strict", "adaptive"] = "strict"
     operation: Literal["normalize", "select", "deduplicate", "sort", "filter"] = "normalize"
     select_fields: list[str] | None = Field(default=None, max_length=50)
     filter: dict[str, str | int | float | bool | None] | None = None
@@ -246,6 +250,8 @@ class TaskInput(Contract):
     name: str = Field(min_length=1, max_length=100)
     goal: str = Field(min_length=1, max_length=8000)
     task_type: TaskType
+    case_id: str | None = Field(default=None, pattern=r"^[BTG](0[1-9]|10)$")
+    case_scope: Literal["reference", "sample"] = "reference"
     input_refs: list[str] = Field(default_factory=list, max_length=50)
     workflow_id: str | None = None
     mode: Literal["local", "cloud", "rehearsal"] = "local"
@@ -259,6 +265,14 @@ class TaskInput(Contract):
     allow_partial: bool = False
     use_project_knowledge: bool = False
     quality: Quality = Field(default_factory=Quality)
+
+    @model_validator(mode="after")
+    def bind_case(self):
+        if (self.task_type == "case_analysis") != (self.case_id is not None):
+            raise ValueError("用例分析任务必须选择有效用例；其他任务不能指定用例")
+        if self.task_type != "case_analysis" and self.case_scope != "reference":
+            raise ValueError("只有用例分析任务可以选择样本范围")
+        return self
 
 
 class MetricsWindow(Contract):

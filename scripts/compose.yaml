@@ -1,40 +1,47 @@
-# Linux / Podman deployment input. Load audited images offline before starting.
-# Required: HANGZHI_APP_IMAGE, HANGZHI_POSTGRES_IMAGE (both image digests), PG_PASSWORD.
+# Production API + worker use an authorized, separately administered DM8 instance.
+# Pre-load the app image with the locked 'dameng' extra. Bootstrap the dedicated
+# DM schema once using scripts.dm_database before starting either process.
+x-runtime: &runtime
+  image: ${HANGZHI_APP_IMAGE:?Set a locally loaded audited application image digest}
+  pull_policy: never
+  network_mode: host
+  environment:
+    HANGZHI_REQUIRE_DM: "true"
+    HANGZHI_DATABASE_URL: ${HANGZHI_DM_URL:?Set the private dedicated DM8 account URL}
+    HANGZHI_OFFLINE: ${HANGZHI_OFFLINE:-false}
+    DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    HANGZHI_MODEL_PROXY: ${HANGZHI_MODEL_PROXY:-}
+    HANGZHI_AUTO_IMPROVE: ${HANGZHI_AUTO_IMPROVE:-false}
+    AGNO_TELEMETRY: "false"
+    HF_HUB_OFFLINE: "1"
+    PROJ_NETWORK: "OFF"
+    HANGZHI_REFERENCE_BATCHES_FILE: /mnt/hangzhi-reference/reference-batches.json
+    TESSDATA_PREFIX: /mnt/hangzhi-media/runtime/share/tessdata
+    HANGZHI_OCR_LANG: ${HANGZHI_OCR_LANG:-eng+rus}
+    HANGZHI_ASR_MODEL_DIR: /mnt/hangzhi-media/models/whisper-base
+    HANGZHI_MT_EN_ZH: /mnt/hangzhi-media/translation/translate-en_zh-1_9
+    HANGZHI_MT_RU_EN: /mnt/hangzhi-media/translation/translate-ru_en-1_9
+    HANGZHI_TESSERACT_PATH: ${HANGZHI_CONTAINER_TESSERACT_PATH:-/usr/bin/tesseract}
+    HANGZHI_FFMPEG_PATH: ${HANGZHI_CONTAINER_FFMPEG_PATH:-/usr/bin/ffmpeg}
+    HANGZHI_FFPROBE_PATH: ${HANGZHI_CONTAINER_FFPROBE_PATH:-/usr/bin/ffprobe}
+  volumes:
+    - type: bind
+      source: ${HANGZHI_LOCAL_DIR:?Set a dedicated private runtime directory with the original ledger}
+      target: /app/.local
+      bind: {create_host_path: false}
+    - type: bind
+      source: ${HANGZHI_REFERENCE_DIR:?Set the private directory containing the operator-verified registry}
+      target: /mnt/hangzhi-reference
+      read_only: true
+      bind: {create_host_path: false}
+    - type: bind
+      source: ${HANGZHI_MEDIA_DIR:?Set the prepared offline media directory, or an existing empty directory for document-only use}
+      target: /mnt/hangzhi-media
+      read_only: true
+      bind: {create_host_path: false}
 services:
-  database:
-    image: ${HANGZHI_POSTGRES_IMAGE:?Set an audited PostgreSQL 17 image digest}
-    environment:
-      POSTGRES_DB: hangzhi
-      POSTGRES_USER: hangzhi
-      POSTGRES_PASSWORD: ${PG_PASSWORD:?Set the database password}
-    ports: ["127.0.0.1:5432:5432"]
-    volumes: ["postgres-data:/var/lib/postgresql/data"]
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U hangzhi -d hangzhi"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
   api:
-    image: ${HANGZHI_APP_IMAGE:?Set the locally built application digest}
-    network_mode: host
-    environment:
-      HANGZHI_DATABASE_URL: postgresql+psycopg://hangzhi:${PG_PASSWORD}@127.0.0.1:5432/hangzhi
-      HANGZHI_OFFLINE: "true"
-      AGNO_TELEMETRY: "false"
-    volumes: ["${HANGZHI_LOCAL_DIR:?Set the restored private runtime directory}:/app/.local"]
-    depends_on:
-      database: {condition: service_healthy}
+    <<: *runtime
   worker:
-    image: ${HANGZHI_APP_IMAGE}
-    network_mode: host
+    <<: *runtime
     command: ["python", "-m", "backend.app.platform.worker"]
-    environment:
-      HANGZHI_DATABASE_URL: postgresql+psycopg://hangzhi:${PG_PASSWORD}@127.0.0.1:5432/hangzhi
-      HANGZHI_OFFLINE: "true"
-      AGNO_TELEMETRY: "false"
-      HANGZHI_AUTO_IMPROVE: "false"
-    volumes: ["${HANGZHI_LOCAL_DIR}:/app/.local"]
-    depends_on:
-      database: {condition: service_healthy}
-volumes:
-  postgres-data:

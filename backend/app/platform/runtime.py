@@ -42,7 +42,7 @@ from .tool_registry import permissions as agent_permissions
 
 ASSET_ROOT = ROOT / ".local" / "platform-assets"
 MAX_FILE_BYTES = 20 * 1024 * 1024
-SUPPORTED = {"structured_transform", "source_summary", "text_analysis", "image_inspect"}
+SUPPORTED = {"structured_transform", "source_summary", "text_analysis", "image_inspect", "case_analysis"}
 
 
 class TaskFailure(RuntimeError):
@@ -64,7 +64,12 @@ def canonical(value) -> str:
 def _asset_path(asset: dict) -> Path:
     path = Path(asset.get("content_ref", "")).resolve()
     root = ASSET_ROOT.resolve()
-    if not path.is_relative_to(root) or not path.is_file() or path.stat().st_size > MAX_FILE_BYTES:
+    if (
+        not path.is_relative_to(root)
+        or not path.is_file()
+        or path.stat().st_size
+        > (128_000_000 if asset.get("modality") in {"audio", "video"} else MAX_FILE_BYTES)
+    ):
         raise TaskFailure("invalid_input", "输入文件不存在、超限或超出受控资产目录")
     return path
 
@@ -707,7 +712,31 @@ async def _run_atomic(
                     "modality": "structured",
                 }
             ]
-        local_call = asyncio.create_task(asyncio.to_thread(execute_local, task_type, tool_inputs, config))
+        if task_type == "case_analysis":
+            from ..casework.engine import execute as execute_case
+
+            last = execution.current().get("quality_verdict") or {}
+            feedback = [i["message"] for i in last.get("issues", [])] if revision else []
+            if (
+                config.get("case_stage") == "analyze"
+                and config.get("case_strategy") == "adaptive"
+                and not feedback
+            ):
+                feedback = ["应用已发布专员的受限字段映射和唯一对应策略，所有更改须可复核"]
+            operation = asyncio.to_thread(
+                execute_case,
+                config.get("case_stage"),
+                execution.task["snapshot"]["case_profile"],
+                tool_inputs,
+                previous,
+                _asset_bytes,
+                feedback,
+                revision,
+                execution.check,
+            )
+        else:
+            operation = asyncio.to_thread(execute_local, task_type, tool_inputs, config)
+        local_call = asyncio.create_task(operation)
         try:
             output = await asyncio.shield(local_call)
         except asyncio.CancelledError:
@@ -731,6 +760,8 @@ async def _run_atomic(
     with execution.repository.transaction() as tx:
         execution.check(tx)
         node.update(status="succeeded", output=output, finished_at=now())
+        if output.get("type") == "case_report":
+            node["review_passed"] = all(c["passed"] for c in output["content"]["review"])
         tx.put("nodes", node)
         instance = tx.get("instances", instance_id)
         instance.update(status="released", released_at=now())
@@ -795,7 +826,9 @@ async def _execute_graph(execution: Execution, revision: int):
                 )
         agent = _agent(execution, plan["agent_id"], plan.get("agent_version"))
         outputs[plan["id"]] = await _run_node(execution, plan, agent, previous, revision)
-    execution.outputs = list(outputs.values())
+    execution.outputs = (
+        [outputs["review"]] if execution.request["task_type"] == "case_analysis" else list(outputs.values())
+    )
 
 
 async def _preflight(step_input: StepInput) -> StepOutput:
@@ -815,7 +848,11 @@ async def _preflight(step_input: StepInput) -> StepOutput:
             verify_frozen_asset(asset, execution.repository.get("data_assets", asset["id"]))
         except DomainError as exc:
             raise TaskFailure(exc.code, exc.message) from None
-        if asset.get("content") is None and asset.get("modality") in {"text", "structured"}:
+        if (
+            execution.request["task_type"] != "case_analysis"
+            and asset.get("content") is None
+            and asset.get("modality") in {"text", "structured"}
+        ):
             asset["content"] = _read_content(asset)
     execution.update("task.planning", status="planning", attempt=execution.task.get("attempt", 0) + 1)
     _graph(execution)
@@ -882,7 +919,12 @@ async def _review_output(execution: Execution, output: dict) -> dict:
     from .contracts import ModelQualityReview
 
     execution.check()
-    deterministic = deterministic_quality(execution.request, output, execution.inputs)
+    deterministic = deterministic_quality(
+        execution.request,
+        output,
+        execution.inputs,
+        scientific_terms=(execution.task.get("semantic_evidence") or {}).get("focus") == "scientific_terms",
+    )
     model_review = None
     if execution.request["mode"] == "cloud" and not deterministic["hard_failures"]:
         response = await _model(

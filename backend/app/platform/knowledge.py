@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from datetime import UTC, datetime, timedelta
+from ipaddress import ip_address, ip_network
 from urllib.parse import urlsplit
 
 import httpx
@@ -12,6 +13,18 @@ from .contracts import ConnectorInput, KnowledgeQuery, MemoryInput
 from .db import now, repo
 from .quality import text_of
 from .service import DomainError, audit, fail, project_access, required, timestamp, usable_asset
+
+
+def offline_host_allowed(host):
+    if os.environ.get("HANGZHI_OFFLINE", "").lower() != "true":
+        return True
+    try:
+        address = ip_address(host)
+    except ValueError:
+        return False
+    return address.is_loopback or any(
+        address in ip_network(net) for net in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7")
+    )
 
 
 def create_connector(body, user):
@@ -24,6 +37,7 @@ def create_connector(body, user):
         if (
             parsed.scheme not in ("http", "https")
             or parsed.hostname not in allowed
+            or not offline_host_allowed(parsed.hostname)
             or parsed.username
             or parsed.password
             or parsed.query
@@ -113,7 +127,9 @@ async def search(body, user):
         if connector["kind"] != "http_knowledge":
             continue
         host = urlsplit(connector["base_url"]).hostname
-        if host not in os.environ.get("HANGZHI_KNOWLEDGE_HOSTS", "").split(","):
+        if host not in os.environ.get("HANGZHI_KNOWLEDGE_HOSTS", "").split(",") or not offline_host_allowed(
+            host
+        ):
             continue
         try:
             async with httpx.AsyncClient(timeout=10, follow_redirects=False, trust_env=False) as client:  # noqa: SIM117

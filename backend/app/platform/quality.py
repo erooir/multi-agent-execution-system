@@ -10,7 +10,7 @@ def text_of(asset: dict) -> str:
     return content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
 
 
-def deterministic_quality(request: dict, output: dict, inputs: list[dict]) -> dict:
+def deterministic_quality(request: dict, output: dict, inputs: list[dict], *, scientific_terms=False) -> dict:
     issues: list[dict] = []
     checks: list[dict] = []
     assets = {asset["id"]: asset for asset in inputs}
@@ -35,7 +35,37 @@ def deterministic_quality(request: dict, output: dict, inputs: list[dict]) -> di
             True,
         )
     task_type = request.get("task_type")
-    if task_type == "structured_transform":
+    if scientific_terms and task_type == "text_analysis":
+        from .scientific_terms import conflicts
+
+        issues_found = conflicts(content, inputs)
+        check(
+            "scientific_source_definitions",
+            not issues_found,
+            " ".join(i["message"] for i in issues_found),
+            True,
+        )
+    if task_type == "case_analysis":
+        kind = output.get("type")
+        check(
+            "case_artifact_type",
+            kind in {"case_records", "case_candidate", "case_report"} and isinstance(content, dict),
+            "用例节点输出结构无效",
+            True,
+        )
+        if kind == "case_report" and isinstance(content, dict):
+            review = content.get("review")
+            check(
+                "case_review_present",
+                isinstance(review, list)
+                and bool(review)
+                and content.get("case_id") == request.get("case_id"),
+                "缺少独立审核或用例不一致",
+                True,
+            )
+            for result in review or []:
+                check(result["name"], result["passed"], result["message"], result["hard"])
+    elif task_type == "structured_transform":
         rows = content.get("records") if isinstance(content, dict) else None
         valid = isinstance(rows, list) and all(isinstance(row, dict) for row in rows)
         check("record_schema", valid, "结构化产物必须包含对象数组 records", True)

@@ -467,6 +467,20 @@ export function TaskForm({
   });
   const [catalog, setCatalog] = useState<Item[]>([]);
   const [catalogError, setCatalogError] = useState("");
+  const [profiles, setProfiles] = useState<Item[]>([]);
+  useEffect(() => {
+    if (form.task_type !== "case_analysis") return;
+    const c = new AbortController();
+    api<Item[]>(
+      "/v2/casework/catalog?project_id=" + encodeURIComponent(projectId),
+      { signal: c.signal },
+    )
+      .then(setProfiles)
+      .catch((e) => {
+        if (e.name !== "AbortError") setCatalogError(e.message);
+      });
+    return () => c.abort();
+  }, [form.task_type, projectId]);
   const [preview, setPreview] = useState<
     components["schemas"]["TaskPreflight"] | null
   >(null);
@@ -507,6 +521,11 @@ export function TaskForm({
       name: form.name,
       goal: form.goal,
       task_type: form.task_type,
+      case_id: form.task_type === "case_analysis" ? form.case_id : null,
+      case_scope:
+        form.task_type === "case_analysis"
+          ? form.case_scope || "reference"
+          : "reference",
       input_refs: form.input_refs,
       mode: form.mode,
       service_class: form.service_class,
@@ -604,6 +623,36 @@ export function TaskForm({
       <p className="note">
         {capability?.description || "正在读取服务端能力目录…"}
       </p>
+      {form.task_type === "case_analysis" && (
+        <Field label="分析用例" hint="使用项目已发布的解析、分析和审核专员。">
+          <select
+            required
+            value={form.case_id || ""}
+            onChange={(e) =>
+              setForm({ ...form, case_id: e.target.value, workflow_id: "" })
+            }
+          >
+            <option value="">选择用例</option>
+            {profiles.map((p) => (
+              <option key={p.id} value={p.id} disabled={!p.installed}>
+                {p.id} · {p.title}
+                {!p.installed ? "（未安装）" : ""}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+      {form.task_type === "case_analysis" && (
+        <Field label="验收范围">
+          <select
+            value={form.case_scope || "reference"}
+            onChange={(e) => update("case_scope", e.target.value)}
+          >
+            <option value="reference">参考用例的指定批次</option>
+            <option value="sample">缩小样本验证（不代表完整用例验收）</option>
+          </select>
+        </Field>
+      )}
       <Field label="任务目标">
         <textarea
           required
@@ -674,7 +723,7 @@ export function TaskForm({
               value="local"
               disabled={!capability?.modes.includes("local")}
             >
-              本地工具 · 无模型推理
+              本地执行 · 不调用云模型
             </option>
             <option
               value="cloud"
@@ -699,7 +748,11 @@ export function TaskForm({
             {workflows
               .filter(
                 (w) =>
-                  w.status === "published" && w.task_type === form.task_type,
+                  w.status === "published" &&
+                  w.task_type === form.task_type &&
+                  (form.task_type !== "case_analysis" ||
+                    w.id ===
+                      profiles.find((p) => p.id === form.case_id)?.workflow_id),
               )
               .map((w) => (
                 <option key={w.id} value={w.id}>
@@ -886,6 +939,7 @@ export function TaskForm({
 export function AssetForm({ projectId, onClose, mutate }: Common) {
   const [upload, setUpload] = useState(false),
     [file, setFile] = useState<File | null>(null);
+  const [csvEncoding, setCsvEncoding] = useState("utf-8");
   const [form, setForm] = useState<Item>({
     name: "",
     modality: "structured",
@@ -913,6 +967,8 @@ export function AssetForm({ projectId, onClose, mutate }: Common) {
             .filter(([k]) => !["content", "media_type"].includes(k))
             .forEach(([k, v]) => data.append(k, String(v)));
           data.append("file", file);
+          if (/\.csv$/i.test(file.name))
+            data.append("csv_encoding", csvEncoding);
           return mutate(
             () => api("/v2/data-assets/upload", { method: "POST", body: data }),
             "文件已登记",
@@ -993,7 +1049,7 @@ export function AssetForm({ projectId, onClose, mutate }: Common) {
       {upload ? (
         <Field
           label="选择文件"
-          hint="上限 10 MB；文本、JSON、CSV 使用 UTF-8 编码。"
+          hint="文档、表格、图片上限10 MB；音视频上限128 MB。支持 PDF、DOCX、XLSX、GeoJSON 和字幕。"
         >
           <input
             type="file"
@@ -1008,7 +1064,7 @@ export function AssetForm({ projectId, onClose, mutate }: Common) {
                     ? "audio"
                     : selected.type.startsWith("video/")
                       ? "video"
-                      : /\.(json|csv|jsonl)$/i.test(selected.name)
+                      : /\.(json|csv|jsonl|geojson|xlsx)$/i.test(selected.name)
                         ? "structured"
                         : "text";
                 setForm({
@@ -1036,6 +1092,17 @@ export function AssetForm({ projectId, onClose, mutate }: Common) {
                 : "输入有权处理的原始文本"
             }
           />
+        </Field>
+      )}
+      {upload && file && /\.csv$/i.test(file.name) && (
+        <Field label="CSV文件编码">
+          <select
+            value={csvEncoding}
+            onChange={(e) => setCsvEncoding(e.target.value)}
+          >
+            <option value="utf-8">UTF-8</option>
+            <option value="windows-1252">Windows-1252</option>
+          </select>
         </Field>
       )}
       <div className="form-grid">

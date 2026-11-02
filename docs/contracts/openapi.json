@@ -312,6 +312,202 @@
         }
       }
     },
+    "/api/v2/casework/catalog": {
+      "get": {
+        "summary": "Case Catalog",
+        "operationId": "case_catalog_api_v2_casework_catalog_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/casework/install": {
+      "post": {
+        "summary": "Install Cases",
+        "operationId": "install_cases_api_v2_casework_install_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/casework/semantic-evidence": {
+      "post": {
+        "summary": "Create Public Evidence",
+        "operationId": "create_public_evidence_api_v2_casework_semantic_evidence_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicEvidenceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/tasks/{task_id}/semantic-evidence/report": {
+      "get": {
+        "summary": "Public Evidence Report",
+        "operationId": "public_evidence_report_api_v2_tasks__task_id__semantic_evidence_report_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/agents/activity/summary": {
+      "get": {
+        "summary": "Agent Activity",
+        "operationId": "agent_activity_api_v2_agents_activity_summary_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "window_hours",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 720,
+              "minimum": 1,
+              "default": 168,
+              "title": "Window Hours"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/model/connectivity": {
       "post": {
         "summary": "Model Connectivity",
@@ -1558,6 +1754,43 @@
         }
       }
     },
+    "/api/v2/artifacts/{artifact_id}/case-package": {
+      "get": {
+        "summary": "Case Package",
+        "operationId": "case_package_api_v2_artifacts__artifact_id__case_package_get",
+        "parameters": [
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Artifact Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/budget": {
       "get": {
         "summary": "Budget",
@@ -2066,7 +2299,8 @@
                 "text_analysis",
                 "image_inspect",
                 "audio_transcribe",
-                "video_analyze"
+                "video_analyze",
+                "case_analysis"
               ]
             },
             "type": "array",
@@ -2292,6 +2526,11 @@
             "type": "string",
             "title": "Modality",
             "default": ""
+          },
+          "csv_encoding": {
+            "type": "string",
+            "title": "Csv Encoding",
+            "default": "utf-8"
           }
         },
         "type": "object",
@@ -2753,6 +2992,76 @@
         ],
         "title": "ProjectInput"
       },
+      "PublicEvidenceRequest": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Project Id"
+          },
+          "input_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 12,
+            "minItems": 1,
+            "title": "Input Refs"
+          },
+          "focus": {
+            "type": "string",
+            "enum": [
+              "claim_check",
+              "timeline",
+              "comparison",
+              "scientific_terms"
+            ],
+            "title": "Focus",
+            "default": "claim_check"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "maxLength": 140,
+            "minLength": 1,
+            "title": "Idempotency Key"
+          },
+          "max_cost_cny": {
+            "type": "number",
+            "maximum": 0.8,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Cost Cny"
+          },
+          "public_egress_authorized": {
+            "type": "boolean",
+            "const": true,
+            "title": "Public Egress Authorized"
+          },
+          "case_task_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Task Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_id",
+          "input_refs",
+          "idempotency_key",
+          "max_cost_cny",
+          "public_egress_authorized"
+        ],
+        "title": "PublicEvidenceRequest"
+      },
       "Quality": {
         "properties": {
           "min_records": {
@@ -2972,9 +3281,31 @@
               "text_analysis",
               "image_inspect",
               "audio_transcribe",
-              "video_analyze"
+              "video_analyze",
+              "case_analysis"
             ],
             "title": "Task Type"
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[BTG](0[1-9]|10)$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "case_scope": {
+            "type": "string",
+            "enum": [
+              "reference",
+              "sample"
+            ],
+            "title": "Case Scope",
+            "default": "reference"
           },
           "input_refs": {
             "items": {
@@ -3414,7 +3745,8 @@
               "text_analysis",
               "image_inspect",
               "audio_transcribe",
-              "video_analyze"
+              "video_analyze",
+              "case_analysis"
             ],
             "title": "Task Type"
           },

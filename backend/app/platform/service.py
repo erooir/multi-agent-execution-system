@@ -16,7 +16,7 @@ from .db import QUEUE_AGING_SECONDS, QUEUE_POLICY_VERSION, ROOT, TERMINAL, now, 
 from .tool_registry import freeze_bindings, permissions, validate_frozen
 
 ASSET_DIR = ROOT / ".local" / "platform-assets"
-TOOLS = {"structured_transform", "source_summary", "text_analysis", "image_inspect"}
+TOOLS = {"structured_transform", "source_summary", "text_analysis", "image_inspect", "case_analysis"}
 CAPABILITIES = [
     {
         "id": "structured_transform",
@@ -60,7 +60,7 @@ CAPABILITIES = [
         "modalities": ["audio"],
         "available": False,
         "modes": [],
-        "description": "等待上游或本地转写服务的实际能力验收",
+        "description": "独立转写入口未发布；用例研判可使用已预配的离线转录模型",
     },
     {
         "id": "video_analyze",
@@ -68,7 +68,16 @@ CAPABILITIES = [
         "modalities": ["video"],
         "available": False,
         "modes": [],
-        "description": "尚未接入经过验证的视频模型",
+        "description": "用例可解码抽帧、音轨转录；独立通用视频语义任务尚未开放",
+    },
+    {
+        "id": "case_analysis",
+        "name": "用例协作分析",
+        "modalities": ["text", "structured", "image", "audio", "video"],
+        "available": True,
+        "modes": ["local"],
+        "tool_id": "case_analysis",
+        "description": "项目内资料解析、专业计算与独立审核；按所选用例验证交付",
     },
 ]
 
@@ -634,7 +643,8 @@ def verify_frozen_asset(frozen, current):
         if (
             not path.is_relative_to(ASSET_DIR.resolve())
             or not path.is_file()
-            or path.stat().st_size > 20_000_000
+            or path.stat().st_size
+            > (128_000_000 if frozen.get("modality") in {"audio", "video"} else 20_000_000)
         ):
             fail("input_unavailable", "冻结文件不存在或不在受控存储范围内", 409)
         raw = path.read_bytes()
@@ -642,7 +652,7 @@ def verify_frozen_asset(frozen, current):
         if frozen.get("modality") in {"text", "structured"} and frozen.get("content") is not None:
             try:
                 parsed = raw.decode("utf-8-sig")
-                if frozen.get("media_type") == "application/json":
+                if frozen.get("media_type") in {"application/json", "application/geo+json"}:
                     parsed = json.loads(parsed)
                 if parsed != frozen["content"]:
                     fail("input_changed", "已解析内容与冻结文件不一致", 409)
@@ -773,6 +783,17 @@ def create_task(body, user, repository=None, *, preflight=False):
                 fail("knowledge_scope_too_large", "项目公开知识超过50份，请缩小项目资料范围", 422)
         if not inputs:
             fail("insufficient_data", "请至少选择一份有效资料", 422)
+        if body["task_type"] != "case_analysis" and any(
+            a.get("media_type")
+            in {
+                "application/pdf",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "text/csv;charset=windows-1252",
+            }
+            for a in inputs
+        ):
+            fail("unsupported_input", "该文件需要用例协作组解析，请使用用例分析入口", 422)
         if any(a["modality"] not in capability["modalities"] for a in inputs):
             fail("unsupported_input", "所选资料类型不符合任务能力，请更换任务类型或资料", 422)
         if body["mode"] == "cloud" and body["max_cost_cny"] <= 0:
@@ -792,6 +813,25 @@ def create_task(body, user, repository=None, *, preflight=False):
             if budget.get("accounting_violation") or budget.get("remaining_cny", 0) <= 0:
                 fail("budget_exhausted", "项目累计预算不可用，请检查费用与未决预留", 422)
         workflow = None
+        case_contract = None
+        if body["task_type"] == "case_analysis":
+            from ..casework.team import assigned_workflow, frozen_profile
+
+            case_contract = frozen_profile(body["case_id"])
+            case_contract["scope"] = body["case_scope"]
+            if body["case_scope"] == "reference":
+                from ..casework.reference_batches import freeze
+
+                case_contract["reference_batch"] = freeze(body["project_id"], body["case_id"])
+            flow_id = assigned_workflow(body["project_id"], body["case_id"])
+            if body.get("workflow_id") and body["workflow_id"] != flow_id:
+                fail("case_team_required", "必须使用与用例匹配的项目协作组", 422)
+            template = tx.get("workflows", flow_id)
+            if not template or template["status"] != "published":
+                fail("case_team_required", "请先在本项目安装并启用用例协作组", 422)
+            workflow = tx.get("workflow_versions", f"{flow_id}:{template['current_version']}")
+            if not workflow:
+                fail("case_team_required", "协作组缺少已发布版本", 422)
         if body.get("workflow_id"):
             definition = required("workflows", body["workflow_id"], user, repository=tx)
             if (
@@ -803,7 +843,9 @@ def create_task(body, user, repository=None, *, preflight=False):
             workflow = tx.get("workflow_versions", f"{definition['id']}:{definition['current_version']}")
         if not workflow:
             candidates = [
-                a for a in tx.list("agents", body["project_id"]) if compatible_agent(tx, a, body, inputs)
+                a
+                for a in tx.list("agents", body["project_id"])
+                if not a.get("explicit_workflow_only") and compatible_agent(tx, a, body, inputs)
             ]
             candidates.sort(
                 key=lambda a: (a["purpose"] != "specialized", a["structure"] != "atomic", a["id"])
@@ -834,7 +876,20 @@ def create_task(body, user, repository=None, *, preflight=False):
             ):
                 fail("no_compatible_agent", "流程包含不匹配或未授权的智能体，请更新流程版本", 422)
         agents = _freeze_agents(tx, workflow["nodes"], body["project_id"])
+        if case_contract:
+            from ..casework.team import verify_team
+
+            verify_team(workflow, agents, body["project_id"], body["case_id"])
         if preflight:
+            warnings = ["网络连通不代表密钥或模型调用已验证"] if body["mode"] == "cloud" else []
+            if case_contract and case_contract["scope"] == "reference":
+                from ..casework.reference_batches import source_checks
+
+                warnings.extend(
+                    c["message"]
+                    for c in source_checks(case_contract, inputs, body["project_id"])
+                    if not c["passed"]
+                )
             return {
                 "ready": True,
                 "selected_agents": [
@@ -850,7 +905,7 @@ def create_task(body, user, repository=None, *, preflight=False):
                     "offline_policy",
                     "knowledge_scope",
                 ],
-                "warnings": ["网络连通不代表密钥或模型调用已验证"] if body["mode"] == "cloud" else [],
+                "warnings": warnings,
             }
         task_id = uuid.uuid4().hex
         accepted_at = datetime.now(UTC)
@@ -876,6 +931,7 @@ def create_task(body, user, repository=None, *, preflight=False):
                     "workflow": workflow,
                     "inputs": inputs,
                     "scheduling": scheduling,
+                    **({"case_profile": case_contract} if case_contract else {}),
                 },
                 "created_at": accepted_at.isoformat(),
                 "attempt": 0,
@@ -927,7 +983,10 @@ def cancel_task(task_id, user, repository=None):
 
 
 def safe_asset(record):
-    return {k: v for k, v in record.items() if k not in ("content", "content_ref")}
+    return {
+        **{k: v for k, v in record.items() if k not in ("content", "content_ref")},
+        "parsed_content_available": record.get("content") is not None,
+    }
 
 
 def safe_task(record):
@@ -997,4 +1056,9 @@ def task_detail(task_id, user, repository=None):
         result["quality_verdict"] = None
         result["tool_calls"] = [{**item, "summary": {}} for item in result.get("tool_calls", [])]
         result["content_withheld"] = True
+    elif (task.get("semantic_evidence") or {}).get("focus") == "scientific_terms":
+        from .public_evidence import term_review_note
+
+        if note := term_review_note(task, user, repository):
+            result["scientific_review_note"] = note
     return result

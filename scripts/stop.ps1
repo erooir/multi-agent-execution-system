@@ -1,15 +1,22 @@
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $expectedExecutable = Join-Path $projectRoot '.venv/Scripts/python.exe'
+$allowedExecutables = @($expectedExecutable)
+$pythonPointer = Join-Path $projectRoot '.local/platform-python.txt'
+if (Test-Path -LiteralPath $pythonPointer) {
+    $allowedExecutables += (Resolve-Path -LiteralPath ((Get-Content -LiteralPath $pythonPointer -Raw).Trim())).Path
+}
 foreach ($kind in @('worker','server')) {
     $statePath = Join-Path $projectRoot ".local/$kind.json"
     if (-not (Test-Path -LiteralPath $statePath)) { continue }
     $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
     if ($state.root -ne $projectRoot) { throw 'Recorded workspace mismatch' }
+    $stateExecutable = if ($state.executable) { $state.executable } else { $expectedExecutable }
+    if ($stateExecutable -notin $allowedExecutables) { throw 'Unrecognized Python runtime; refusing to stop the recorded process.' }
     $pattern = if ($kind -eq 'worker') { '*backend.app.platform.worker*' } else { '*uvicorn backend.app.main:app*' }
     $recorded = Get-CimInstance Win32_Process -Filter "ProcessId = $($state.pid)" -ErrorAction SilentlyContinue
     if (-not $recorded) { Write-Output "$kind recorded process no longer exists; no process was stopped."; continue }
-    if ($recorded.ExecutablePath -ne $expectedExecutable -or $recorded.CommandLine -notlike $pattern) { throw "Recorded $kind PID belongs to another process; refusing to stop it." }
+    if ($recorded.ExecutablePath -ne $stateExecutable -or $recorded.CommandLine -notlike $pattern) { throw "Recorded $kind PID belongs to another process; refusing to stop it." }
     $allProcesses = @(Get-CimInstance Win32_Process)
     $ownedIds = [System.Collections.Generic.List[int]]::new()
     $ownedIds.Add([int]$state.pid)

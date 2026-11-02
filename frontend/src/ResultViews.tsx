@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import type { Item } from "./types";
 import { Badge, Empty, JsonView } from "./ui";
+import CaseReport from "./CaseReport";
 import {
   displayValue,
   qualityOutputs,
@@ -122,6 +123,23 @@ export function ArtifactContent({ artifact }: { artifact: Item }) {
     return <p className="warning">来源已撤回或过期，该产物内容不再提供。</p>;
   const content = artifact.content,
     rows = resultRows(content);
+  if (artifact.type === "case_report")
+    return (
+      <>
+        <a
+          className="button"
+          href={
+            "/api/v2/artifacts/" +
+            encodeURIComponent(artifact.id) +
+            "/case-package"
+          }
+          download
+        >
+          下载报告、数据表和图层
+        </a>
+        <CaseReport content={content} />
+      </>
+    );
   const columns = rows ? tableColumns(rows) : [];
   const filtered =
     rows?.filter(

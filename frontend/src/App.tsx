@@ -35,6 +35,7 @@ import { AgentsPage, DataPage, WorkflowsPage } from "./AssetPages";
 import TasksPage from "./TaskPages";
 import { modeName } from "./domain";
 import MetricsPanel from "./MetricsPanel";
+import Casework from "./Casework";
 import "./task-experience.css";
 import {
   ImprovementsPage,
@@ -43,6 +44,7 @@ import {
 } from "./ManagementPages";
 const nav: { id: Page; name: string; icon: any; group: string }[] = [
   { id: "overview", name: "工作台总览", icon: Gauge, group: "工作空间" },
+  { id: "casework", name: "用例研判", icon: Layers3, group: "工作空间" },
   { id: "agents", name: "智能体资产", icon: Bot, group: "工作空间" },
   { id: "tasks", name: "任务运行", icon: Activity, group: "工作空间" },
   { id: "workflows", name: "协作流程", icon: Workflow, group: "资产与知识" },
@@ -353,7 +355,11 @@ export default function App() {
               <RefreshCw size={18} className={refreshing ? "spin" : ""} />
             </button>
             <span className="environment">
-              {data?.system.offline ? "离线部署" : "本机环境"}
+              {data
+                ? data.system.offline
+                  ? "离线部署"
+                  : "允许受控云调用"
+                : "读取部署策略中"}
             </span>
           </div>
         </header>
@@ -393,6 +399,18 @@ export default function App() {
                   workflows={workflows}
                   go={go}
                   openTask={openTask}
+                />
+              )}
+              {page === "casework" && (
+                <Casework
+                  key={projectId}
+                  {...common}
+                  assets={assets}
+                  workflows={workflows}
+                  tasks={tasks}
+                  offline={!!data.system.offline}
+                  onTask={openTask}
+                  onAgent={openAgent}
                 />
               )}
               {page === "agents" && (
@@ -771,7 +789,8 @@ function Overview({
           </span>
           <strong>¥ {money(data.budget?.remaining_cny)}</strong>
           <small>
-            项目累计上限 ¥ {data.budget?.limit_cny ?? "—"} · 多机调用需合并账本
+            项目累计上限 ¥ {data.budget?.project_cap_cny ?? "—"} · 本机领取上限
+            ¥ {data.budget?.limit_cny ?? "—"}
           </small>
         </button>
       </div>

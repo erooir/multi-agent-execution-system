@@ -156,6 +156,8 @@ def _check_cancelled(scope: RequestScope | None) -> None:
 
 
 def _authorize_egress(*, run_id=None, evidence=None, context=None) -> str | None:
+    if os.environ.get("HANGZHI_OFFLINE", "").lower() == "true":
+        raise ModelCallError("offline_policy", "离线部署禁止付费模型请求")
     scope = _request_scope.get()
     _check_cancelled(scope)
     if scope and not scope.allow_external:
@@ -368,6 +370,7 @@ class BudgetLedger:
             counters = dict(db.execute("SELECT name,value FROM counters").fetchall())
         limit = min(float(limit), HARD_CAP)
         return {
+            "project_cap_cny": HARD_CAP,
             "limit_cny": limit,
             "spent_cny": round(row["spent"], 6),
             "reserved_cny": round(row["reserved"], 6),

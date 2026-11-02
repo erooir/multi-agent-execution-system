@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -33,25 +34,37 @@ class RequestBodyLimitMiddleware:
             declared = int(headers.get(b"content-length", b"0"))
         except ValueError:
             declared = -1
-        if declared < 0 or declared > self.max_bytes:
+        limit = 129_000_000 if scope.get("path") == "/api/v2/data-assets/upload" else self.max_bytes
+        if declared < 0 or declared > limit:
             return await self.reject(scope, receive, send, 400 if declared < 0 else 413)
-        messages, total = [], 0
-        while True:
-            message = await receive()
-            if message["type"] == "http.disconnect":
-                return
-            total += len(message.get("body", b""))
-            if total > self.max_bytes:
-                return await self.reject(scope, receive, send, 413)
-            messages.append(message)
-            if not message.get("more_body", False):
-                break
-        iterator = iter(messages)
+        total = 0
+        with tempfile.SpooledTemporaryFile(max_size=1_000_000) as body:
+            while True:
+                message = await receive()
+                if message["type"] == "http.disconnect":
+                    return
+                chunk = message.get("body", b"")
+                total += len(chunk)
+                if total > limit:
+                    return await self.reject(scope, receive, send, 413)
+                body.write(len(chunk).to_bytes(4, "big"))
+                body.write(bytes([bool(message.get("more_body", False))]))
+                body.write(chunk)
+                if not message.get("more_body", False):
+                    break
+            body.seek(0)
+            finished = False
 
-        async def replay():
-            return next(iterator, None) or await receive()
+            async def replay():
+                nonlocal finished
+                if finished:
+                    return await receive()
+                length = int.from_bytes(body.read(4), "big")
+                finished = body.read(1) == b"\x00"
+                chunk = body.read(length)
+                return {"type": "http.request", "body": chunk, "more_body": not finished}
 
-        return await self.app(scope, replay, send)
+            return await self.app(scope, replay, send)
 
     @staticmethod
     async def reject(scope, receive, send, status):

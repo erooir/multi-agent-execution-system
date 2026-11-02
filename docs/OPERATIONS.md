@@ -1,12 +1,14 @@
 # 航智平台运行与恢复
 
-本文对应 v2 契约。Windows 是当前开发环境；Linux、PostgreSQL、内网模型及目标硬件的正式离线验收必须在目标环境完成。不得将本机确定性工具运行或 rehearsal 作为离线模型推理证明。
+本文对应 v2 契约。Windows 是当前开发环境；本机 Windows CPU 环境已经接通达梦 DM8。最终交付设备、集群、内网推理服务及任务时限需分别在目标环境验收。不得将本机确定性工具运行或 rehearsal 作为离线模型推理证明。
+
+当前正式部署请使用[达梦初始化、迁移和恢复手册](DAMENG.md)。下文注明日期的 PostgreSQL/SQLite 验证记录仅用于历史环境。
 
 ## 运行边界
 
 - API 默认绑定 `127.0.0.1`，Worker 作为独立进程共享平台数据库。只有管理 API 可从浏览器访问，AgentOS 原生模型、团队和工作流路由不公开。
-- `HANGZHI_DATABASE_URL` 配置平台业务库；未配置时使用 `.local/platform-v2.sqlite3`。PostgreSQL 凭据仅在服务端环境或受保护凭据文件中设置，不能写入 Git 或命令记录。
-- 身份和旧兼容设置位于 `.local/workbench.sqlite3`；新版任务不继承旧任务状态。上传文件位于 `.local/platform-assets/`；任务产物以业务库内容及索引保存。
+- `HANGZHI_DATABASE_URL` 配置平台业务库；正式入口强制达梦连接，连接配置缺失即停止启动。达梦凭据仅在服务端环境或受保护凭据文件中设置，不能写入 Git 或命令记录。
+- 身份及设置随业务保存在达梦，迁移保留账号和历史任务，旧登录会话失效。上传文件位于 `.local/platform-assets/`；任务产物以业务库内容及索引保存。
 - 模型历史账本固定为仓库 `.local/budget.sqlite3`。更换业务库、工作目录、`WORKBENCH_DATA_DIR` 或升级代码都不会获得新额度。默认网关在历史账本缺失时拒绝启动计费；只能从完整、可信的最新备份恢复。
 - 模型密钥通过服务端环境读取。日志、截图、异常和前端只显示是否已配置，不显示值。
 - 禁止运行时安装依赖、下载模型/字体或启用遥测。对外部请求的许可由任务策略和网关共同执行。
@@ -93,9 +95,9 @@ usage = model_gateway.usage(task_id)
 & .venv/Scripts/python.exe scripts/offline_package.py --target linux-x86_64-python3.12
 ```
 
-产物写入 `.local/release/`，包含公开源码、存在时的前端构建、依赖分发元数据清单和逐文件 SHA-256。它扫描 Git 跟踪及未忽略的新源码，拒绝私有路径、Office、数据库和常见凭据。manifest 同时记录 HEAD 与工作区是否有未提交修改。
+产物写入 `.local/release/`，包含 **Git 索引中的公开版本**、单独核查的前端构建、依赖分发元数据清单和逐文件 SHA-256。新模块需先审核并提交或暂存；未跟踪文件和未暂存的源码修改不进入包。前端只接受 index.html 和当前 Vite 构建的带哈希 JS/CSS；混入其他文件时停止。manifest 同时记录 HEAD 与工作区是否有未提交修改。
 
-可通过 `--wheelhouse` 加入已经准备好的目标平台 `.whl`。脚本不下载任何依赖，也不将当前 Windows 依赖误当作 Linux 已可用安装包。manifest 始终标记 `offline_acceptance=NOT_RUN`、`redistribution_review=REQUIRED`，直到另有目标环境验收记录。
+可通过 `--wheelhouse` 加入准备机上名称和 SHA-256 与索引中 uv.lock 一致的 `.whl`。脚本不下载依赖；ZIP 是源码交付，不表示指定平台已有完整运行环境。manifest 标记 `offline_acceptance=NOT_RUN`、`redistribution_review=REQUIRED`，直到另有目标环境验收记录。
 
 交付前仍需完成：
 
@@ -107,7 +109,35 @@ usage = model_gateway.usage(task_id)
 
 历史账本和其他运行数据通过独立私有迁移流程进入离线环境，绝不能在源码包中夹带。不存在经过验证的内网多模态服务时，能力目录继续返回不支持；不得用测试替身补齐验收结果。
 
-## 本次本机容器验收产物
+## Linux 容器：构建、私有挂载与运行模式（2026-11-02）
+
+当前开发默认允许**通过统一网关**调用固定的已计价模型；没有密钥、当前来源不允许外发、账本不可用或预算不足仍会拒绝。30 个本地用例自身不需要云调用。容器镜像和 wheel 安装可在有网准备机制作，也保留无索引/离线安装路径；此处不声称新版本已在客户目标 Linux 服务上通过验收。
+
+**生成干净的构建目录。** 对应目标工件为 Linux amd64 / ARM64、CPython 3.12；不能用 Windows 91 个 wheel 或旧 Linux 55 包闭包代替。在准备机导出 `uv export --frozen --all-extras --no-dev --no-emit-project --format requirements-txt -o <要求清单>`，为目标 OS/CPU 备齐 wheel。确认应用代码和控制脚本已在 Git 索引内，从这版源码构建 frontend/dist，再执行：
+
+```text
+python -m scripts.offline_package --target linux-x86_64-python3.12 --container-context .local/release/context-<版本> --requirements <要求清单> --wheelhouse <Linux wheelhouse>
+podman build --pull=never --network=none --build-arg BASE_IMAGE=<本地已加载的镜像@sha256摘要> -f .local/release/context-<版本>/scripts/Containerfile -t hangzhi-app:<版本> .local/release/context-<版本>
+```
+
+ARM64 用 `linux-aarch64-python3.12`。上下文只含已审核的 backend 应用源码（含 casework）、公开 skills、DM 初始化/迁移 CLI、管理员参考批次登记和其清单读取程序、静态构建、去除准备机注释路径的哈希依赖清单、锁定 wheel。只允许新的 `.local/release` 子目录；目标平台或包哈希不符会拒绝。安装缺包即失败。**不要把整个工作区、客户原件、实际可信清单、模型、DSN 或 .local 加入构建上下文。** 基础镜像须事先具备目标 Linux 所需原生运行库或适当的外部供应方式；Windows EXE/DLL 不适用于 Linux。
+
+**启动前分别准备以下挂载。** Linux Compose 使用已加载的 `HANGZHI_APP_IMAGE`（固定镜像摘要，禁止自动拉取），以受保护环境提供 `HANGZHI_DM_URL`。宿主机上的三个目录必须先存在，不能用空卷替代历史账本：
+
+| 宿主变量 | 容器路径 / 权限 | 准备内容 |
+| --- | --- | --- |
+| HANGZHI_LOCAL_DIR | /app/.local，可写 | 专用私有运行目录，包括经核验的原 budget.sqlite3 和受控资产。不要直接挂载混有交接包的开发目录。应用 UID/GID 1000 应仅获所需权限。冻结媒体路径迁移条件见[达梦手册](DAMENG.md)。 |
+| HANGZHI_REFERENCE_DIR | /mnt/hangzhi-reference，只读 | 部署人员核验并登记的 reference-batches.json。可在管理环境运行 `python -m scripts.register_reference_batches`，将输出指向此私有目录；同批复制历史。API/Worker 只读。无可信清单不能判定参考批次成功。 |
+| HANGZHI_MEDIA_DIR | /mnt/hangzhi-media，只读 | 经授权私下迁移的词库、ASR/翻译模型，保留相对目录层级。可挂已存在的空目录进行无媒体的验证，此时相应媒体能力不可用。 |
+
+Windows 准备目录 `E:/Hangzhi/offline-media` 中可移植的是与目标组件匹配且获准迁移的 `runtime/share/tessdata`、`models/whisper-base` 和 `translation/translate-{en_zh,ru_en}-1_9`。将这些数据放入 **Linux 宿主自己的 HANGZHI_MEDIA_DIR**，不用 E 盘绝对路径作为容器内路径。Tesseract、FFmpeg、ffprobe 和 DM 客户端要使用 Linux 发行版适配的程序/动态库；Compose 默认前三者位于 /usr/bin，可用 HANGZHI_CONTAINER_TESSERACT_PATH、HANGZHI_CONTAINER_FFMPEG_PATH、HANGZHI_CONTAINER_FFPROBE_PATH 调整容器内绝对路径。语言用 HANGZHI_OCR_LANG，默认 eng+rus；词库未知或缺失不会自动下载。API/Worker 需使用相同挂载和配置，避免受理时指纹与执行时不符。
+
+1. 在 API 与 Worker 尚未运行时，按[DM8 初始化与迁移](DAMENG.md)在独立 schema 运行 `python -m scripts.dm_database init` / `check`。凭据仅由部署系统传入；不要展示含真实环境值的 compose config 或容器 inspect 输出。
+2. 在 Linux 主机用 `scripts/compose.yaml` 启动两个服务，检查回环地址 `127.0.0.1:8000/api/v2/health` 与 Worker 心跳。默认 `HANGZHI_OFFLINE=false`；如需云取证，私下提供 DEEPSEEK_API_KEY，必要时提供 HANGZHI_MODEL_PROXY。即使允许云网关，HF_HUB_OFFLINE=1、PROJ_NETWORK=OFF、Agno 遥测关闭，避免运行时抓取模型/地理资源。
+3. **可选全离线模式**：设置 `HANGZHI_OFFLINE=true` 并重新创建 API/Worker。应用拒绝付费模型调用；如果需要实际网络隔离，宿主/部署网络还须封禁公网、仅保留回环或获准 DM/内网服务。Compose 使用 Linux host 网络与专用 DM；一个策略开关或 Web 健康检查不能证明物理断网。验收专用 8100 实例保持独立，不复用正式运行目录。
+4. 执行[用例验收](CASEWORK.md)核对合成样本、可信批次和权限，分别记录实际软件、权重、许可、耗时及结果；小样本不证明全部原件或目标机服务时限。
+
+## 历史本机容器验收产物
 
 2026-10-17，公开代码cc92ec5在本机WSL/Podman6.1.4完成Linux amd64应用断网构建与任务验证。生产依赖为55个固定哈希wheel，基础镜像为Python3.12.15，均在联网准备阶段获得；构建、依赖安装及应用运行阶段不依赖网络。具体范围见VALIDATION.md，不能替代目标生产硬件、模型推理或容量验收。
 

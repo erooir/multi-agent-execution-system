@@ -274,6 +274,15 @@ def main():
     parser.add_argument("--restore-missing-ledger", action="store_true")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
+    configured_url = os.environ.get("HANGZHI_DATABASE_URL", "").lower()
+    if args.action != "verify" and (
+        configured_url.startswith(("dm://", "dm+"))
+        or os.environ.get("HANGZHI_REQUIRE_DM", "").lower() == "true"
+        or (not configured_url and (root / ".local" / "dm-url-file.txt").is_file())
+    ):
+        parser.error(
+            "达梦部署须使用达梦原生协调备份/恢复；旧SQLite文件不是业务或身份备份，参见 docs/DAMENG.md"
+        )
     if args.action != "verify" and os.environ.get("HANGZHI_DATABASE_URL", "").startswith("postgres"):
         parser.error("此脚本仅处理 SQLite 开发运行态。PostgreSQL 请使用 docs/OPERATIONS.md 的协调备份流程")
     if args.action == "backup":

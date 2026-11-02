@@ -22,7 +22,7 @@ for name in filter(None, paths):
     path = PurePosixPath(name)
     if (
         path.suffix.lower() in denied_suffixes
-        or any(p in {".local", "uploads", "data", "node_modules", ".venv"} for p in path.parts)
+        or any(p in {".local", "用例", "uploads", "data", "node_modules", ".venv"} for p in path.parts)
         or path.name.startswith(".env")
         and path.name != ".env.example"
     ):
