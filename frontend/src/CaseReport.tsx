@@ -236,6 +236,25 @@ export default function CaseReport({ content }: { content: Item }) {
           </ul>
         </details>
       )}
+      {content.tool_findings?.length > 0 && (
+        <details>
+          <summary>
+            注册工具的实际观测 · {content.tool_findings.length} 次
+          </summary>
+          <p className="muted">
+            按任务实际读取的来源、页面和区间展示。未使用的授权工具不列入此处。
+          </p>
+          {content.tool_findings.map((item: Item, i: number) => (
+            <details key={i}>
+              <summary>
+                {item.tool_id} · v{item.version} ·{" "}
+                {item.status === "completed" ? "已执行" : "输入不适用"}
+              </summary>
+              <Product value={item.result ?? { reason: item.error_code }} />
+            </details>
+          ))}
+        </details>
+      )}
       <p className="muted">完整字段、图层与全部记录随 JSON 产物下载。</p>
     </section>
   );

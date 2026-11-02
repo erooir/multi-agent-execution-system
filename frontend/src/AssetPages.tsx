@@ -42,6 +42,7 @@ export function AgentsPage({
   notify,
   onTask,
   workflows = [],
+  assets = [],
   onWorkflow,
   initialId,
 }: Props & {
@@ -49,6 +50,7 @@ export function AgentsPage({
   capabilities: Item[];
   onTask: (id: string) => void;
   workflows?: Item[];
+  assets?: Item[];
   onWorkflow?: (id: string) => void;
   initialId?: string | null;
 }) {
@@ -236,6 +238,13 @@ export function AgentsPage({
             {tab === "definition" && (
               <AgentDetails
                 agent={fresh}
+                canEdit={canEdit}
+                assets={assets}
+                published={versions.find(
+                  (v) =>
+                    (v.agent_id || v.definition_id) === fresh.id &&
+                    v.version === fresh.current_version,
+                )}
                 agents={agents}
                 workflows={workflows}
                 onAgent={(id) => {

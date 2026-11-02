@@ -55,6 +55,7 @@ def bundle(report: dict, metadata: dict | None = None) -> bytes:
         reading_aids=report.get("reading_aids", []),
         reading_notes=report.get("reading_notes", []),
         reference_batch=report.get("reference_batch"),
+        tool_findings=report.get("tool_findings", []),
     )
     selected = {
         k: v

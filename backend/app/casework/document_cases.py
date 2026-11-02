@@ -1,6 +1,7 @@
 """Evidence-first specialist catalogue. Profiles express tool contracts, never stored case answers."""
 
 import re
+from functools import partial
 
 from . import document_compare as compare
 from . import document_media as media
@@ -230,17 +231,17 @@ _HANDLERS = {
     "B05": numeric.month_series,
     "B06": compare.clauses,
     "B07": numeric.compare_periods,
-    "B08": lambda run: compare.evidence_matrix(run, ["investigation", "judicial"]),
+    "B08": partial(compare.evidence_matrix, expected_roles=("investigation", "judicial")),
     "B09": compare.chronology,
-    "B10": lambda run: compare.evidence_matrix(run, ["brief", "investigation"]),
+    "B10": partial(compare.evidence_matrix, expected_roles=("brief", "investigation")),
     "T01": science.research,
     "T02": compare.milestones,
     "T03": compare.roadmap,
     "T04": science.projects,
     "T05": science.chart_data,
     "T06": compare.clauses,
-    "T07": lambda run: media.speech(run, True),
-    "T08": lambda run: compare.evidence_matrix(run, ["project", "audit", "study"]),
+    "T07": partial(media.speech, interview=True),
+    "T08": partial(compare.evidence_matrix, expected_roles=("project", "audit", "study")),
     "T09": science.battery,
     "T10": science.citation_impact,
 }

@@ -27,6 +27,60 @@ def application():
     return app
 
 
+def test_bootstrap_scopes_business_queries_and_active_tasks_but_keeps_the_project_picker(db, monkeypatch):
+    first, second = project(db), project(db)
+    a, b = asset(db, first), asset(db, second)
+    one = service.create_task(task_body(first, a), ADMIN, db)
+    two = service.create_task(task_body(second, b), ADMIN, db)
+    db.put("workers", {"id": "worker", "status": "running", "active_task_ids": [one["id"], two["id"]]})
+    with TestClient(application()) as client:
+        legacy = client.get("/api/v2/bootstrap").json()
+        assert "current_project_id" not in legacy
+        assert {row["id"] for row in legacy["tasks"]} == {one["id"], two["id"]}
+        calls = []
+        original = db.list
+
+        def tracked(kind, project_id=None, **filters):
+            calls.append((kind, project_id))
+            return original(kind, project_id, **filters)
+
+        monkeypatch.setattr(db, "list", tracked)
+        r = client.get("/api/v2/bootstrap", params={"scope": "current", "project_id": second["id"]}).json()
+        assert {p["id"] for p in r["projects"]} == {first["id"], second["id"]}
+        assert r["current_project_id"] == second["id"] and [t["id"] for t in r["tasks"]] == [two["id"]]
+        assert r["stats"]["task_count"] == 1 and r["workers"][0]["active_task_ids"] == [two["id"]]
+        assert all(pid == second["id"] for kind, pid in calls if kind not in {"projects", "workers"})
+        assert (
+            client.get("/api/v2/bootstrap", params={"scope": "current"}).json()["current_project_id"]
+            == first["id"]
+        )
+
+
+def test_bootstrap_requires_membership_and_returns_no_business_data_for_unassigned_reviewer(db):
+    first, second = project(db), project(db)
+    viewer = {"id": "scoped-reader", "role": "reviewer"}
+    app = application()
+    app.dependency_overrides[auth.get_current_user] = lambda: viewer
+    with TestClient(app) as client:
+        r = client.get("/api/v2/bootstrap", params={"scope": "current"}).json()
+        assert r["projects"] == [] and r["current_project_id"] is None and not r["agents"] and not r["tasks"]
+        db.put("projects", {**first, "members": [viewer["id"]]})
+        r = client.get("/api/v2/bootstrap", params={"scope": "current"}).json()
+        assert [p["id"] for p in r["projects"]] == [first["id"]] and r["current_project_id"] == first["id"]
+        assert (
+            client.get(
+                "/api/v2/bootstrap", params={"scope": "current", "project_id": second["id"]}
+            ).status_code
+            == 403
+        )
+        assert (
+            client.get(
+                "/api/v2/bootstrap", params={"scope": "current", "project_id": "missing-project"}
+            ).status_code
+            == 404
+        )
+
+
 @pytest.mark.parametrize(
     "headers,chunks,status",
     [
@@ -132,6 +186,7 @@ async def test_withdrawn_sources_hidden_on_all_collection_paths(db):
             assert response.json()["content_withheld"] and "WITHDRAWN_SENTINEL" not in response.text
         for path in [
             "/bootstrap",
+            f"/bootstrap?scope=current&project_id={p['id']}",
             "/tasks",
             f"/tasks/{task['id']}",
             f"/tasks/{task['id']}/result",

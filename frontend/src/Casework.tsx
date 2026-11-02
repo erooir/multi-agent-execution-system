@@ -5,6 +5,7 @@ import type { Item, Mutation } from "./types";
 import { Panel, SectionTitle, Badge, Empty } from "./ui";
 import { TaskForm } from "./Forms";
 import SemanticEvidence from "./SemanticEvidence";
+import { CaseRoleComparison, RoleFacts } from "./CaseRoles";
 
 const families: Record<string, string> = {
   B: "事件与历史",
@@ -34,6 +35,8 @@ export default function Casework({
   onAgent: (id: string) => void;
 }) {
   const [catalog, setCatalog] = useState<Item[]>([]),
+    [tools, setTools] = useState<Item[]>([]),
+    [compareId, setCompareId] = useState("B06"),
     [family, setFamily] = useState("B"),
     [profile, setProfile] = useState<Item | null>(null),
     [activity, setActivity] = useState<Item[]>([]),
@@ -44,11 +47,17 @@ export default function Casework({
   useEffect(() => {
     const c = new AbortController(),
       signal = c.signal;
-    api<Item[]>(
-      "/v2/casework/catalog?project_id=" + encodeURIComponent(projectId),
-      { signal },
-    )
-      .then(setCatalog)
+    const scope = "?project_id=" + encodeURIComponent(projectId);
+    Promise.all([
+      api<Item[]>("/v2/casework/catalog" + scope, { signal }),
+      api<Item>("/v2/capabilities" + scope, { signal }),
+    ])
+      .then(([profiles, capabilities]) => {
+        if (!signal.aborted) {
+          setCatalog(profiles);
+          setTools(capabilities.tools || []);
+        }
+      })
       .catch((e) => {
         if (!signal.aborted) setError(e.message);
       });
@@ -82,6 +91,29 @@ export default function Casework({
     };
   }, [tab, projectId]);
   const installed = catalog.length > 0 && catalog.every((c) => c.installed);
+  const needsUpgrade =
+    installed && catalog.some((c) => c.project_tools_current === false);
+  async function provision(upgrade: boolean) {
+    setBusy(true);
+    try {
+      await mutate(
+        () =>
+          post(
+            "/v2/casework/" +
+              (upgrade ? "upgrade" : "install") +
+              "?project_id=" +
+              encodeURIComponent(projectId),
+          ),
+        upgrade ? "岗位授权已升级，后续任务可使用新版本" : "协作组已安装",
+      );
+      refresh((n) => n + 1);
+      setError("");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <>
       <SectionTitle
@@ -90,35 +122,22 @@ export default function Casework({
         description="按业务问题选择分析流程。资料、专业计算和独立审核都有版本及运行记录。"
         actions={
           canEdit &&
-          !installed && (
+          (!installed || needsUpgrade) && (
             <button
               disabled={busy || !catalog.length}
-              onClick={async () => {
-                setBusy(true);
-                try {
-                  await mutate(
-                    () =>
-                      post(
-                        "/v2/casework/install?project_id=" +
-                          encodeURIComponent(projectId),
-                      ),
-                    "协作组已安装",
-                  );
-                  refresh((x) => x + 1);
-                  setError("");
-                } catch (e) {
-                  setError((e as Error).message);
-                } finally {
-                  setBusy(false);
-                }
-              }}
+              onClick={() => provision(needsUpgrade)}
             >
               <Users size={16} />
-              安装项目协作组
+              {needsUpgrade ? "升级岗位工具授权" : "安装项目协作组"}
             </button>
           )
         }
       />
+      {needsUpgrade && (
+        <p className="warning">
+          本项目已安装旧版流程。升级会发布新版岗位和流程，历史版本与原任务保留；存在未发布的编辑时请先处理冲突。
+        </p>
+      )}
       <div className="segmented">
         <button
           className={tab === "catalog" ? "selected" : ""}
@@ -126,6 +145,13 @@ export default function Casework({
         >
           <Layers3 size={16} />
           任务目录
+        </button>
+        <button
+          className={tab === "roles" ? "selected" : ""}
+          onClick={() => setTab("roles")}
+        >
+          <Users size={16} />
+          岗位对照
         </button>
         <button
           className={tab === "monitor" ? "selected" : ""}
@@ -172,6 +198,24 @@ export default function Casework({
                   </small>
                   <h3>{p.title}</h3>
                   <p>{p.inputs.join("；")}</p>
+                  {p.role_contract && (
+                    <div className="case-operation">
+                      <small>
+                        主算法 <code>{p.role_contract.operation}</code>
+                      </small>
+                      <small>
+                        {p.role_contract.shared_cases.length > 1
+                          ? p.role_contract.shared_cases.length +
+                            " 个岗位共用实现"
+                          : "此用例专用实现"}
+                        {" · "}
+                        {p.role_contract.grants.length} 项岗位工具
+                        {p.project_tools_current
+                          ? " · 已绑定"
+                          : " · 待发布绑定"}
+                      </small>
+                    </div>
+                  )}
                   <details>
                     <summary>输入字段与交付契约</summary>
                     {p.record_fields?.length > 0 && (
@@ -179,6 +223,21 @@ export default function Casework({
                     )}
                     <p>交付字段：{p.outputs.join("、")}</p>
                   </details>
+                  {p.role_contract && (
+                    <details>
+                      <summary>职责、共用算法与授权清单</summary>
+                      <RoleFacts role={p.role_contract} tools={tools} />
+                    </details>
+                  )}
+                  <button
+                    className="text-button"
+                    onClick={() => {
+                      setCompareId(p.id);
+                      setTab("roles");
+                    }}
+                  >
+                    与其他岗位对照
+                  </button>
                   {canEdit && (
                     <button
                       disabled={!p.installed}
@@ -191,6 +250,12 @@ export default function Casework({
               ))}
           </div>
         </>
+      ) : tab === "roles" ? (
+        <CaseRoleComparison
+          catalog={catalog}
+          tools={tools}
+          initial={compareId}
+        />
       ) : tab === "semantic" ? (
         <SemanticEvidence
           projectId={projectId}

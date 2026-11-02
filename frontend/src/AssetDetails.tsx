@@ -5,6 +5,8 @@ import { taskTypes, time } from "./domain";
 import { Badge, Empty, Field, JsonView } from "./ui";
 import { ParameterSummary } from "./ToolParameters";
 import { changedVersionFields, versionFields } from "./workflowEditorModel";
+import { RoleFacts } from "./CaseRoles";
+import AgentToolPreview from "./AgentToolPreview";
 
 const modalities: Record<string, string> = {
   text: "文本",
@@ -19,13 +21,34 @@ export function AgentDetails({
   workflows,
   onAgent,
   onWorkflow,
+  canEdit,
+  published,
+  assets,
 }: {
   agent: Item;
   agents: Item[];
   workflows: Item[];
   onAgent: (id: string) => void;
   onWorkflow?: (id: string) => void;
+  canEdit: boolean;
+  published?: Item;
+  assets: Item[];
 }) {
+  // Versions load separately; do not present an edited draft as a published grant.
+  const version =
+    published &&
+    (published.agent_id || published.definition_id) === agent.id &&
+    published.version === agent.current_version
+      ? published
+      : undefined;
+  const specs: Item[] = version?.runtime_bindings?.tools || [];
+  const previews = specs.filter(
+    (s) =>
+      s.local_preview === true &&
+      version?.tool_refs?.some(
+        (r: Item) => r.tool_id === s.id && r.version === s.version,
+      ),
+  );
   const referenced = workflows.filter((workflow) =>
     workflow.nodes?.some((node: Item) => node.agent_id === agent.id),
   );
@@ -41,6 +64,15 @@ export function AgentDetails({
           <p>{agent.description || "尚未填写职责说明"}</p>
         </div>
       </div>
+      {version?.role_contract && (
+        <section className="asset-role">
+          <h3>已发布岗位合同 · v{version.version}</h3>
+          <RoleFacts role={version.role_contract} tools={specs} />
+        </section>
+      )}
+      {version && !version.role_contract && agent.case_role && (
+        <p className="muted">此版本尚未发布新版岗位合同。</p>
+      )}
       <div className="asset-summary-grid">
         <section>
           <span>执行方式</span>
@@ -80,32 +112,50 @@ export function AgentDetails({
       </div>
       <div className="asset-detail-columns">
         <section>
-          <h3>工具与技能授权</h3>
+          <h3>当前发布版本的工具与技能授权</h3>
           <div className="binding-list">
-            {(agent.tool_ids || []).map((id: string) => (
+            {(version?.tool_ids || []).map((id: string) => (
               <div key={id}>
                 <span>{taskTypes[id] || id}</span>
                 <small>固定工具</small>
               </div>
             ))}
-            {(agent.tool_refs || []).map((ref: Item) => (
+            {(version?.tool_refs || []).map((ref: Item) => (
               <div key={ref.tool_id}>
-                <code>{ref.tool_id}</code>
+                <span>
+                  {specs.find((s) => s.id === ref.tool_id)?.label ||
+                    ref.tool_id}
+                  <small>{ref.tool_id}</small>
+                </span>
                 <small>工具 v{ref.version}</small>
               </div>
             ))}
-            {(agent.skill_refs || []).map((ref: Item) => (
+            {(version?.skill_refs || []).map((ref: Item) => (
               <div key={ref.skill_id}>
                 <code>{ref.skill_id}</code>
                 <small>技能 v{ref.version}</small>
               </div>
             ))}
-            {!agent.tool_ids?.length &&
-              !agent.tool_refs?.length &&
-              !agent.skill_refs?.length && (
-                <p className="muted">未授权工具或技能。</p>
+            {!version?.tool_ids?.length &&
+              !version?.tool_refs?.length &&
+              !version?.skill_refs?.length && (
+                <p className="muted">
+                  {version ? "未授权工具或技能。" : "尚无可读取的已发布版本。"}
+                </p>
               )}
           </div>
+          {canEdit &&
+            version &&
+            agent.status === "published" &&
+            previews.length > 0 && (
+              <AgentToolPreview
+                key={version.id}
+                agent={agent}
+                version={version}
+                specs={previews}
+                assets={assets}
+              />
+            )}
         </section>
         <section>
           <h3>默认执行参数</h3>

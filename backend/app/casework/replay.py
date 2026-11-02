@@ -140,11 +140,15 @@ def batch_checks(samples, baseline, candidate, tx):
 def replay_sample(sample, version):
     from ..platform.quality import deterministic_quality
     from ..platform.runtime import _asset_bytes
+    from .role_tools import run_stage
 
     validate(sample, version["agent_id"])
     req, snap = sample["request"], sample["snapshot"]
     profile = snap["case_profile"]
     inputs = snap["inputs"]
+    roles = {a["parameters"]["case_stage"]: a for a in snap["agents"]}
+    # Use the same role grants, supplementary tools and independent checks as a real task.
+    roles["analyze"] = version
     strategy = version.get("parameters", {}).get("case_strategy", "strict")
     feedback = []
     history = []
@@ -157,15 +161,42 @@ def replay_sample(sample, version):
     for revision in range(req.get("max_revisions", 1) + 1):
         kwargs = {"repair_plan": plan} if plan else {}
         if prepared is None or not plan or "prepare" in plan["rerun_stages"]:
-            prepared = engine.execute(
-                "prepare", profile, inputs, [], _asset_bytes, feedback, revision, **kwargs
+            prepared = run_stage(
+                engine.execute,
+                "prepare",
+                profile,
+                inputs,
+                [],
+                _asset_bytes,
+                feedback,
+                revision,
+                agent=roles["prepare"],
+                **kwargs,
             )
         hints = feedback or (["按冻结策略执行受控二次检索"] if strategy == "adaptive" and not plan else [])
-        analysis = engine.execute(
-            "analyze", profile, inputs, [prepared], _asset_bytes, hints, revision, **kwargs
+        analysis = run_stage(
+            engine.execute,
+            "analyze",
+            profile,
+            inputs,
+            [prepared],
+            _asset_bytes,
+            hints,
+            revision,
+            agent=roles["analyze"],
+            **kwargs,
         )
-        report = engine.execute(
-            "review", profile, inputs, [prepared, analysis], _asset_bytes, feedback, revision, **kwargs
+        report = run_stage(
+            engine.execute,
+            "review",
+            profile,
+            inputs,
+            [prepared, analysis],
+            _asset_bytes,
+            feedback,
+            revision,
+            agent=roles["review"],
+            **kwargs,
         )
         quality = deterministic_quality(req, report, inputs)
         if plan:

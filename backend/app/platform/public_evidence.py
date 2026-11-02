@@ -15,7 +15,7 @@ from pydantic import Field
 from . import service as s
 from .contracts import AgentInput, Contract
 from .quality import text_of
-from .tool_registry import catalog, freeze_bindings
+from .tool_registry import BASE_TOOL_IDS, catalog, freeze_bindings
 
 FOCUS = {
     "claim_check": ("陈述核查", "梳理资料中明确的事实及其依据，区分推断、矛盾和资料缺口。"),
@@ -94,7 +94,11 @@ def _workflow(tx, project_id):
         tool_ids=["text_analysis"],
         model_policy="cloud",
         execution_strategy="tool_agent",
-        tool_refs=[{"tool_id": t["id"], "version": t["version"]} for t in available["tools"]],
+        tool_refs=[
+            {"tool_id": t["id"], "version": t["version"]}
+            for t in available["tools"]
+            if t["id"] in BASE_TOOL_IDS
+        ],
         skill_refs=[{"skill_id": k["id"], "version": k["version"]} for k in available["skills"]],
         instructions="用中文作答，为事实提供逐字引用。清楚标注推断与缺口，不将模型结论视为确定性复算。",
     ).model_dump()

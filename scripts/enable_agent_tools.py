@@ -4,11 +4,12 @@ from backend.app import auth
 from backend.app.platform import service
 from backend.app.platform.contracts import AgentInput
 from backend.app.platform.db import repo
-from backend.app.platform.tool_registry import catalog, freeze_bindings
+from backend.app.platform.tool_registry import BASE_TOOL_IDS, catalog, freeze_bindings
 
 
 def enable(repository, user):
     available = catalog()
+    stock_skills = {item["id"] for item in available["skills"]}
     changed = []
     for definition in repository.list("agents"):
         if (
@@ -19,7 +20,32 @@ def enable(repository, user):
             or definition["capabilities"][0] not in {"text_analysis", "source_summary"}
         ):
             continue
-        if definition.get("instructions") or definition.get("parameters"):
+        capability = definition["capabilities"][0]
+        if (
+            definition.get("instructions")
+            or definition.get("parameters")
+            or definition.get("model_policy") != "cloud"
+            or definition.get("purpose", "general") != "general"
+            or definition.get("tool_ids") != [capability]
+        ):
+            continue
+        if definition.get("execution_strategy", "fixed") == "fixed":
+            # Before tool bindings existed, the text_analysis seed accepted text alone.
+            if (
+                definition["current_version"] != 1
+                or definition.get("tool_refs")
+                or definition.get("skill_refs")
+                or (
+                    set(definition["modalities"]) != {"text", "structured"}
+                    and not (capability == "text_analysis" and definition["modalities"] == ["text"])
+                )
+            ):
+                continue
+        elif (
+            set(definition["modalities"]) != {"text", "structured"}
+            or {ref["tool_id"] for ref in definition.get("tool_refs", [])} != BASE_TOOL_IDS
+            or {ref["skill_id"] for ref in definition.get("skill_refs", [])} != stock_skills
+        ):
             continue
         fields = AgentInput.model_fields
         body = AgentInput.model_validate(
@@ -29,7 +55,11 @@ def enable(repository, user):
             execution_strategy="tool_agent",
             modalities=["text", "structured"],
             model_policy="cloud",
-            tool_refs=[{"tool_id": item["id"], "version": item["version"]} for item in available["tools"]],
+            tool_refs=[
+                {"tool_id": item["id"], "version": item["version"]}
+                for item in available["tools"]
+                if item["id"] in BASE_TOOL_IDS
+            ],
             skill_refs=[{"skill_id": item["id"], "version": item["version"]} for item in available["skills"]],
         )
         if (

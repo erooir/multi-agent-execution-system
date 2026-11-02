@@ -130,10 +130,16 @@ export function AgentForm({
                       tool_ids: capabilities.length
                         ? capabilities
                         : ["text_analysis"],
-                      tool_refs: extensions.tools.map((item: Item) => ({
-                        tool_id: item.id,
-                        version: item.version,
-                      })),
+                      tool_refs: extensions.tools
+                        .filter((tool: Item) =>
+                          extensions.skills.some((skill: Item) =>
+                            skill.required_tools?.includes(tool.name),
+                          ),
+                        )
+                        .map((item: Item) => ({
+                          tool_id: item.id,
+                          version: item.version,
+                        })),
                       skill_refs: extensions.skills.map((item: Item) => ({
                         skill_id: item.id,
                         version: item.version,

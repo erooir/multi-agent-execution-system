@@ -36,6 +36,10 @@ def frozen_profile(code):
             "provider_versions",
             "reference_batches",
             "repair_plan",
+            "roles",
+            "role_tools",
+            "role_evidence",
+            "role_analysis",
             "document_common",
             "geo_raster",
         }
@@ -63,13 +67,19 @@ def role_id(project_id, stage, family):
     return f"{project_id}-case-{family if stage == 'analyze' else 'shared'}-{stage}"
 
 
-def install(project_id, user, repository):
+def install(project_id, user, repository, *, upgrade=False):
     from ..platform import service as s
     from ..platform.contracts import AgentInput
+    from ..platform.tool_registry import catalog as tool_catalog
+    from ..platform.tool_registry import freeze_bindings
+    from .roles import contract
 
     with repository.transaction() as tx:
         s.project_access(project_id, user, True, tx)
-        created = []
+        tx.get("projects", project_id, for_update=True)
+        created, updated = [], []
+        versions = {t["id"]: t["version"] for t in tool_catalog()["tools"]}
+        original_versions = {}
         for group, profile in catalog().items():
             title = profile["title"]
             nodes = []
@@ -79,36 +89,90 @@ def install(project_id, user, repository):
                 ]
                 aid = role_id(project_id, stage, group)
                 agent = tx.get("agents", aid)
-                if not agent:
-                    agent = AgentInput(
-                        project_id=project_id,
-                        name=name,
-                        description="用例协作组 · " + name,
-                        purpose="specialized",
-                        capabilities=["case_analysis"],
-                        modalities=["text", "structured", "image", "audio", "video"],
-                        parameters={
-                            "case_stage": stage,
-                            **({"case_scope": group} if stage == "analyze" else {}),
-                        },
-                        tool_ids=["case_analysis"],
-                    ).model_dump()
-                    agent.update(
-                        id=aid, status="published", current_version=1, built_in=True, case_role=stage
-                    )
-                    tx.put("agents", agent)
-                    tx.put(
-                        "agent_versions",
-                        {
+                first_visit = aid not in original_versions
+                if first_visit:
+                    original_versions[aid] = agent["current_version"] if agent else None
+                if first_visit and (not agent or upgrade):
+                    role = contract(stage, group)
+                    refs = [{"tool_id": key, "version": versions[key]} for key in role["grants"]]
+                    if agent and (
+                        not agent.get("built_in")
+                        or agent.get("case_role") != stage
+                        or agent["status"] != "published"
+                        or agent["name"] != name
+                        or agent.get("description") != "用例协作组 · " + name
+                        or agent.get("purpose") != "specialized"
+                        or agent.get("structure") != "atomic"
+                        or set(agent.get("modalities", []))
+                        != {"text", "structured", "image", "audio", "video"}
+                        or agent.get("instructions") not in ("", role["duty"])
+                        or agent.get("execution_strategy") != "fixed"
+                        or agent.get("model_policy") != "local"
+                        or agent.get("members")
+                        or agent.get("skill_refs")
+                        or agent.get("tool_ids") != ["case_analysis"]
+                        or agent.get("capabilities") != ["case_analysis"]
+                        or (not agent.get("role_contract") and agent.get("tool_refs"))
+                    ):
+                        s.fail("asset_conflict", "项目含自定义或停用的用例岗位，请先核对版本。", 409)
+                    if (
+                        agent
+                        and agent.get("role_contract")
+                        and (agent.get("role_contract") != role or agent.get("tool_refs") != refs)
+                    ):
+                        s.fail("asset_conflict", "岗位授权或职责已被编辑，不能自动覆盖。", 409)
+                    if agent and agent.get("role_contract") == role and agent.get("tool_refs") == refs:
+                        if agent.get("runtime_bindings") != freeze_bindings(agent):
+                            s.fail("tool_version_changed", "工具实现与已发布版本不同，须显式迁移。", 409)
+                    else:
+                        version = (
+                            max(
+                                (v["version"] for v in tx.list("agent_versions", definition_id=aid)),
+                                default=0,
+                            )
+                            + 1
+                        )
+                        previous = agent or {}
+                        agent = AgentInput(
+                            project_id=project_id,
+                            name=name,
+                            description="用例协作组 · " + name,
+                            instructions=role["duty"],
+                            purpose="specialized",
+                            capabilities=["case_analysis"],
+                            modalities=["text", "structured", "image", "audio", "video"],
+                            parameters={
+                                **previous.get("parameters", {}),
+                                "case_stage": stage,
+                                **({"case_scope": group} if stage == "analyze" else {}),
+                            },
+                            tool_ids=["case_analysis"],
+                            tool_refs=refs,
+                        ).model_dump()
+                        agent = {
+                            **previous,
                             **agent,
-                            "id": aid + ":1",
-                            "agent_id": aid,
-                            "definition_id": aid,
-                            "version": 1,
-                            "checksum": s.digest(agent),
-                        },
-                    )
-                    created.append(aid)
+                            "id": aid,
+                            "status": "published",
+                            "current_version": version,
+                            "built_in": True,
+                            "case_role": stage,
+                            "role_contract": role,
+                        }
+                        agent["runtime_bindings"] = freeze_bindings(agent)
+                        tx.put("agents", agent)
+                        tx.put(
+                            "agent_versions",
+                            {
+                                **agent,
+                                "id": f"{aid}:{version}",
+                                "agent_id": aid,
+                                "definition_id": aid,
+                                "version": version,
+                                "checksum": s.digest(agent),
+                            },
+                        )
+                        (updated if previous else created).append(aid)
                 if agent.get("case_role") != stage or agent.get("project_id") != project_id:
                     s.fail("asset_conflict", "专员标识冲突，原资产未覆盖", 409)
                 nodes.append(
@@ -126,7 +190,8 @@ def install(project_id, user, repository):
                     }
                 )
             wid = assigned_workflow(project_id, group)
-            if not tx.get("workflows", wid):
+            existing_flow = tx.get("workflows", wid)
+            if not existing_flow:
                 flow = {
                     "id": wid,
                     "project_id": project_id,
@@ -140,14 +205,41 @@ def install(project_id, user, repository):
                 tx.put("workflows", flow)
                 tx.put("workflow_versions", {**flow, "id": wid + ":1", "definition_id": wid, "version": 1})
                 created.append(wid)
-        if created:
-            s.audit(tx, project_id, "casework.team_installed", project_id, user)
-        return {"created": created}
+            elif upgrade and existing_flow["nodes"] != nodes:
+                published = tx.get("workflow_versions", f"{wid}:{existing_flow['current_version']}")
+                prior_nodes = [
+                    {**node, "agent_version": original_versions[node["agent_id"]]} for node in nodes
+                ]
+                if (
+                    existing_flow["status"] != "published"
+                    or not published
+                    or published["nodes"] != existing_flow["nodes"]
+                    or existing_flow["nodes"] != prior_nodes
+                ):
+                    s.fail("asset_conflict", "协作流程已有修改，禁止覆盖。", 409)
+                version = max(v["version"] for v in tx.list("workflow_versions", definition_id=wid)) + 1
+                flow = tx.put("workflows", {**existing_flow, "nodes": nodes, "current_version": version})
+                tx.put(
+                    "workflow_versions",
+                    {**flow, "id": f"{wid}:{version}", "definition_id": wid, "version": version},
+                )
+                updated.append(wid)
+        if created or updated:
+            s.audit(
+                tx,
+                project_id,
+                "casework.team_upgraded" if updated else "casework.team_installed",
+                project_id,
+                user,
+                {"created": len(created), "updated": len(updated)},
+            )
+        return {"created": created, "updated": updated}
 
 
 def verify_team(flow, agents, project_id, code):
     from ..platform.service import fail
     from .repair_plan import allowed_action
+    from .roles import contract
 
     nodes = flow["nodes"]
     if [n["id"] for n in nodes] != list(STAGES):
@@ -166,6 +258,13 @@ def verify_team(flow, agents, project_id, code):
         ):
             fail("case_team_invalid", "节点角色、工具或依赖与已验证流程不一致", 422)
         strategy = agent.get("parameters", {}).get("case_strategy", "strict")
+        if agent.get("role_contract") or agent.get("tool_refs"):
+            expected = contract(stage, code)
+            if (
+                agent.get("role_contract") != expected
+                or [r["tool_id"] for r in agent.get("tool_refs", [])] != expected["grants"]
+            ):
+                fail("case_team_invalid", "冻结岗位的职责或工具授权与用例不匹配", 422)
         if (
             stage == "analyze"
             and strategy not in {"strict", "adaptive"}

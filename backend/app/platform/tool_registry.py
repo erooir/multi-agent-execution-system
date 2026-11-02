@@ -28,6 +28,7 @@ DEFINITIONS = [
     ("mcp.tables.transform", "table_transform", "MCP 表格筛选/排序/去重", "mcp", TableOperation),
     ("mcp.tables.aggregate", "table_aggregate", "MCP 分组与统计", "mcp", TableAggregate),
 ]
+BASE_TOOL_IDS = frozenset(d[0] for d in DEFINITIONS)
 
 
 def digest(value):
@@ -36,8 +37,9 @@ def digest(value):
     ).hexdigest()
 
 
-def catalog():
-    runtime_path = Path(__file__).with_name("tool_runtime.py")
+def _tool_specs(requested=None):
+    base = [row for row in DEFINITIONS if requested is None or row[0] in requested]
+    runtime_source = Path(__file__).with_name("tool_runtime.py").read_text(encoding="utf-8") if base else None
     tools = [
         {
             "id": tool_id,
@@ -51,15 +53,34 @@ def catalog():
             "checksum": digest(
                 {
                     "id": tool_id,
-                    "runtime": runtime_path.read_text(encoding="utf-8"),
+                    "runtime": runtime_source,
                     "schema": model.model_json_schema(),
                 }
             ),
         }
-        for tool_id, name, label, kind, model in DEFINITIONS
+        for tool_id, name, label, kind, model in base
     ]
+    if requested is not None and not requested - BASE_TOOL_IDS:
+        return tools
+    from .domain_tool import operation_catalog
+
+    operations = [op for op in operation_catalog().values() if requested is None or op.id in requested]
+    if any(op.id in BASE_TOOL_IDS or op.name in {r[1] for r in DEFINITIONS} for op in operations):
+        raise ValueError("duplicate_domain_tool")
+    # Read shared dependencies once within this catalog snapshot; the next snapshot
+    # still detects replaced code or package versions.
+    checksums, installed = {}, {}
+    tools.extend(operation.spec(checksums, installed) for operation in operations)
+    return tools
+
+
+def _skill_specs(requested=None):
+    if requested is not None and not requested:
+        return []
     skills = []
     for skill in sorted(LocalSkills(str(SKILL_ROOT)).load(), key=lambda item: item.name):
+        if requested is not None and skill.name not in requested:
+            continue
         path = Path(skill.source_path).resolve()
         if not path.is_relative_to(SKILL_ROOT.resolve()) or skill.scripts:
             raise ValueError("skill_package_not_allowed")
@@ -80,46 +101,47 @@ def catalog():
                 "required_tools": skill.allowed_tools or [],
             }
         )
-    return {
-        "tools": tools,
-        "skills": skills,
-        "mcp_servers": [
-            {
-                "id": "project-tables",
-                "version": 3,
-                "transport": "stdio",
-                "checksum": hashlib.sha256(
-                    Path(__file__).with_name("mcp_server.py").read_bytes()
-                ).hexdigest(),
-            }
-        ],
-    }
+    return skills
+
+
+def _mcp_servers():
+    return [
+        {
+            "id": "project-tables",
+            "version": 3,
+            "transport": "stdio",
+            "checksum": hashlib.sha256(Path(__file__).with_name("mcp_server.py").read_bytes()).hexdigest(),
+        }
+    ]
+
+
+def catalog():
+    return {"tools": _tool_specs(), "skills": _skill_specs(), "mcp_servers": _mcp_servers()}
 
 
 def freeze_bindings(agent):
-    available = catalog()
-    tools, skills = [], []
-    for key, id_key, target in (("tool_refs", "tool_id", tools), ("skill_refs", "skill_id", skills)):
-        pool = available["tools" if key == "tool_refs" else "skills"]
-        for ref in agent.get(key, []):
-            found = next(
-                (
-                    item
-                    for item in pool
-                    if item["id"] == ref[id_key] and str(item["version"]) == str(ref["version"])
-                ),
-                None,
-            )
-            if not found or any(item["id"] == found["id"] for item in target):
+    def resolve(refs, id_key, lookup):
+        identifiers = {ref[id_key] for ref in refs}
+        if len(identifiers) != len(refs):
+            raise ValueError("capability_version_unavailable")
+        specs = {row["id"]: row for row in lookup(identifiers)}
+        frozen = []
+        for ref in refs:
+            item = specs.get(ref[id_key])
+            if not item or str(ref["version"]) != str(item["version"]):
                 raise ValueError("capability_version_unavailable")
-            target.append(found)
+            frozen.append(item)
+        return frozen
+
+    tools = resolve(agent.get("tool_refs", []), "tool_id", _tool_specs)
+    skills = resolve(agent.get("skill_refs", []), "skill_id", _skill_specs)
     allowed_names = {item["name"] for item in tools}
     if any(set(item["required_tools"]) - allowed_names for item in skills):
         raise ValueError("skill_tools_not_authorized")
     return {
         "tools": tools,
         "skills": skills,
-        "mcp_servers": available["mcp_servers"] if any(item["kind"] == "mcp" for item in tools) else [],
+        "mcp_servers": _mcp_servers() if any(item["kind"] == "mcp" for item in tools) else [],
     }
 
 
@@ -132,7 +154,7 @@ def permissions(agent):
 
 
 def validate_frozen(agent):
-    if agent.get("execution_strategy") != "tool_agent":
+    if agent.get("execution_strategy") != "tool_agent" and not agent.get("runtime_bindings"):
         return
     if agent.get("runtime_bindings") != freeze_bindings(agent):
         raise ValueError("capability_version_changed")

@@ -67,7 +67,9 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null),
     [checking, setChecking] = useState(true),
     [authError, setAuthError] = useState(""),
-    [data, setData] = useState<Bootstrap | null>(null),
+    [data, setData] = useState<
+      (Bootstrap & { current_project_id: string | null }) | null
+    >(null),
     [projectId, setProjectId] = useState(""),
     [page, setPage] = useState<Page>("overview"),
     [taskId, setTaskId] = useState<string | null>(null),
@@ -80,7 +82,9 @@ export default function App() {
     [mobile, setMobile] = useState(false),
     [toast, setToast] = useState<{ text: string; error: boolean } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
-    currentUser = useRef<string | null>(null);
+    currentUser = useRef<string | null>(null),
+    selectedProject = useRef(""),
+    refreshSequence = useRef(0);
   currentUser.current = user?.id || null;
   const notify = useCallback((text: string, error = false) => {
     setToast({ text, error });
@@ -88,29 +92,68 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(null), 6500);
   }, []);
   const refresh = useCallback(async () => {
-    const expected = currentUser.current;
+    const expected = currentUser.current,
+      project = selectedProject.current,
+      sequence = ++refreshSequence.current;
+    const stillCurrent = () =>
+      currentUser.current === expected &&
+      selectedProject.current === project &&
+      refreshSequence.current === sequence;
+    const base = "/v2/bootstrap?scope=current";
     try {
-      const value = await api<Bootstrap>("/v2/bootstrap");
-      if (currentUser.current !== expected) return;
+      type Scoped = Bootstrap & { current_project_id: string | null };
+      let value: Scoped;
+      try {
+        value = await api<Scoped>(
+          base + (project ? "&project_id=" + encodeURIComponent(project) : ""),
+        );
+      } catch (e) {
+        if (!stillCurrent()) return;
+        if (
+          !project ||
+          !(e instanceof ApiError) ||
+          ![403, 404].includes(e.status)
+        )
+          throw e;
+        // Membership or the selected project changed. Remove old contents before loading an accessible project.
+        setData(null);
+        value = await api<Scoped>(base);
+      }
+      if (!stillCurrent()) return;
       setData((previous) => ({
         ...value,
         tasks: value.tasks.map((task) => {
-          const known = previous?.tasks.find((item) => item.id === task.id);
+          const known =
+            previous?.current_project_id === value.current_project_id
+              ? previous.tasks.find((item) => item.id === task.id)
+              : null;
           return known &&
             Date.parse(known.updated_at) > Date.parse(task.updated_at)
-            ? known
+            ? {
+                ...task,
+                status: known.status,
+                revision: known.revision,
+                reason_code: known.reason_code,
+                finished_at: known.finished_at,
+                updated_at: known.updated_at,
+                cancel_requested: known.cancel_requested,
+              }
             : task;
         }),
       }));
       setUser(value.user);
       setError("");
-      setProjectId((old) =>
-        value.projects.some((p) => p.id === old)
-          ? old
-          : value.projects[0]?.id || "",
-      );
+      const active = value.current_project_id || "";
+      if (project !== active) {
+        setTaskId(null);
+        setAgentId(null);
+        setWorkflowId(null);
+      }
+      selectedProject.current = active;
+      setProjectId(active);
       setLastSync(new Date().toISOString());
     } catch (e) {
+      if (!stillCurrent()) return;
       if (e instanceof ApiError && e.status === 401) {
         setUser(null);
         setData(null);
@@ -186,10 +229,13 @@ export default function App() {
     setWorkflowId(null);
   }
   function selectProject(id: string) {
+    if (selectedProject.current === id) return;
+    selectedProject.current = id;
     setProjectId(id);
     setTaskId(null);
     setAgentId(null);
     setWorkflowId(null);
+    void refresh().catch(() => {});
   }
   if (checking)
     return (
@@ -205,6 +251,8 @@ export default function App() {
       <Login
         initialError={authError}
         onLogin={(value) => {
+          selectedProject.current = "";
+          refreshSequence.current++;
           setUser(value);
           setAuthError("");
           setData(null);
@@ -369,7 +417,7 @@ export default function App() {
               同步失败：{error}。已加载的记录保留显示，请检查服务连接并刷新。
             </ErrorLine>
           )}
-          {!data ? (
+          {!data || (data.current_project_id || "") !== projectId ? (
             <div className="loading">正在加载平台数据…</div>
           ) : !projectId && page !== "operations" ? (
             <Empty
@@ -418,6 +466,7 @@ export default function App() {
                   key={projectId}
                   {...common}
                   agents={agents}
+                  assets={assets}
                   workflows={workflows}
                   onWorkflow={(id) => {
                     setWorkflowId(id);

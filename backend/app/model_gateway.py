@@ -741,6 +741,19 @@ class ModelGateway:
             return result
 
         wrapped.__name__ = name.replace(".", "_")
+        schema = getattr(binding, "__hangzhi_tool_schema__", None)
+        if schema is not None:
+            from agno.tools.function import Function
+
+            # Dynamic, typed domain operations already own their validated schema.
+            # Keep the same egress check and per-call audit wrapper as ordinary tools.
+            return Function(
+                name=wrapped.__name__,
+                description=binding.__doc__,
+                parameters=schema,
+                entrypoint=wrapped,
+                skip_entrypoint_processing=True,
+            )
         return wrapped
 
     async def run_agent(

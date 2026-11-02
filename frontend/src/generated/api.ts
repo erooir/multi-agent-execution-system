@@ -148,7 +148,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Bootstrap */
+        /**
+         * Bootstrap
+         * @description The workbench asks for one project's collections; existing unscoped callers retain the all-project view.
+         */
         get: operations["bootstrap_api_v2_bootstrap_get"];
         put?: never;
         post?: never;
@@ -204,6 +207,23 @@ export interface paths {
         put?: never;
         /** Install Cases */
         post: operations["install_cases_api_v2_casework_install_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/casework/upgrade": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upgrade Case Tools */
+        post: operations["upgrade_case_tools_api_v2_casework_upgrade_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -306,6 +326,23 @@ export interface paths {
         get: operations["capability_catalog_api_v2_capabilities_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/agents/{agent_id}/tools/{tool_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Tool */
+        post: operations["preview_tool_api_v2_agents__agent_id__tools__tool_id__preview_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1519,6 +1556,20 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** ToolPreviewInput */
+        ToolPreviewInput: {
+            /**
+             * Version
+             * @description 当前已发布智能体版本
+             */
+            version: number;
+            /** Input Refs */
+            input_refs: string[];
+            /** Arguments */
+            arguments: {
+                [key: string]: unknown;
+            };
+        };
         /** ToolReference */
         ToolReference: {
             /** Tool Id */
@@ -1850,7 +1901,10 @@ export interface operations {
     };
     bootstrap_api_v2_bootstrap_get: {
         parameters: {
-            query?: never;
+            query?: {
+                scope?: "all" | "current";
+                project_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1864,6 +1918,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1953,6 +2016,37 @@ export interface operations {
         };
     };
     install_cases_api_v2_casework_install_post: {
+        parameters: {
+            query: {
+                project_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upgrade_case_tools_api_v2_casework_upgrade_post: {
         parameters: {
             query: {
                 project_id: string;
@@ -2152,6 +2246,42 @@ export interface operations {
                     "application/json": components["schemas"]["CapabilityCatalog"] | {
                         [key: string]: unknown;
                     }[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_tool_api_v2_agents__agent_id__tools__tool_id__preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                tool_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToolPreviewInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

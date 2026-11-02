@@ -325,13 +325,15 @@ def seed_templates(tx, project_id):
             model_policy="cloud" if "cloud" in capability["modes"] else "local",
         ).model_dump()
         if capability["id"] in {"source_summary", "text_analysis"}:
-            from .tool_registry import catalog
+            from .tool_registry import BASE_TOOL_IDS, catalog
 
             available = catalog()
             agent.update(
                 execution_strategy="tool_agent",
                 tool_refs=[
-                    {"tool_id": item["id"], "version": item["version"]} for item in available["tools"]
+                    {"tool_id": item["id"], "version": item["version"]}
+                    for item in available["tools"]
+                    if item["id"] in BASE_TOOL_IDS
                 ],
                 skill_refs=[
                     {"skill_id": item["id"], "version": item["version"]} for item in available["skills"]
@@ -381,9 +383,11 @@ def validate_agent(body, tx, agent_id=None):
     ToolParameters.model_validate(body.get("parameters", {}))
     if set(body["tool_ids"]) - TOOLS:
         fail("tool_not_allowed", "包含未登记工具")
-    if body.get("execution_strategy") == "tool_agent":
-        if body["model_policy"] != "cloud" or not body.get("tool_refs"):
-            fail("invalid_agent_strategy", "工具型智能体需要云模型政策和已授权工具")
+    if body.get("execution_strategy") == "tool_agent" and (
+        body["model_policy"] != "cloud" or not body.get("tool_refs")
+    ):
+        fail("invalid_agent_strategy", "工具型智能体需要云模型政策和已授权工具")
+    if body.get("tool_refs") or body.get("skill_refs"):
         try:
             freeze_bindings(body)
         except ValueError as exc:
@@ -440,8 +444,10 @@ def agent_action(agent_id, action, user, repository=None):
             if status == "retired":
                 fail("invalid_state", "退役智能体不能发布", 409)
             validate_agent(agent, tx, agent_id)
-            if agent.get("execution_strategy") == "tool_agent":
+            if agent.get("tool_refs") or agent.get("skill_refs"):
                 agent["runtime_bindings"] = freeze_bindings(agent)
+            else:
+                agent.pop("runtime_bindings", None)
             version = (
                 max((v["version"] for v in tx.list("agent_versions", definition_id=agent_id)), default=0) + 1
             )

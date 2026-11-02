@@ -10,6 +10,7 @@ import os
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
@@ -73,8 +74,10 @@ def health():
     return {"status": "ok", "service": "hangzhi-agent-platform", "version": "2.0.0"}
 
 
-def workers_view(user=None):
+def workers_view(user=None, task_ids=None):
     result = []
+    if task_ids is None and user and user["role"] != "admin":
+        task_ids = {t["id"] for t in s.visible("tasks", user)}
     for worker in repo.list("workers"):
         try:
             elapsed = (
@@ -86,11 +89,11 @@ def workers_view(user=None):
             **worker,
             "health": "online" if elapsed < 45 and worker.get("status") != "stopped" else "offline",
         }
-        if user and user.get("role") != "admin":
-            visible_tasks = {task["id"] for task in s.visible("tasks", user)}
+        if task_ids is not None:
             item["active_task_ids"] = [
-                task_id for task_id in item.get("active_task_ids", []) if task_id in visible_tasks
+                task_id for task_id in item.get("active_task_ids", []) if task_id in task_ids
             ]
+        if user and user.get("role") != "admin":
             item.pop("hostname", None)
             item.pop("pid", None)
         result.append(item)
@@ -177,7 +180,11 @@ def visible_records(kind, user):
 
 
 @router.get("/bootstrap")
-def bootstrap(user: dict = read):
+def bootstrap(user: dict = read, scope: Literal["all", "current"] = "all", project_id: str | None = None):
+    """The workbench asks for one project's collections; existing unscoped callers retain the all-project view."""
+    scoped = scope == "current" or project_id is not None
+    if project_id:
+        s.project_access(project_id, user, repository=repo)
     projects = [p for p in repo.list("projects") if user["role"] == "admin" or user["id"] in p["members"]]
     if not projects and user["role"] in ("admin", "operator"):
         # Initialization creates executable templates, never synthetic runs or data.
@@ -192,6 +199,9 @@ def bootstrap(user: dict = read):
                     )
                 ]
     result = {"user": user, "projects": projects}
+    selected = project_id or (projects[0]["id"] if projects else None)
+    if scoped:
+        result["current_project_id"] = selected
     for kind in (
         "agents",
         "workflows",
@@ -203,10 +213,13 @@ def bootstrap(user: dict = read):
         "memories",
         "evaluations",
     ):
-        result[kind] = visible_records(kind, user)
+        if scoped:
+            result[kind] = [derived_view(kind, row) for row in repo.list(kind, selected)] if selected else []
+        else:
+            result[kind] = visible_records(kind, user)
     result["data_assets"] = [s.safe_asset(a) for a in result["data_assets"]]
-    workers = workers_view(user)
     tasks = result["tasks"]
+    workers = workers_view(user, {t["id"] for t in tasks} if scoped or user["role"] != "admin" else None)
     terminal = [t for t in tasks if t["status"] in TERMINAL]
     succeeded = sum(t["status"] == "succeeded" for t in terminal)
     result.update(
@@ -220,7 +233,9 @@ def bootstrap(user: dict = read):
             "failed_tasks": sum(t["status"] == "failed" for t in terminal),
             "sample_count": len(terminal),
             "success_rate": succeeded / len(terminal) if terminal else None,
-            "window": "全部本地记录（含明确标记的演练）",
+            "window": "当前项目全部记录（含明确标记的演练）"
+            if scoped
+            else "全部本地记录（含明确标记的演练）",
         },
         system={
             "version": "2.0.0",
@@ -244,19 +259,52 @@ def projects(user: dict = read):
 
 @router.get("/casework/catalog")
 def case_catalog(project_id: str, user: dict = read):
-    from ..casework.team import assigned_workflow, catalog
+    from ..casework.roles import contract
+    from ..casework.team import STAGES, assigned_workflow, catalog, role_id
+    from .tool_registry import catalog as tool_catalog
 
     s.project_access(project_id, user)
     flows = {w["id"]: w for w in repo.list("workflows", project_id)}
-    return [
-        {
-            "id": code,
-            **profile,
-            "workflow_id": assigned_workflow(project_id, code),
-            "installed": flows.get(assigned_workflow(project_id, code), {}).get("status") == "published",
-        }
-        for code, profile in sorted(catalog().items())
-    ]
+    versions = {v["id"]: v for v in repo.list("agent_versions", project_id)}
+    tool_specs = {v["id"]: v for v in tool_catalog()["tools"]}
+    items = []
+    for code, profile in sorted(catalog().items()):
+        wid = assigned_workflow(project_id, code)
+        flow = flows.get(wid, {})
+        roles = {stage: contract(stage, code) for stage in ("prepare", "analyze", "review")}
+        pinned = (
+            repo.get("workflow_versions", f"{wid}:{flow['current_version']}")
+            if flow.get("status") == "published"
+            else None
+        )
+        current = bool(pinned) and [n["id"] for n in pinned["nodes"]] == list(STAGES)
+        if current:
+            for n in pinned["nodes"]:
+                role = roles[n["id"]]
+                asset = versions.get(f"{n['agent_id']}:{n['agent_version']}", {})
+                specs = [tool_specs.get(key) for key in role["grants"]]
+                if (
+                    n["agent_id"] != role_id(project_id, n["id"], code)
+                    or asset.get("role_contract") != role
+                    or not all(specs)
+                    or asset.get("runtime_bindings", {}).get("tools") != specs
+                    or asset.get("tool_refs")
+                    != [{"tool_id": s["id"], "version": s["version"]} for s in specs]
+                ):
+                    current = False
+                    break
+        items.append(
+            {
+                "id": code,
+                **profile,
+                "workflow_id": wid,
+                "installed": flow.get("status") == "published",
+                "roles": roles,
+                "role_contract": roles["analyze"],
+                "project_tools_current": current,
+            }
+        )
+    return items
 
 
 @router.post("/casework/install")
@@ -264,6 +312,13 @@ def install_cases(project_id: str, user: dict = edit):
     from ..casework.team import install
 
     return install(project_id, user, repo)
+
+
+@router.post("/casework/upgrade")
+def upgrade_case_tools(project_id: str, user: dict = edit):
+    from ..casework.team import install
+
+    return install(project_id, user, repo, upgrade=True)
 
 
 @router.post("/casework/semantic-evidence", status_code=202)
@@ -313,6 +368,13 @@ def capability_catalog(project_id: str | None = None, user: dict = read):
     from .tool_registry import catalog
 
     return {"capabilities": s.CAPABILITIES, **catalog()}
+
+
+@router.post("/agents/{agent_id}/tools/{tool_id}/preview")
+def preview_tool(agent_id: str, tool_id: str, body: c.ToolPreviewInput, user: dict = edit):
+    from .tool_preview import preview
+
+    return preview(repo, user, agent_id, tool_id, body)
 
 
 @router.get("/tasks/{task_id}/tool-calls", response_model=list[c.ToolCallRecord])

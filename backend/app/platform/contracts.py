@@ -88,6 +88,12 @@ class ToolResult(Contract):
     evidence: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class ToolPreviewInput(Contract):
+    version: int = Field(ge=1, description="当前已发布智能体版本")
+    input_refs: list[str] = Field(min_length=1, max_length=4)
+    arguments: dict[str, Any]
+
+
 class SourceCitation(Contract):
     # Explanatory provider fields are discarded, never published as verified claims.
     model_config = ConfigDict(extra="ignore", str_strip_whitespace=False)

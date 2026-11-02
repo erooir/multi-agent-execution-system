@@ -444,6 +444,25 @@ def main():
                     ):
                         raise ValueError("Unexpected report scope")
                     rec["result"] = observation(case, report["content"])
+                    from backend.app.platform.tool_registry import digest
+
+                    calls = {call["id"]: call for call in detail.get("tool_calls", [])}
+                    findings = report["content"].get("tool_findings", [])
+                    for finding in findings:
+                        call = calls.get(finding.get("tool_call_id"))
+                        if (
+                            not call
+                            or call["capability_id"] != finding["tool_id"]
+                            or call["result_checksum"] != finding["result_checksum"]
+                            or (
+                                finding["status"] == "completed"
+                                and digest(finding["result"]) != call["result_checksum"]
+                            )
+                        ):
+                            raise ValueError(
+                                "Tool observation does not match its actual call or result checksum"
+                            )
+                    rec["tool_observations"] = sorted({f["tool_id"] for f in findings})
                     payload = api(client, "GET", f"/v2/artifacts/{report['id']}/case-package").content
                     z = zipfile.ZipFile(io.BytesIO(payload))
                     files = z.namelist()
@@ -471,6 +490,7 @@ def main():
                         or not (exported_report.get("reference_batch") or {}).get("registered")
                         or exported_report.get("evidence") != report["content"]["evidence"]
                         or exported_report.get("products") != report["content"]["products"]
+                        or exported_report.get("tool_findings") != findings
                     ):
                         raise ValueError("Exported evidence differs from the registered reference run")
                     (out / (case + ".zip")).write_bytes(payload)
