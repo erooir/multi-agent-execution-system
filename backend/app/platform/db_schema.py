@@ -25,6 +25,7 @@ KINDS = [
     "workflow_versions",
     "data_assets",
     "tasks",
+    "questions",
     "nodes",
     "instances",
     "artifacts",

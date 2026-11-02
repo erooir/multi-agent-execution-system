@@ -5,7 +5,7 @@ test("真实资产编排：定义表单、不可变版本差异、可视化依�
 }) => {
   await page.setViewportSize({ width: 1440, height: 1100 });
   const name = `资产编排验收-${Date.now()}`;
-  await page.goto("/");
+  await page.goto("/manage");
   await page
     .getByLabel("用户名", { exact: true })
     .fill(process.env.HANGZHI_SMOKE_USERNAME || "admin");

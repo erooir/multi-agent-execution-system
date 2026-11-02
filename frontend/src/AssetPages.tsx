@@ -27,6 +27,8 @@ import { AgentForm, AssetForm, WorkflowForm } from "./Forms";
 import Graph from "./Graph";
 import { AgentDetails, AgentVersions } from "./AssetDetails";
 import { ParameterSummary } from "./ToolParameters";
+import { stageNames } from "./agentPreviewModel";
+import "./agent-registry.css";
 type Props = {
   projectId: string;
   canEdit: boolean;
@@ -45,6 +47,8 @@ export function AgentsPage({
   assets = [],
   onWorkflow,
   initialId,
+  initialToolId,
+  offline = false,
 }: Props & {
   agents: Item[];
   capabilities: Item[];
@@ -53,10 +57,15 @@ export function AgentsPage({
   assets?: Item[];
   onWorkflow?: (id: string) => void;
   initialId?: string | null;
+  initialToolId?: string | null;
+  offline?: boolean;
 }) {
   const [search, setSearch] = useState(""),
     [purpose, setPurpose] = useState("all"),
     [structure, setStructure] = useState("all"),
+    [status, setStatus] = useState("all"),
+    [stage, setStage] = useState("all"),
+    [strategy, setStrategy] = useState("all"),
     [edit, setEdit] = useState<Item | null | undefined>(),
     [selected, setSelected] = useState<Item | null>(null),
     [versions, setVersions] = useState<Item[]>([]),
@@ -64,10 +73,17 @@ export function AgentsPage({
     [tab, setTab] = useState("definition"),
     [detailError, setDetailError] = useState(""),
     [action, setAction] = useState<{ item: Item; type: string } | null>(null);
-  const fresh = agents.find((a) => a.id === selected?.id) || selected;
+  const scoped = agents.filter(
+    (a) => a.project_id === projectId && a.status !== "destroyed",
+  );
+  const published = scoped.filter((a) => a.status === "published");
+  const fresh = scoped.find((a) => a.id === selected?.id);
   useEffect(() => {
-    if (initialId) setSelected(agents.find((a) => a.id === initialId) || null);
-  }, [initialId]);
+    if (initialId) {
+      setSelected({ id: initialId });
+      setTab("definition");
+    }
+  }, [initialId, initialToolId]);
   useEffect(() => {
     if (!fresh) return;
     let active = true;
@@ -89,12 +105,27 @@ export function AgentsPage({
       active = false;
     };
   }, [fresh?.id, fresh?.current_version, fresh?.updated_at]);
-  const list = agents.filter(
+  const hasFilters =
+    !!search ||
+    [purpose, structure, status, stage, strategy].some((v) => v !== "all");
+  function clearFilters() {
+    setSearch("");
+    setPurpose("all");
+    setStructure("all");
+    setStatus("all");
+    setStage("all");
+    setStrategy("all");
+  }
+  const list = scoped.filter(
     (a) =>
-      a.status !== "destroyed" &&
       (purpose === "all" || a.purpose === purpose) &&
       (structure === "all" || a.structure === structure) &&
-      `${a.name} ${a.description}`.toLowerCase().includes(search.toLowerCase()),
+      (status === "all" || a.status === status) &&
+      (stage === "all" || (a.case_role || "other") === stage) &&
+      (strategy === "all" || (a.execution_strategy || "fixed") === strategy) &&
+      `${a.name} ${a.description} ${a.role_contract?.case_id || ""} ${a.role_contract?.operation || ""}`
+        .toLowerCase()
+        .includes(search.trim().toLowerCase()),
   );
   const actionName: Record<string, string> = {
     publish: "发布新版本",
@@ -108,7 +139,7 @@ export function AgentsPage({
       <SectionTitle
         eyebrow="AGENT REGISTRY"
         title="智能体资产"
-        description="维护可复用的能力，区分定义、发布版本与每次任务的独立实例。"
+        description="按岗位和执行方式查找智能体，查看冻结的工具授权、发布版本与运行实例。"
         actions={
           canEdit && (
             <button className="primary" onClick={() => setEdit(null)}>
@@ -118,16 +149,77 @@ export function AgentsPage({
           )
         }
       />
-      <div className="toolbar">
+      <div className="agent-registry-counts" aria-label="当前项目资产概况">
+        <div>
+          <span>项目内定义</span>
+          <strong>{scoped.length}</strong>
+        </div>
+        <div>
+          <span>已发布</span>
+          <strong>{published.length}</strong>
+        </div>
+        <div>
+          <span>已发布 · 固定执行</span>
+          <strong>
+            {
+              published.filter(
+                (a) => (a.execution_strategy || "fixed") === "fixed",
+              ).length
+            }
+          </strong>
+        </div>
+        <div>
+          <span>已发布 · 自主选工具</span>
+          <strong>
+            {
+              published.filter((a) => a.execution_strategy === "tool_agent")
+                .length
+            }
+          </strong>
+        </div>
+      </div>
+      <div className="toolbar registry-filters">
         <div className="search">
           <Search size={17} />
           <input
             aria-label="搜索智能体"
-            placeholder="搜索名称或职责"
+            placeholder="搜索名称、职责、用例编号或算法"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+        <select
+          aria-label="发布状态"
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+        >
+          <option value="all">全部状态</option>
+          <option value="published">已发布</option>
+          <option value="draft">草稿</option>
+          <option value="disabled">已停用</option>
+          <option value="retired">已退役</option>
+        </select>
+        <select
+          aria-label="执行方式筛选"
+          value={strategy}
+          onChange={(e) => setStrategy(e.target.value)}
+        >
+          <option value="all">全部执行方式</option>
+          <option value="fixed">固定流程执行</option>
+          <option value="tool_agent">模型自主选工具</option>
+        </select>
+        <select
+          aria-label="岗位分工"
+          value={stage}
+          onChange={(e) => setStage(e.target.value)}
+        >
+          <option value="all">全部岗位</option>
+          {Object.entries(stageNames).map(([id, label]) => (
+            <option key={id} value={id}>
+              {label}
+            </option>
+          ))}
+        </select>
         <select
           aria-label="用途分类"
           value={purpose}
@@ -146,7 +238,14 @@ export function AgentsPage({
           <option value="atomic">元智能体</option>
           <option value="composite">复合智能体</option>
         </select>
-        <span className="muted">{list.length} 个定义</span>
+        <span className="muted" aria-live="polite">
+          显示 {list.length} / {scoped.length}
+        </span>
+        {hasFilters && (
+          <button className="text-button" onClick={clearFilters}>
+            清除筛选
+          </button>
+        )}
       </div>
       {list.length ? (
         <div className="asset-grid">
@@ -172,7 +271,21 @@ export function AgentsPage({
               <h3>{a.name}</h3>
               <p>{a.description || "尚未填写职责说明"}</p>
               <div className="tags">
-                <span>{a.purpose === "general" ? "通用" : "任务专用"}</span>
+                <span
+                  className={
+                    a.execution_strategy === "tool_agent"
+                      ? "agent-autonomous-tag"
+                      : ""
+                  }
+                >
+                  {a.execution_strategy === "tool_agent"
+                    ? "自主选工具"
+                    : "固定执行"}
+                </span>
+                <span>
+                  {stageNames[a.case_role] ||
+                    (a.purpose === "general" ? "通用" : "任务专用")}
+                </span>
                 <span>
                   {a.structure === "atomic" ? "元智能体" : "复合智能体"}
                 </span>
@@ -184,7 +297,9 @@ export function AgentsPage({
                     .join(" / ")}
                 </span>
                 <strong>
-                  {a.current_version ? `v${a.current_version}` : "未发布"}
+                  {a.current_version
+                    ? `${a.status === "draft" ? "上次发布 " : ""}v${a.current_version}`
+                    : "未发布"}
                 </strong>
               </div>
             </button>
@@ -193,7 +308,11 @@ export function AgentsPage({
       ) : (
         <Empty
           title="没有符合条件的智能体"
-          description="创建定义、声明能力并发布版本，让后续任务复用经过验证的配置。"
+          description={
+            hasFilters
+              ? "试试其他关键词或清除筛选条件。"
+              : "创建定义、声明能力并发布版本，让后续任务复用经过验证的配置。"
+          }
           action={
             canEdit && (
               <button onClick={() => setEdit(null)}>
@@ -207,6 +326,7 @@ export function AgentsPage({
       {edit !== undefined && (
         <AgentForm
           projectId={projectId}
+          offline={offline}
           item={edit || undefined}
           agents={agents}
           capabilities={capabilities}
@@ -239,6 +359,10 @@ export function AgentsPage({
               <AgentDetails
                 agent={fresh}
                 canEdit={canEdit}
+                offline={offline}
+                initialToolId={
+                  fresh.id === initialId ? initialToolId : undefined
+                }
                 assets={assets}
                 published={versions.find(
                   (v) =>

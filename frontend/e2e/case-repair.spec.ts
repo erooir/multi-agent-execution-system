@@ -52,7 +52,7 @@ test("任务详情展示条款匹配改道、复用的解析节点和独立复�
     allow_partial: false,
     max_revisions: 2,
   });
-  await page.goto("/");
+  await page.goto("/manage");
   await page.getByLabel("当前项目").selectOption(p.id);
   await page
     .getByRole("navigation")
@@ -67,6 +67,20 @@ test("任务详情展示条款匹配改道、复用的解析节点和独立复�
   await expect(record).toContainText("交付期限");
   await expect(record).toContainText("已解决");
   await expect(page.locator(".react-flow__node")).toHaveCount(3);
+  await expect(
+    page.locator(".react-flow__node").filter({ hasText: "复用第 1 轮" }),
+  ).toHaveCount(1);
+  await page.getByRole("button", { name: "审核与迭代" }).click();
+  const history = page.locator(".trace-review-row");
+  await expect(history.filter({ hasText: "第 1 轮" })).toContainText("未通过");
+  await expect(history.filter({ hasText: "第 2 轮" })).toContainText("通过");
+  await page.getByRole("button", { name: "查看问题发生轮次" }).click();
+  await expect(page.getByLabel("执行轮次")).toHaveValue("0");
+  await expect(page.locator(".react-flow__node")).toHaveCount(3);
+  await expect(
+    page.locator(".react-flow__node").filter({ hasText: "复用第 1 轮" }),
+  ).toHaveCount(0);
+  await page.getByLabel("执行轮次").selectOption("1");
   await expect(
     page.locator(".react-flow__node").filter({ hasText: "复用第 1 轮" }),
   ).toHaveCount(1);

@@ -193,6 +193,46 @@ class TaskPreflight(Contract):
     warnings: list[str] = Field(default_factory=list)
 
 
+class QuestionInput(Contract):
+    project_id: str = Field(min_length=1, max_length=100)
+    question: str = Field(min_length=1, max_length=8000)
+    idempotency_key: str = Field(min_length=1, max_length=140)
+
+
+class QuestionCitation(Contract):
+    source: str
+    location: str
+    excerpt: str
+
+
+class AnswerTable(Contract):
+    title: str
+    columns: list[str]
+    rows: list[list[str | float | bool | None]]
+    total_rows: int
+
+
+class AnswerMap(Contract):
+    title: str
+    geojson: dict[str, Any]
+
+
+class QuestionAnswer(Contract):
+    id: str
+    question: str
+    status: str
+    outcome: str | None = None
+    answer: str | None = None
+    missing: list[str] = Field(default_factory=list)
+    citations: list[QuestionCitation] = Field(default_factory=list)
+    products: dict[str, str] = Field(default_factory=dict)
+    tables: list[AnswerTable] = Field(default_factory=list)
+    maps: list[AnswerMap] = Field(default_factory=list)
+    created_at: str
+    updated_at: str
+    content_withheld: bool = False
+
+
 class AgentInput(Contract):
     project_id: str
     name: str = Field(min_length=1, max_length=100)
@@ -264,7 +304,7 @@ class TaskInput(Contract):
     goal: str = Field(min_length=1, max_length=8000)
     task_type: TaskType
     case_id: str | None = Field(default=None, pattern=r"^[BTG](0[1-9]|10)$")
-    case_scope: Literal["reference", "sample"] = "reference"
+    case_scope: Literal["reference", "sample", "project"] = "reference"
     input_refs: list[str] = Field(default_factory=list, max_length=50)
     workflow_id: str | None = None
     mode: Literal["local", "cloud", "rehearsal"] = "local"

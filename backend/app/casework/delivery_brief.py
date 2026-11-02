@@ -439,6 +439,8 @@ def findings(report):
 
 def scope_text(report):
     scope = report.get("scope")
+    if scope == "project":
+        return "根据此次问题和项目内实际可用的资料核查。"
     if scope == "sample":
         return "缩小样本验证，不代表完整参考用例验收。"
     if scope != "reference":

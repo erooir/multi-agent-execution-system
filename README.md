@@ -1,6 +1,6 @@
 # 航智智能体管理平台
 
-新版以智能体资产管理为中心，提供不可变版本、复合定义、流程复用、持久任务、自动评审、双视角监控和受控改进。旧研究工作台保存在 Git 归档标签，main 为新版实现。
+默认工作台面向提问用户。用户在甲方已提供资料的项目中写下问题，平台选择资料与执行方式、构建或复用岗位、核查答案，并在需要时调整后续步骤。用户查看答复、材料出处和未能解决的部分。获授权的管理人员可在[管理工作台](http://127.0.0.1:8000/manage)查看工具、不可变版本、任务轨迹和改进评测。
 
 ## 本机启动
 
@@ -24,7 +24,7 @@ npm.cmd --prefix frontend run build
 ./scripts/start.ps1 -DmUrlFile <本机私有连接文件> -SkipBuild
 ```
 
-已有管理员沿用原账号。新身份库可事先设置 `HANGZHI_ADMIN_PASSWORD`，否则随机初始凭据保存在忽略的 `.local/bootstrap-admin.json`。注册用户为 operator。停服使用 `./scripts/stop.ps1`。
+已有账号沿用原角色。新注册的提问用户为 requester，需要管理员为其分配项目。新身份库可事先设置 `HANGZHI_ADMIN_PASSWORD`，否则随机初始凭据保存在忽略的 `.local/bootstrap-admin.json`。停服使用 `./scripts/stop.ps1`。
 
 ## 已实现能力
 

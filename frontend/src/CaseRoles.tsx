@@ -62,7 +62,17 @@ export function RoleFacts({
             .join("、") || "—"}
         </dd>
         <dt>验收检查</dt>
-        <dd>{role.acceptance?.join("；") || "未声明"}</dd>
+        <dd>
+          {role.acceptance?.length ? (
+            <ul className="role-checks">
+              {role.acceptance.map((check: string) => (
+                <li key={check}>{check}</li>
+              ))}
+            </ul>
+          ) : (
+            "未声明"
+          )}
+        </dd>
         <dt>岗位工具</dt>
         <dd>
           {role.grants?.length ? (

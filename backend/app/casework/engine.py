@@ -212,7 +212,11 @@ def _execute(stage, profile, inputs, previous, read_bytes, feedback, revision, r
 
     readings, notes = localize(candidate["evidence"]) if code[0] != "G" else ([], [])
     # Scope-specific language requirements cannot be silently waived for a reference run.
-    if notes and scope == "reference" and code in {"B04", "B06", "T01", "T07"}:
+    if (
+        notes
+        and (scope == "reference" or profile.get("translation_requested"))
+        and code in {"B04", "B06", "T01", "T07"}
+    ):
         checks.append(
             {"name": "reading_coverage", "passed": False, "message": "；".join(notes), "hard": False}
         )

@@ -116,7 +116,15 @@ export function QualityView({
   );
 }
 
-export function ArtifactContent({ artifact }: { artifact: Item }) {
+export function ArtifactContent({
+  artifact,
+  calls,
+  onCall,
+}: {
+  artifact: Item;
+  calls?: Item[];
+  onCall?: (id: string) => void;
+}) {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
   if (artifact.content_withheld)
@@ -137,7 +145,7 @@ export function ArtifactContent({ artifact }: { artifact: Item }) {
         >
           下载报告、数据表和图层
         </a>
-        <CaseReport content={content} />
+        <CaseReport content={content} calls={calls} onCall={onCall} />
       </>
     );
   const columns = rows ? tableColumns(rows) : [];

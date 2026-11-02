@@ -24,6 +24,8 @@ export function AgentDetails({
   canEdit,
   published,
   assets,
+  offline = false,
+  initialToolId,
 }: {
   agent: Item;
   agents: Item[];
@@ -33,6 +35,8 @@ export function AgentDetails({
   canEdit: boolean;
   published?: Item;
   assets: Item[];
+  offline?: boolean;
+  initialToolId?: string | null;
 }) {
   // Versions load separately; do not present an edited draft as a published grant.
   const version =
@@ -45,6 +49,8 @@ export function AgentDetails({
   const previews = specs.filter(
     (s) =>
       s.local_preview === true &&
+      (!version?.role_contract ||
+        version.role_contract.grants?.includes(s.id)) &&
       version?.tool_refs?.some(
         (r: Item) => r.tool_id === s.id && r.version === s.version,
       ),
@@ -73,9 +79,17 @@ export function AgentDetails({
       {version && !version.role_contract && agent.case_role && (
         <p className="muted">此版本尚未发布新版岗位合同。</p>
       )}
+      {agent.status === "draft" && (
+        <p className="draft-boundary">
+          正在查看工作草稿。
+          {agent.current_version
+            ? `上次发布的 v${agent.current_version} 授权单独列在下方。`
+            : "首次发布后即可绑定任务或试用已授权工具。"}
+        </p>
+      )}
       <div className="asset-summary-grid">
         <section>
-          <span>执行方式</span>
+          <span>当前定义的执行方式</span>
           <strong>
             {agent.execution_strategy === "tool_agent"
               ? "自主选择授权工具"
@@ -84,11 +98,15 @@ export function AgentDetails({
           <small>
             {agent.model_policy === "local"
               ? "本地确定性处理"
-              : "统一网关 · 计入累计预算"}
+              : offline
+                ? "离线部署 · 云模型停用"
+                : "统一网关 · 计入累计预算"}
           </small>
         </section>
         <section>
-          <span>稳定发布版本</span>
+          <span>
+            {agent.status === "published" ? "当前发布版本" : "最近发布版本"}
+          </span>
           <strong>
             {agent.current_version ? `v${agent.current_version}` : "尚未发布"}
           </strong>
@@ -112,12 +130,16 @@ export function AgentDetails({
       </div>
       <div className="asset-detail-columns">
         <section>
-          <h3>当前发布版本的工具与技能授权</h3>
+          <h3>
+            {version
+              ? `v${version.version} 已冻结的能力、工具与技能`
+              : "发布版本的能力、工具与技能"}
+          </h3>
           <div className="binding-list">
             {(version?.tool_ids || []).map((id: string) => (
               <div key={id}>
                 <span>{taskTypes[id] || id}</span>
-                <small>固定工具</small>
+                <small>任务能力入口</small>
               </div>
             ))}
             {(version?.tool_refs || []).map((ref: Item) => (
@@ -144,16 +166,29 @@ export function AgentDetails({
                 </p>
               )}
           </div>
+          {previews.length > 0 && !canEdit && (
+            <p className="note">
+              当前账号可查看授权。执行本地试用需要项目操作权限。
+            </p>
+          )}
+          {previews.length > 0 && canEdit && agent.status !== "published" && (
+            <p className="note">本地试用仅开放给当前启用的已发布定义。</p>
+          )}
           {canEdit &&
             version &&
             agent.status === "published" &&
             previews.length > 0 && (
               <AgentToolPreview
-                key={version.id}
+                key={version.id + ":" + (initialToolId || "")}
                 agent={agent}
                 version={version}
                 specs={previews}
                 assets={assets}
+                initialToolId={
+                  previews.some((s) => s.id === initialToolId)
+                    ? initialToolId
+                    : undefined
+                }
               />
             )}
         </section>
@@ -354,11 +389,8 @@ export function AgentVersions({
               <span key={id}>{taskTypes[id] || id}</span>
             ))}
             <span>{version.members?.length || 0} 个成员</span>
-            <span>
-              {(version.tool_ids?.length || 0) +
-                (version.tool_refs?.length || 0)}{" "}
-              项工具授权
-            </span>
+            <span>{version.tool_refs?.length || 0} 项版本化工具授权</span>
+            <span>{version.skill_refs?.length || 0} 项技能授权</span>
           </div>
           <ParameterSummary parameters={version.parameters} />
           <JsonView value={version} label="不可变配置快照与引用" />

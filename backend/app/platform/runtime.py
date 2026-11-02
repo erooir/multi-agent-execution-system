@@ -294,11 +294,20 @@ class Execution:
 
             if principal.get("username"):
                 user = auth.store.get("users", principal["username"])
+                allowed = {"admin", "operator"}
+                if current.get("question_id") and user and user["role"] == "requester":
+                    intake = target.get("questions", current["question_id"])
+                    if intake and (intake["owner_id"], intake["task_id"], intake["project_id"]) == (
+                        user["id"],
+                        current["id"],
+                        current["project_id"],
+                    ):
+                        allowed.add("requester")
                 if (
                     not user
                     or not user.get("enabled", True)
                     or user["id"] != principal["id"]
-                    or user["role"] not in {"admin", "operator"}
+                    or user["role"] not in allowed
                 ):
                     raise TaskFailure("permission_denied", "任务创建者的执行权限已失效")
                 principal = user

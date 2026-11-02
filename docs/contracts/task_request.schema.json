@@ -78,7 +78,8 @@
       "default": "reference",
       "enum": [
         "reference",
-        "sample"
+        "sample",
+        "project"
       ],
       "title": "Case Scope",
       "type": "string"

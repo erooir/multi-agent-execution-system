@@ -291,6 +291,23 @@ def test_api_enforces_auth_schema_and_revocation(db):
             ).status_code
             == 201
         )
+        assert client.get("/api/auth/me").json()["role"] == "requester"
+        assert client.get("/api/v2/question-projects").json() == []
+        for route in ("bootstrap", "agents", "tasks", "workers", "budget", "data-assets", "audits"):
+            assert client.get("/api/v2/" + route).status_code == 403
+        assert (
+            client.post(
+                "/api/auth/login", json={"username": "admin", "password": "test-admin-password"}
+            ).status_code
+            == 200
+        )
+        assert client.put("/api/users/client_user", json={"role": "operator"}).status_code == 200
+        assert (
+            client.post(
+                "/api/auth/login", json={"username": "client_user", "password": "test-password-123"}
+            ).status_code
+            == 200
+        )
         boot = client.get("/api/v2/bootstrap")
         assert boot.status_code == 200, boot.text
         p = boot.json()["projects"][0]

@@ -246,6 +246,23 @@
         }
       }
     },
+    "/api/v2/question-projects": {
+      "get": {
+        "summary": "Question Projects",
+        "description": "The question portal needs project names, never asset definitions or service configuration.",
+        "operationId": "question_projects_api_v2_question_projects_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/bootstrap": {
       "get": {
         "summary": "Bootstrap",
@@ -1597,6 +1614,124 @@
         }
       }
     },
+    "/api/v2/questions": {
+      "post": {
+        "summary": "Ask Question",
+        "operationId": "ask_question_api_v2_questions_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuestionInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuestionAnswer"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Question History",
+        "operationId": "question_history_api_v2_questions_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/QuestionAnswer"
+                  },
+                  "title": "Response Question History Api V2 Questions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/questions/{question_id}": {
+      "get": {
+        "summary": "Question Answer",
+        "operationId": "question_answer_api_v2_questions__question_id__get",
+        "parameters": [
+          {
+            "name": "question_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Question Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuestionAnswer"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/tasks/{task_id}": {
       "get": {
         "summary": "Task",
@@ -2529,6 +2664,77 @@
         ],
         "title": "AgentInput"
       },
+      "AnswerMap": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "geojson": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Geojson"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title",
+          "geojson"
+        ],
+        "title": "AnswerMap"
+      },
+      "AnswerTable": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns"
+          },
+          "rows": {
+            "items": {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "total_rows": {
+            "type": "integer",
+            "title": "Total Rows"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title",
+          "columns",
+          "rows",
+          "total_rows"
+        ],
+        "title": "AnswerTable"
+      },
       "AssetInput": {
         "properties": {
           "project_id": {
@@ -3227,6 +3433,156 @@
         "type": "object",
         "title": "Quality"
       },
+      "QuestionAnswer": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/QuestionCitation"
+            },
+            "type": "array",
+            "title": "Citations"
+          },
+          "products": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Products"
+          },
+          "tables": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerTable"
+            },
+            "type": "array",
+            "title": "Tables"
+          },
+          "maps": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerMap"
+            },
+            "type": "array",
+            "title": "Maps"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          },
+          "content_withheld": {
+            "type": "boolean",
+            "title": "Content Withheld",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "question",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "QuestionAnswer"
+      },
+      "QuestionCitation": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "location": {
+            "type": "string",
+            "title": "Location"
+          },
+          "excerpt": {
+            "type": "string",
+            "title": "Excerpt"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "location",
+          "excerpt"
+        ],
+        "title": "QuestionCitation"
+      },
+      "QuestionInput": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Project Id"
+          },
+          "question": {
+            "type": "string",
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Question"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "maxLength": 140,
+            "minLength": 1,
+            "title": "Idempotency Key"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_id",
+          "question",
+          "idempotency_key"
+        ],
+        "title": "QuestionInput"
+      },
       "QueueMetrics": {
         "properties": {
           "waiting_count": {
@@ -3438,7 +3794,8 @@
             "type": "string",
             "enum": [
               "reference",
-              "sample"
+              "sample",
+              "project"
             ],
             "title": "Case Scope",
             "default": "reference"

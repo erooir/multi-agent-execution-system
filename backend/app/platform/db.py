@@ -32,7 +32,7 @@ QUEUE_POLICY_VERSION = "interactive-aging-v1"
 # queries. Other types (including nested JSON) retain the original Python
 # comparison after the project/physical-column filters.
 _REFERENCE_FILTERS = frozenset(
-    {"task_id", "agent_id", "node_id", "instance_id", "workflow_id", "definition_id"}
+    {"task_id", "agent_id", "node_id", "instance_id", "workflow_id", "definition_id", "owner_id"}
 )
 
 

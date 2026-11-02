@@ -2,10 +2,12 @@ param(
     [ValidateRange(1024,65535)][int]$Port = 8000,
     [switch]$SkipBuild, [string]$DmUrlFile, [switch]$LegacySQLite,
     [switch]$Offline = ($env:HANGZHI_OFFLINE -eq 'true'),
-    [switch]$AutoImprove = ($env:HANGZHI_AUTO_IMPROVE -eq 'true')
+    [switch]$AutoImprove = ($env:HANGZHI_AUTO_IMPROVE -eq 'true'),
+    [switch]$QuestionPublicEgress = ($env:HANGZHI_QUESTION_PUBLIC_EGRESS -eq 'true')
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'platform_processes.ps1')
 Set-Location -LiteralPath $projectRoot
 $localDirectory = Join-Path $projectRoot '.local'
 New-Item -ItemType Directory -Path $localDirectory -Force | Out-Null
@@ -39,7 +41,14 @@ if (-not $PSBoundParameters.ContainsKey('AutoImprove') -and -not $env:HANGZHI_AU
     $AutoImprove = $choice -eq 'true'
 }
 $env:HANGZHI_AUTO_IMPROVE = if ($AutoImprove) { 'true' } else { 'false' }
-$profile = $env:HANGZHI_DATABASE_URL + '|' + $env:HANGZHI_OFFLINE + '|' + $env:HANGZHI_AUTO_IMPROVE
+$questionPolicy = Join-Path $localDirectory 'question-public-egress.txt'
+if (-not $PSBoundParameters.ContainsKey('QuestionPublicEgress') -and -not $env:HANGZHI_QUESTION_PUBLIC_EGRESS -and (Test-Path -LiteralPath $questionPolicy)) {
+    $choice = (Get-Content -LiteralPath $questionPolicy -Raw).Trim()
+    if ($choice -notin @('true','false')) { throw 'Invalid public question egress policy; use true or false.' }
+    $QuestionPublicEgress = $choice -eq 'true'
+}
+$env:HANGZHI_QUESTION_PUBLIC_EGRESS = if ($QuestionPublicEgress -and -not $Offline) { 'true' } else { 'false' }
+$profile = $env:HANGZHI_DATABASE_URL + '|' + $env:HANGZHI_OFFLINE + '|' + $env:HANGZHI_AUTO_IMPROVE + '|' + $env:HANGZHI_QUESTION_PUBLIC_EGRESS
 $sha = [System.Security.Cryptography.SHA256]::Create()
 try { $profileId = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($profile))).Replace('-','').ToLowerInvariant() } finally { $sha.Dispose() }
 if (-not $SkipBuild) {
@@ -63,7 +72,7 @@ if ($listener.Count -gt 0) {
     if (-not (Test-Path -LiteralPath $serverState)) { throw 'Existing API is not recorded by this workspace; stop it explicitly before starting.' }
     $record = Get-Content -LiteralPath $serverState -Raw | ConvertFrom-Json
     if ($record.profile_id -ne $profileId) { throw 'Existing API uses a different database, model or improvement policy. Stop it before switching.' }
-    $process = Get-CimInstance Win32_Process -Filter "ProcessId = $($record.pid)" -ErrorAction SilentlyContinue
+    $process = Get-PlatformProcesses -ProcessId $record.pid
     if ($record.root -ne $projectRoot -or -not $process -or $process.ExecutablePath -ne $pythonExecutable -or $process.CommandLine -notlike '*uvicorn backend.app.main:app*') { throw 'Existing API ownership could not be verified.' }
     $running = $true
 }
@@ -86,7 +95,7 @@ $workerRunning = $false
 if (Test-Path -LiteralPath $workerState) {
     $record = Get-Content -LiteralPath $workerState -Raw | ConvertFrom-Json
     if ($record.root -ne $projectRoot) { throw 'Recorded worker workspace mismatch' }
-    $process = Get-CimInstance Win32_Process -Filter "ProcessId = $($record.pid)" -ErrorAction SilentlyContinue
+    $process = Get-PlatformProcesses -ProcessId $record.pid
     if ($process) {
         if ($record.profile_id -ne $profileId) { throw 'Existing worker uses a different database, model or improvement policy. Stop it before switching.' }
         if ($process.ExecutablePath -ne $pythonExecutable -or $process.CommandLine -notlike '*backend.app.platform.worker*') { throw 'Recorded worker PID belongs to another process; inspect the state file.' }

@@ -8,7 +8,7 @@ test("云端浏览器：公开文件上传后无人值守完成证据分析", as
   );
   test.setTimeout(360000);
   const name = `云端浏览器验收-${Date.now()}`;
-  await page.goto("/");
+  await page.goto("/manage");
   await page.getByLabel("用户名", { exact: true }).fill("admin");
   await page
     .getByLabel("密码", { exact: true })

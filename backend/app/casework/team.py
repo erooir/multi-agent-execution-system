@@ -67,7 +67,7 @@ def role_id(project_id, stage, family):
     return f"{project_id}-case-{family if stage == 'analyze' else 'shared'}-{stage}"
 
 
-def install(project_id, user, repository, *, upgrade=False):
+def install(project_id, user, repository, *, upgrade=False, case_id=None):
     from ..platform import service as s
     from ..platform.contracts import AgentInput
     from ..platform.tool_registry import catalog as tool_catalog
@@ -81,6 +81,8 @@ def install(project_id, user, repository, *, upgrade=False):
         versions = {t["id"]: t["version"] for t in tool_catalog()["tools"]}
         original_versions = {}
         for group, profile in catalog().items():
+            if case_id is not None and group != case_id:
+                continue
             title = profile["title"]
             nodes = []
             for index, stage in enumerate(STAGES):

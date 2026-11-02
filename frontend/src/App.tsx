@@ -25,6 +25,7 @@ import {
   ShieldCheck,
   Sparkles,
   Workflow,
+  Wrench,
   X,
 } from "lucide-react";
 import { api, ApiError, post } from "./api";
@@ -35,7 +36,10 @@ import { AgentsPage, DataPage, WorkflowsPage } from "./AssetPages";
 import TasksPage from "./TaskPages";
 import { modeName } from "./domain";
 import MetricsPanel from "./MetricsPanel";
-import Casework from "./Casework";
+import Casework, { type CaseTab } from "./Casework";
+import ToolCatalog from "./ToolCatalog";
+import WorkspaceEntry from "./WorkspaceEntry";
+import QuestionPortal from "./QuestionPortal";
 import "./task-experience.css";
 import {
   ImprovementsPage,
@@ -48,6 +52,7 @@ const nav: { id: Page; name: string; icon: any; group: string }[] = [
   { id: "agents", name: "智能体资产", icon: Bot, group: "工作空间" },
   { id: "tasks", name: "任务运行", icon: Activity, group: "工作空间" },
   { id: "workflows", name: "协作流程", icon: Workflow, group: "资产与知识" },
+  { id: "tools", name: "工具目录", icon: Wrench, group: "资产与知识" },
   { id: "data", name: "数据资产", icon: Database, group: "资产与知识" },
   { id: "knowledge", name: "知识与记忆", icon: Layers3, group: "资产与知识" },
   {
@@ -59,11 +64,19 @@ const nav: { id: Page; name: string; icon: any; group: string }[] = [
   { id: "operations", name: "平台运维", icon: Settings2, group: "治理与运维" },
 ];
 const roles: Record<string, string> = {
+  requester: "提问用户",
   admin: "平台管理员",
   operator: "项目操作员",
   reviewer: "只读观察员",
 };
 export default function App() {
+  return window.location.pathname.replace(/\/$/, "") === "/manage" ? (
+    <ManagementApp />
+  ) : (
+    <QuestionPortal Login={Login} />
+  );
+}
+function ManagementApp() {
   const [user, setUser] = useState<User | null>(null),
     [checking, setChecking] = useState(true),
     [authError, setAuthError] = useState(""),
@@ -74,6 +87,8 @@ export default function App() {
     [page, setPage] = useState<Page>("overview"),
     [taskId, setTaskId] = useState<string | null>(null),
     [agentId, setAgentId] = useState<string | null>(null),
+    [agentTool, setAgentTool] = useState<string | null>(null),
+    [caseTab, setCaseTab] = useState<CaseTab>("catalog"),
     [workflowId, setWorkflowId] = useState<string | null>(null),
     [error, setError] = useState(""),
     [lastSync, setLastSync] = useState(""),
@@ -200,6 +215,10 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (!user) return;
+    if (user.role === "requester") {
+      window.location.replace("/");
+      return;
+    }
     void refresh().catch(() => {});
     const timer = setInterval(() => void refresh().catch(() => {}), 10000);
     return () => clearInterval(timer);
@@ -223,6 +242,8 @@ export default function App() {
   };
   function go(next: Page) {
     setPage(next);
+    setCaseTab("catalog");
+    setAgentTool(null);
     setMobile(false);
     setTaskId(null);
     setAgentId(null);
@@ -231,6 +252,8 @@ export default function App() {
   function selectProject(id: string) {
     if (selectedProject.current === id) return;
     selectedProject.current = id;
+    setCaseTab("catalog");
+    setAgentTool(null);
     setProjectId(id);
     setTaskId(null);
     setAgentId(null);
@@ -261,6 +284,8 @@ export default function App() {
         }}
       />
     );
+  if (user.role === "requester")
+    return <p role="status">正在进入问答工作台…</p>;
   const canEdit = user.role !== "reviewer",
     scoped = (kind: keyof Bootstrap) =>
       projectItems(data?.[kind] as Item[], projectId),
@@ -274,9 +299,14 @@ export default function App() {
       setTaskId(id);
       setPage("tasks");
     },
-    openAgent = (id: string) => {
+    openAgent = (id: string, toolId?: string) => {
       setAgentId(id);
+      setAgentTool(toolId || null);
       setPage("agents");
+    },
+    openCasework = (tab: CaseTab) => {
+      go("casework");
+      setCaseTab(tab);
     };
   return (
     <div className="app-shell">
@@ -377,6 +407,9 @@ export default function App() {
             <strong>{nav.find((n) => n.id === page)?.name}</strong>
           </div>
           <div className="top-actions">
+            <a className="desk-link" href="/">
+              返回问答
+            </a>
             <span className={`connection ${error ? "error" : ""}`}>
               <span className="status-dot" />
               {error
@@ -439,6 +472,7 @@ export default function App() {
             <>
               {page === "overview" && (
                 <Overview
+                  key={projectId}
                   data={data}
                   project={project}
                   agents={agents}
@@ -446,6 +480,7 @@ export default function App() {
                   assets={assets}
                   workflows={workflows}
                   go={go}
+                  openCasework={openCasework}
                   openTask={openTask}
                 />
               )}
@@ -457,6 +492,7 @@ export default function App() {
                   workflows={workflows}
                   tasks={tasks}
                   offline={!!data.system.offline}
+                  initialTab={caseTab}
                   onTask={openTask}
                   onAgent={openAgent}
                 />
@@ -477,6 +513,17 @@ export default function App() {
                   }
                   onTask={openTask}
                   initialId={agentId}
+                  initialToolId={agentTool}
+                  offline={!!data.system.offline}
+                />
+              )}
+              {page === "tools" && (
+                <ToolCatalog
+                  key={projectId}
+                  projectId={projectId}
+                  agents={agents}
+                  canEdit={canEdit}
+                  onAgent={openAgent}
                 />
               )}
               {page === "tasks" && (
@@ -525,6 +572,7 @@ export default function App() {
                   workers={data.workers}
                   agents={agents}
                   tasks={tasks}
+                  onTask={openTask}
                 />
               )}
               {page === "operations" && (
@@ -618,49 +666,39 @@ function Login({
         </div>
         <div className="login-message">
           <span className="eyebrow">HANGZHI AGENT PLATFORM</span>
-          <h1>
-            让每一种能力，
-            <br />
-            成为可管理的资产。
-          </h1>
-          <p>
-            组织智能体，连接可信数据，
-            <br />
-            让任务从目标走向可追溯的交付。
-          </p>
+          <h1>航智问答工作台</h1>
+          <p>写下问题，平台将根据项目已经提供的材料分析并核查答案。</p>
           <div className="login-diagram" aria-hidden="true">
             <div>
               <Database size={21} />
-              <span>数据与目标</span>
+              <span>提交问题</span>
             </div>
             <ArrowRight size={22} />
             <div className="accent">
               <Bot size={23} />
-              <span>智能体协作</span>
+              <span>结合资料分析</span>
             </div>
             <ArrowRight size={22} />
             <div>
               <ShieldCheck size={22} />
-              <span>自动校验</span>
+              <span>答复与依据</span>
             </div>
           </div>
           <div className="login-principles">
-            <span>独立版本与上下文</span>
-            <span>自动评审与有限修订</span>
-            <span>预算与权限受控</span>
+            <span>使用授权项目资料</span>
+            <span>保留材料出处</span>
+            <span>保留个人问题记录</span>
           </div>
         </div>
-        <small className="login-footnote">
-          基于自托管 Agno AgentOS · 本地管理工作空间
-        </small>
+        <small className="login-footnote">航智智能体管理平台</small>
       </section>
       <section className="login-form-side">
         <form className="login-form" onSubmit={submit}>
           <h2>{register ? "创建本地账户" : "登录工作空间"}</h2>
           <p>
             {register
-              ? "创建操作员身份，使用独立项目管理任务。"
-              : "使用本地账户访问获授权的项目与资产。"}
+              ? "创建提问账户。管理员分配项目后，即可使用项目资料提问。"
+              : "使用本地账户访问获授权的项目。"}
           </p>
           <fieldset disabled={busy}>
             <label className="field">
@@ -729,6 +767,7 @@ function Overview({
   assets,
   workflows,
   go,
+  openCasework,
   openTask,
 }: {
   data: Bootstrap;
@@ -738,6 +777,7 @@ function Overview({
   assets: Item[];
   workflows: Item[];
   go: (page: Page) => void;
+  openCasework: (tab: CaseTab) => void;
   openTask: (id: string) => void;
 }) {
   const realTasks = tasks.filter((t) => t.request?.mode !== "rehearsal"),
@@ -751,7 +791,7 @@ function Overview({
       <SectionTitle
         eyebrow="WORKSPACE OVERVIEW"
         title="工作台总览"
-        description={`${project?.name || "当前项目"} · 从可复用能力到可追溯任务`}
+        description={`${project?.name || "当前项目"} · 查看岗位分工、工具授权与实际执行情况。`}
         actions={
           <button className="primary" onClick={() => go("tasks")}>
             <Plus size={18} />
@@ -759,44 +799,14 @@ function Overview({
           </button>
         }
       />
-      <div className="overview-hero compact">
-        <div>
-          <span className="eyebrow">从目标到交付</span>
-          <h2>从智能体资产开始组织任务</h2>
-          <p>
-            {agents.filter((a) => a.status === "published").length}{" "}
-            个已发布智能体 ·{" "}
-            {workflows.filter((w) => w.status === "published").length}{" "}
-            个可复用流程
-          </p>
-          <div className="actions">
-            <button onClick={() => go("agents")}>
-              管理智能体
-              <ArrowRight size={16} />
-            </button>
-            <button className="subtle" onClick={() => go("data")}>
-              接入数据
-            </button>
-          </div>
-        </div>
-        <div className="hero-nodes" aria-hidden="true">
-          <div>
-            <Database />
-            <span>授权数据</span>
-          </div>
-          <div className="node-connector" />
-          <div className="hero-primary">
-            <Bot />
-            <span>智能体资产</span>
-            <small>定义 · 版本 · 实例</small>
-          </div>
-          <div className="node-connector" />
-          <div>
-            <ShieldCheck />
-            <span>可验证交付</span>
-          </div>
-        </div>
-      </div>
+      {project && (
+        <WorkspaceEntry
+          projectId={project.id}
+          agents={agents}
+          go={go}
+          openCasework={openCasework}
+        />
+      )}
       {project?.id && <MetricsPanel key={project.id} projectId={project.id} />}
       <div className="metric-grid four">
         <button className="metric" onClick={() => go("agents")}>
@@ -916,7 +926,7 @@ function Overview({
               />
             </button>
           </Panel>
-          <Panel title="能力边界">
+          <Panel title="任务类型与执行模式">
             <div className="capability-list">
               {capabilities.map((c) => (
                 <div key={c.id}>

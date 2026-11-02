@@ -38,7 +38,7 @@ def test_registration_persists_hashed_password_login_cookie_and_roles(identity_a
             "id": "research_1",
             "username": "research_1",
             "name": "航空研究员",
-            "role": "operator",
+            "role": "requester",
         }
         assert response.json() == {"user": expected_user}
         cookie = response.headers["set-cookie"]

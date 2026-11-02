@@ -9,10 +9,11 @@ import {
   Search,
   Square,
 } from "lucide-react";
-import { api, idPath, post } from "./api";
+import { api, ApiError, idPath, post } from "./api";
 import { money, reasonNames, taskTypes, terminal, time } from "./domain";
 import type { Item, Mutation, Notify } from "./types";
-import type { components } from "./generated/api";
+import { ToolCallDialog, ToolCalls } from "./TaskToolTrace";
+import { roundNodes } from "./taskTraceModel";
 import {
   Badge,
   Confirm,
@@ -77,6 +78,7 @@ export default function TasksPage({
   if (selectedId)
     return (
       <TaskDetail
+        key={selectedId}
         id={selectedId}
         agents={agents}
         canEdit={canEdit}
@@ -336,6 +338,8 @@ function TaskDetail({
     [error, setError] = useState(""),
     [updated, setUpdated] = useState<string>(""),
     [tab, setTab] = useState("graph"),
+    [round, setRound] = useState<number | null>(null),
+    [callId, setCallId] = useState<string | null>(null),
     [cancel, setCancel] = useState(false),
     [inspect, setInspect] = useState<Item | null>(null),
     [artifact, setArtifact] = useState<Item | null>(null);
@@ -359,8 +363,15 @@ function TaskDetail({
           setUpdated(new Date().toISOString());
         }
       } catch (e) {
-        if (active && (e as Error).name !== "AbortError")
+        if (active && (e as Error).name !== "AbortError") {
           setError((e as Error).message);
+          if (e instanceof ApiError && [401, 403, 404].includes(e.status)) {
+            setTask(null);
+            setArtifact(null);
+            setInspect(null);
+            setCallId(null);
+          }
+        }
       } finally {
         refreshing = false;
       }
@@ -375,11 +386,13 @@ function TaskDetail({
   }, [id, onTaskUpdated]);
   useEffect(() => {
     if (
+      task?.content_withheld ||
       task?.result?.content_withheld ||
       task?.artifacts?.some((item: Item) => item.content_withheld)
     ) {
       setArtifact(null);
       setInspect(null);
+      setCallId(null);
     }
   }, [task]);
   const graphNodes = useMemo(() => {
@@ -389,26 +402,14 @@ function TaskDetail({
       task.snapshot?.nodes ||
       task.snapshot?.workflow_snapshot?.nodes ||
       [];
-    const records: Item[] = task.nodes || [];
-    const revision = task.revision || 0;
-    const plan = (task.repair_history || []).find(
-      (p: Item) => p.decision === "revise" && p.revision === revision,
-    );
-    const reused = Object.values(plan?.reused_nodes || {});
-    const current = records.filter(
-      (n) => n.attempt === revision + 1 && !plan?.reused_nodes?.[n.node_id],
-    );
-    const checkpoints = records
-      .filter((n) => reused.includes(n.id))
-      .map((n) => ({ ...n, reusedFromAttempt: n.attempt }));
-    return [...current, ...checkpoints].map((n: Item) => ({
+    return roundNodes(task, round ?? task.revision ?? 0).map((n: Item) => ({
       ...n,
       depends_on:
         n.depends_on ||
         frozen.find((f: Item) => f.id === n.node_id)?.depends_on ||
         [],
     }));
-  }, [task]);
+  }, [task, round]);
   async function showArtifact(item: Item) {
     try {
       setArtifact(await api(idPath("artifacts", item.id)));
@@ -431,6 +432,18 @@ function TaskDetail({
       </>
     );
   const result = task.result || {};
+  const quality = result.quality_verdict || task.quality_verdict;
+  const activeRound = round ?? task.revision ?? 0;
+  const selectedCall = (task.tool_calls || []).find(
+    (c: Item) => c.id === callId,
+  );
+  const reviewEvents = (task.events || []).filter(
+    (e: Item) => e.type === "quality.checked",
+  );
+  function showRound(revision: number) {
+    setRound(revision);
+    setTab("graph");
+  }
   return (
     <>
       <button className="back-button" onClick={onBack}>
@@ -489,7 +502,7 @@ function TaskDetail({
             {graphNodes.filter((n: Item) => n.status === "succeeded").length} /{" "}
             {graphNodes.length} 节点
           </strong>
-          <span>第 {(task.revision || 0) + 1} 轮实际执行</span>
+          <span>第 {activeRound + 1} 轮 · 含实际复用节点</span>
         </div>
         <div>
           <small>端到端耗时</small>
@@ -546,6 +559,7 @@ function TaskDetail({
         onChange={setTab}
         items={[
           { id: "graph", label: "执行图与实例" },
+          { id: "review", label: "审核与迭代" },
           {
             id: "artifacts",
             label: `结果与产物 · ${task.artifacts?.length || 0}`,
@@ -561,6 +575,37 @@ function TaskDetail({
       {tab === "graph" && (
         <>
           <Panel>
+            <div className="trace-round-picker">
+              <div>
+                <strong>节点执行记录</strong>
+                <p>按轮次查看执行与复用的步骤。</p>
+              </div>
+              <label className="field">
+                <span>执行轮次</span>
+                <select
+                  value={round === null ? "latest" : round}
+                  onChange={(e) =>
+                    setRound(
+                      e.target.value === "latest"
+                        ? null
+                        : Number(e.target.value),
+                    )
+                  }
+                >
+                  <option value="latest">
+                    跟随最新轮次（第 {(task.revision || 0) + 1} 轮）
+                  </option>
+                  {Array.from(
+                    { length: (task.revision || 0) + 1 },
+                    (_, rev) => (
+                      <option key={rev} value={rev}>
+                        第 {rev + 1} 轮
+                      </option>
+                    ),
+                  )}
+                </select>
+              </label>
+            </div>
             <Graph nodes={graphNodes} agents={agents} onNode={setInspect} />
             <JsonView value={task.nodes} label="全部修订轮次的节点记录" />
           </Panel>
@@ -616,6 +661,64 @@ function TaskDetail({
               )}
             </div>
           </Panel>
+        </>
+      )}
+      {tab === "review" && (
+        <>
+          <Panel title="最近一次自动审核">
+            {!task.content_withheld && Number.isInteger(quality?.revision) && (
+              <p className="muted">
+                本次判定来自第 {quality.revision + 1} 轮。
+                {quality.revision < task.revision &&
+                  "当前轮次尚未产生新的审核判定。"}
+              </p>
+            )}
+            <QualityView quality={quality} withheld={task.content_withheld} />
+          </Panel>
+          {!task.content_withheld && (
+            <>
+              <Panel title="审核轨迹">
+                {reviewEvents.length ? (
+                  reviewEvents.map((event: Item) => (
+                    <div className="trace-review-row" key={event.id}>
+                      <strong>
+                        {event.payload?.revision != null
+                          ? "第 " + (event.payload.revision + 1) + " 轮"
+                          : "自动审核"}
+                      </strong>
+                      <Badge
+                        status={
+                          event.payload?.passed === true
+                            ? "passed"
+                            : event.payload?.passed === false
+                              ? "rejected"
+                              : "unknown"
+                        }
+                      />
+                      <small>{time(event.created_at || event.time)}</small>
+                      {event.payload?.revision != null && (
+                        <button
+                          onClick={() => showRound(event.payload.revision)}
+                        >
+                          查看本轮执行图
+                        </button>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <Empty title="暂无已记录的审核事件" />
+                )}
+              </Panel>
+              {task.repair_history?.length ? (
+                <RepairHistory
+                  history={task.repair_history}
+                  onRound={showRound}
+                />
+              ) : (
+                <p className="muted">当前没有已记录的定向流程调整。</p>
+              )}
+            </>
+          )}
         </>
       )}
       {tab === "artifacts" && (
@@ -690,15 +793,24 @@ function TaskDetail({
                     </small>
                   </div>
                   <Badge status={a.quality_status || "unknown"} />
-                  <button onClick={() => void showArtifact(a)}>查看内容</button>
-                  <a
-                    className="button"
-                    href={`/api/v2/artifacts/${encodeURIComponent(a.id)}/download`}
-                    download
+                  <button
+                    disabled={a.content_withheld || task.content_withheld}
+                    onClick={() => void showArtifact(a)}
                   >
-                    <Download size={16} />
-                    下载
-                  </a>
+                    查看内容
+                  </button>
+                  {a.content_withheld || task.content_withheld ? (
+                    <small>来源不可用，产物已屏蔽</small>
+                  ) : (
+                    <a
+                      className="button"
+                      href={`/api/v2/artifacts/${encodeURIComponent(a.id)}/download`}
+                      download
+                    >
+                      <Download size={16} />
+                      下载
+                    </a>
+                  )}
                 </div>
               ))
             ) : (
@@ -739,7 +851,11 @@ function TaskDetail({
       )}
       {tab === "calls" && (
         <Panel title="真实工具、MCP 与技能调用">
-          <ToolCalls calls={task.tool_calls || []} />
+          <ToolCalls
+            task={task}
+            calls={task.tool_calls || []}
+            onSelect={setCallId}
+          />
         </Panel>
       )}
       {tab === "snapshot" && (
@@ -773,7 +889,7 @@ function TaskDetail({
           }}
         />
       )}
-      {inspect && (
+      {inspect && !task.content_withheld && (
         <Modal
           wide
           title={inspect.label || "运行记录"}
@@ -783,6 +899,8 @@ function TaskDetail({
             <Badge status={inspect.status || "unknown"} />
             <pre>{JSON.stringify(inspect, null, 2)}</pre>
             <ToolCalls
+              task={task}
+              onSelect={setCallId}
               calls={(task.tool_calls || []).filter(
                 (call: Item) =>
                   call.instance_id === inspect.instance_id ||
@@ -792,7 +910,7 @@ function TaskDetail({
           </div>
         </Modal>
       )}
-      {artifact && (
+      {artifact && !task.content_withheld && (
         <Modal
           wide
           title={artifact.name || artifact.type || "产物内容"}
@@ -800,104 +918,22 @@ function TaskDetail({
         >
           <div className="modal-body">
             <Badge status={artifact.quality_status || "unknown"} />
-            <ArtifactContent artifact={artifact} />
+            <ArtifactContent
+              artifact={artifact}
+              calls={task.tool_calls || []}
+              onCall={setCallId}
+            />
             <JsonView value={artifact.source_refs} label="来源引用" />
           </div>
         </Modal>
       )}
-    </>
-  );
-}
-export function ToolCalls({
-  calls,
-}: {
-  calls: components["schemas"]["ToolCallRecord"][];
-}) {
-  const [detail, setDetail] = useState<Item | null>(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState<string | null>(null);
-  if (!calls.length)
-    return (
-      <Empty
-        title="暂无工具调用"
-        description="工具型 Agent 实际执行后显示记录；固定执行任务可能没有此类调用。"
-      />
-    );
-  return (
-    <>
-      <div className="table-scroll">
-        {error && <ErrorLine>{error}</ErrorLine>}
-        <table>
-          <thead>
-            <tr>
-              <th>能力 / 版本</th>
-              <th>类型</th>
-              <th>状态</th>
-              <th>修订 / 耗时</th>
-              <th>调用依据</th>
-            </tr>
-          </thead>
-          <tbody>
-            {calls.map((call) => (
-              <tr key={call.id}>
-                <td>
-                  {call.capability_id}
-                  <small>v{call.version}</small>
-                </td>
-                <td>
-                  {{ tool: "内置工具", mcp: "MCP 服务", skill: "技能读取" }[
-                    call.kind as string
-                  ] || call.kind}
-                </td>
-                <td>
-                  <Badge status={call.status} />
-                  {call.error_code && (
-                    <small>
-                      {reasonNames[call.error_code] || call.error_code}
-                    </small>
-                  )}
-                </td>
-                <td>
-                  {call.revision} / {call.duration_ms} ms
-                </td>
-                <td>
-                  <JsonView value={call} label="参数摘要、来源与结果校验" />
-                  <button
-                    disabled={loading === call.id}
-                    onClick={async () => {
-                      setLoading(call.id);
-                      setError("");
-                      try {
-                        setDetail(
-                          await api(
-                            `/v2/tasks/${encodeURIComponent(call.task_id)}/tool-calls/${encodeURIComponent(call.id)}`,
-                          ),
-                        );
-                      } catch (error) {
-                        setError((error as Error).message);
-                      } finally {
-                        setLoading(null);
-                      }
-                    }}
-                  >
-                    {loading === call.id ? "正在读取…" : "查看输入与输出"}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {detail && (
-        <Modal wide title="工具调用详情" onClose={() => setDetail(null)}>
-          <div className="modal-body">
-            <JsonView value={detail.call} label="调用元数据" />
-            <h3>实际参数</h3>
-            <pre>{JSON.stringify(detail.arguments, null, 2)}</pre>
-            <h3>实际输出</h3>
-            <pre>{JSON.stringify(detail.result, null, 2)}</pre>
-          </div>
-        </Modal>
+      {selectedCall && !task.content_withheld && (
+        <ToolCallDialog
+          key={selectedCall.id}
+          task={task}
+          call={selectedCall}
+          onClose={() => setCallId(null)}
+        />
       )}
     </>
   );
@@ -908,7 +944,13 @@ const stageLabels: Record<string, string> = {
   review: "独立核查",
 };
 
-function RepairHistory({ history }: { history: Item[] }) {
+function RepairHistory({
+  history,
+  onRound,
+}: {
+  history: Item[];
+  onRound?: (revision: number) => void;
+}) {
   const stages = (values: string[] = []) =>
     values.map((key) => stageLabels[key] || key).join("、");
   return (
@@ -976,6 +1018,21 @@ function RepairHistory({ history }: { history: Item[] }) {
               </>
             )}
           </dl>
+          {onRound && (
+            <div className="toolbar">
+              {Number.isInteger(plan.source_revision) && (
+                <button onClick={() => onRound(plan.source_revision)}>
+                  查看问题发生轮次
+                </button>
+              )}
+              {plan.decision === "revise" &&
+                Number.isInteger(plan.revision) && (
+                  <button onClick={() => onRound(plan.revision)}>
+                    查看调整后的执行图
+                  </button>
+                )}
+            </div>
+          )}
         </div>
       ))}
     </Panel>

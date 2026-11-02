@@ -29,7 +29,7 @@ test("岗位对照显示共享算法和不同权限，当前专员可执行已�
     provenance: "synthetic",
     classification: "local",
   });
-  await page.goto("/");
+  await page.goto("/manage");
   await page.getByLabel("当前项目").selectOption(p.id);
   await page
     .getByRole("navigation")
@@ -83,6 +83,15 @@ test("岗位对照显示共享算法和不同权限，当前专员可执行已�
     .getByRole("navigation")
     .getByRole("button", { name: "智能体资产" })
     .click();
+  await page.getByLabel("执行方式筛选").selectOption("tool_agent");
+  await expect(
+    page.locator(".asset-card").filter({ hasText: specialist.name }),
+  ).toHaveCount(0);
+  await page.getByLabel("执行方式筛选").selectOption("fixed");
+  await page.getByLabel("岗位分工").selectOption("analyze");
+  await page.getByLabel("发布状态").selectOption("published");
+  await page.getByLabel("搜索智能体").fill("T01");
+  await expect(page.locator(".asset-card")).toHaveCount(1);
   await page
     .locator(".asset-card")
     .filter({ hasText: specialist.name })
@@ -95,9 +104,11 @@ test("岗位对照显示共享算法和不同权限，当前专员可执行已�
     .click();
   await dlg.getByLabel("试用工具").selectOption("evidence.list_definitions");
   await dlg.getByRole("checkbox", { name: /合成科研定义/ }).check();
+  await dlg.getByLabel(/^缩略语/).fill("PSD");
   const args = dlg.getByLabel("调用参数（JSON）");
   const data = JSON.parse(await args.inputValue());
   expect(data.source_id).toBeTruthy();
+  expect(data.acronym).toBe("PSD");
   await args.fill(JSON.stringify({ ...data, acronym: "PSDs" }));
   await dlg.getByRole("button", { name: "执行本地试用" }).click();
   await expect(dlg.locator(".tool-result")).toContainText(

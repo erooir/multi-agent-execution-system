@@ -141,6 +141,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/question-projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Question Projects
+         * @description The question portal needs project names, never asset definitions or service configuration.
+         */
+        get: operations["question_projects_api_v2_question_projects_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/bootstrap": {
         parameters: {
             query?: never;
@@ -645,6 +665,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Question History */
+        get: operations["question_history_api_v2_questions_get"];
+        put?: never;
+        /** Ask Question */
+        post: operations["ask_question_api_v2_questions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/questions/{question_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Question Answer */
+        get: operations["question_answer_api_v2_questions__question_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/tasks/{task_id}": {
         parameters: {
             query?: never;
@@ -1050,6 +1105,26 @@ export interface components {
             /** Skill Refs */
             skill_refs?: components["schemas"]["SkillReference"][];
         };
+        /** AnswerMap */
+        AnswerMap: {
+            /** Title */
+            title: string;
+            /** Geojson */
+            geojson: {
+                [key: string]: unknown;
+            };
+        };
+        /** AnswerTable */
+        AnswerTable: {
+            /** Title */
+            title: string;
+            /** Columns */
+            columns: string[];
+            /** Rows */
+            rows: (string | number | boolean | null)[][];
+            /** Total Rows */
+            total_rows: number;
+        };
         /** AssetInput */
         AssetInput: {
             /** Project Id */
@@ -1348,6 +1423,58 @@ export interface components {
              */
             min_length: number;
         };
+        /** QuestionAnswer */
+        QuestionAnswer: {
+            /** Id */
+            id: string;
+            /** Question */
+            question: string;
+            /** Status */
+            status: string;
+            /** Outcome */
+            outcome?: string | null;
+            /** Answer */
+            answer?: string | null;
+            /** Missing */
+            missing?: string[];
+            /** Citations */
+            citations?: components["schemas"]["QuestionCitation"][];
+            /** Products */
+            products?: {
+                [key: string]: string;
+            };
+            /** Tables */
+            tables?: components["schemas"]["AnswerTable"][];
+            /** Maps */
+            maps?: components["schemas"]["AnswerMap"][];
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+            /**
+             * Content Withheld
+             * @default false
+             */
+            content_withheld: boolean;
+        };
+        /** QuestionCitation */
+        QuestionCitation: {
+            /** Source */
+            source: string;
+            /** Location */
+            location: string;
+            /** Excerpt */
+            excerpt: string;
+        };
+        /** QuestionInput */
+        QuestionInput: {
+            /** Project Id */
+            project_id: string;
+            /** Question */
+            question: string;
+            /** Idempotency Key */
+            idempotency_key: string;
+        };
         /** QueueMetrics */
         QueueMetrics: {
             /** Waiting Count */
@@ -1431,7 +1558,7 @@ export interface components {
              * @default reference
              * @enum {string}
              */
-            case_scope: "reference" | "sample";
+            case_scope: "reference" | "sample" | "project";
             /** Input Refs */
             input_refs?: string[];
             /** Workflow Id */
@@ -1880,6 +2007,26 @@ export interface operations {
         };
     };
     health_api_v2_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    question_projects_api_v2_question_projects_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -3006,6 +3153,101 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    question_history_api_v2_questions_get: {
+        parameters: {
+            query: {
+                project_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestionAnswer"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ask_question_api_v2_questions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuestionInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestionAnswer"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    question_answer_api_v2_questions__question_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                question_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestionAnswer"];
                 };
             };
             /** @description Validation Error */

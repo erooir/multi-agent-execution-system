@@ -20,9 +20,15 @@ export function AgentForm({
   item,
   agents,
   capabilities,
+  offline = false,
   onClose,
   mutate,
-}: Common & { item?: Item; agents: Item[]; capabilities: Item[] }) {
+}: Common & {
+  item?: Item;
+  agents: Item[];
+  capabilities: Item[];
+  offline?: boolean;
+}) {
   const [form, setForm] = useState<Item>({
     name: "",
     description: "",
@@ -43,6 +49,38 @@ export function AgentForm({
   });
   const [extensions, setExtensions] = useState<Item>({ tools: [], skills: [] });
   const [extensionError, setExtensionError] = useState("");
+  const [toolSearch, setToolSearch] = useState("");
+  const selectingModelTools =
+    form.execution_strategy === "tool_agent" || form.structure === "composite";
+  const toolsInScope = extensions.tools.filter(
+    (tool: Item) =>
+      (!item?.role_contract || item.role_contract.grants?.includes(tool.id)) &&
+      (selectingModelTools ||
+        tool.local_preview ||
+        form.tool_refs.some((ref: Item) => ref.tool_id === tool.id)),
+  );
+  const matchingTools = toolsInScope.filter((t: Item) =>
+    [t.id, t.label, t.name]
+      .join(" ")
+      .toLowerCase()
+      .includes(toolSearch.trim().toLowerCase()),
+  );
+  const selectedNames = new Set(
+    extensions.tools
+      .filter((t: Item) =>
+        form.tool_refs.some(
+          (r: Item) => r.tool_id === t.id && r.version === t.version,
+        ),
+      )
+      .map((t: Item) => t.name),
+  );
+  const missingTools = extensions.skills
+    .filter((s: Item) => form.skill_refs.some((r: Item) => r.skill_id === s.id))
+    .flatMap((s: Item) =>
+      (s.required_tools || []).filter(
+        (name: string) => !selectedNames.has(name),
+      ),
+    );
   useEffect(() => {
     const controller = new AbortController();
     api(`/v2/capabilities?project_id=${encodeURIComponent(projectId)}`, {
@@ -73,6 +111,12 @@ export function AgentForm({
       onClose={onClose}
       submit="保存定义"
       onSubmit={() => {
+        if (missingTools.length)
+          throw Error(
+            "技能仍需授权工具：" + [...new Set(missingTools)].join("、"),
+          );
+        if (form.execution_strategy === "tool_agent" && !form.tool_refs.length)
+          throw Error("自主工具型智能体至少需要一项版本化工具授权。");
         const body = {
           ...Object.fromEntries(
             [
@@ -282,71 +326,99 @@ export function AgentForm({
           工具目录读取失败：{extensionError}
         </p>
       )}
-      {(form.execution_strategy === "tool_agent" ||
-        form.structure === "composite") && (
-        <>
-          <fieldset className="capability-picker">
-            <legend>授权工具及 MCP</legend>
-            <p className="note">
-              发布时锁定版本。只提供选中的能力，资料中的指令不能增加权限。
+      {form.execution_strategy === "tool_agent" && offline && (
+        <p className="note">
+          当前部署关闭云模型。定义可保存，云端工具循环需要联网网关。
+        </p>
+      )}
+      <fieldset className="capability-picker agent-form-tools">
+        <legend>授权工具及 MCP</legend>
+        <p className="note">
+          {selectingModelTools
+            ? "仅选中的工具进入模型或复合成员的权限范围。"
+            : "固定执行岗位可以本地试用已授权工具。实际任务依照发布的执行流程使用工具。"}
+          发布时锁定版本。已选 {form.tool_refs.length} / 10 项。
+        </p>
+        <Field label="筛选可授权工具">
+          <input
+            type="search"
+            value={toolSearch}
+            onChange={(e) => setToolSearch(e.target.value)}
+            placeholder="搜索工具名称或标识"
+          />
+        </Field>
+        {matchingTools.map((tool: Item) => (
+          <label className="check" key={tool.id}>
+            <input
+              type="checkbox"
+              checked={form.tool_refs.some(
+                (ref: Item) => ref.tool_id === tool.id,
+              )}
+              disabled={
+                form.tool_refs.length >= 10 &&
+                !form.tool_refs.some((r: Item) => r.tool_id === tool.id)
+              }
+              onChange={(event) =>
+                update(
+                  "tool_refs",
+                  event.target.checked
+                    ? [
+                        ...form.tool_refs,
+                        { tool_id: tool.id, version: tool.version },
+                      ]
+                    : form.tool_refs.filter(
+                        (ref: Item) => ref.tool_id !== tool.id,
+                      ),
+                )
+              }
+            />
+            <span>
+              {tool.label} · v{tool.version}
+              <small className="tool-id">{tool.id}</small>
+            </span>
+          </label>
+        ))}
+        {!!toolsInScope.length && !matchingTools.length && (
+          <p className="muted">没有匹配此关键词的可授权工具。</p>
+        )}
+      </fieldset>
+      {(selectingModelTools || form.skill_refs.length > 0) && (
+        <fieldset className="capability-picker">
+          <legend>授权技能</legend>
+          {extensions.skills.map((skill: Item) => (
+            <label className="check" key={skill.id}>
+              <input
+                type="checkbox"
+                checked={form.skill_refs.some(
+                  (ref: Item) => ref.skill_id === skill.id,
+                )}
+                onChange={(event) =>
+                  update(
+                    "skill_refs",
+                    event.target.checked
+                      ? [
+                          ...form.skill_refs,
+                          { skill_id: skill.id, version: skill.version },
+                        ]
+                      : form.skill_refs.filter(
+                          (ref: Item) => ref.skill_id !== skill.id,
+                        ),
+                  )
+                }
+              />
+              {skill.name} · {skill.version}
+              <span className="muted">{skill.description}</span>
+            </label>
+          ))}
+          <p className="note">
+            技能所需工具须同时授权；技能包只提供说明和参考资料。
+          </p>
+          {!!missingTools.length && (
+            <p className="warning" role="status">
+              所选技能仍需工具：{[...new Set(missingTools)].join("、")}
             </p>
-            {extensions.tools.map((tool: Item) => (
-              <label className="check" key={tool.id}>
-                <input
-                  type="checkbox"
-                  checked={form.tool_refs.some(
-                    (ref: Item) => ref.tool_id === tool.id,
-                  )}
-                  onChange={(event) =>
-                    update(
-                      "tool_refs",
-                      event.target.checked
-                        ? [
-                            ...form.tool_refs,
-                            { tool_id: tool.id, version: tool.version },
-                          ]
-                        : form.tool_refs.filter(
-                            (ref: Item) => ref.tool_id !== tool.id,
-                          ),
-                    )
-                  }
-                />
-                {tool.label} · v{tool.version}
-              </label>
-            ))}
-          </fieldset>
-          <fieldset className="capability-picker">
-            <legend>授权技能</legend>
-            {extensions.skills.map((skill: Item) => (
-              <label className="check" key={skill.id}>
-                <input
-                  type="checkbox"
-                  checked={form.skill_refs.some(
-                    (ref: Item) => ref.skill_id === skill.id,
-                  )}
-                  onChange={(event) =>
-                    update(
-                      "skill_refs",
-                      event.target.checked
-                        ? [
-                            ...form.skill_refs,
-                            { skill_id: skill.id, version: skill.version },
-                          ]
-                        : form.skill_refs.filter(
-                            (ref: Item) => ref.skill_id !== skill.id,
-                          ),
-                    )
-                  }
-                />
-                {skill.name} · {skill.version}
-                <span className="muted">{skill.description}</span>
-              </label>
-            ))}
-            <p className="note">
-              技能所需工具须同时授权；技能包只提供说明和参考资料。
-            </p>
-          </fieldset>
-        </>
+          )}
+        </fieldset>
       )}
       <h3>默认执行参数</h3>
       <ToolParameters

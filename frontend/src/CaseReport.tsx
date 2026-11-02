@@ -1,5 +1,7 @@
 import { createElement, useState } from "react";
 import type { Item } from "./types";
+import { callRound, findFindingCall } from "./taskTraceModel";
+import { callError } from "./TaskToolTrace";
 
 const labels: Record<string, string> = {
   observations: "观察记录",
@@ -164,13 +166,23 @@ function Product({ value }: { value: any }) {
   return <pre>{JSON.stringify(value, null, 2)?.slice(0, 15000)}</pre>;
 }
 
-export default function CaseReport({ content }: { content: Item }) {
+export default function CaseReport({
+  content,
+  calls = [],
+  onCall,
+}: {
+  content: Item;
+  calls?: Item[];
+  onCall?: (id: string) => void;
+}) {
   return (
     <section className="case-products">
       <small>
         协作分析产物 · {content.case_id} ·{" "}
         {content.scope === "sample"
           ? "缩小样本验证"
+          : content.scope === "project"
+            ? "本次问题与项目资料"
           : content.scope === "reference"
             ? "参考批次"
             : "历史产物，未记录验收范围"}
@@ -244,15 +256,38 @@ export default function CaseReport({ content }: { content: Item }) {
           <p className="muted">
             按任务实际读取的来源、页面和区间展示。未使用的授权工具不列入此处。
           </p>
-          {content.tool_findings.map((item: Item, i: number) => (
-            <details key={i}>
-              <summary>
-                {item.tool_id} · v{item.version} ·{" "}
-                {item.status === "completed" ? "已执行" : "输入不适用"}
-              </summary>
-              <Product value={item.result ?? { reason: item.error_code }} />
-            </details>
-          ))}
+          {content.tool_findings.map((item: Item, i: number) => {
+            const call = findFindingCall(item, calls);
+            return (
+              <details
+                key={item.tool_call_id || i}
+                className="trace-observation"
+              >
+                <summary>
+                  {item.tool_id} · v{item.version} ·{" "}
+                  {item.status === "completed"
+                    ? "已完成"
+                    : item.status === "unavailable"
+                      ? "未取得结果"
+                      : "未记录状态"}
+                  {call && " · " + callRound(call.revision)}
+                </summary>
+                {item.error_code && (
+                  <p className="warning">{callError(item.error_code)}</p>
+                )}
+                {item.result != null && <Product value={item.result} />}
+                {call && onCall ? (
+                  <button onClick={() => onCall(call.id)}>追溯实际调用</button>
+                ) : (
+                  <p className="muted">
+                    {item.tool_call_id
+                      ? "当前任务中未找到与本条工具观测一致的调用记录。"
+                      : "这条观测没有记录调用 ID。"}
+                  </p>
+                )}
+              </details>
+            );
+          })}
         </details>
       )}
       <p className="muted">完整字段、图层与全部记录随 JSON 产物下载。</p>

@@ -1,0 +1,84 @@
+.agent-registry-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(9rem, 100%), 1fr));
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+.agent-registry-counts > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.65rem 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+}
+.agent-registry-counts span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.agent-registry-counts strong {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.22rem;
+}
+.registry-filters {
+  flex-wrap: wrap;
+}
+.registry-filters .search {
+  min-width: min(100%, 13rem);
+}
+.asset-card .tags .agent-autonomous-tag {
+  color: var(--accent);
+}
+.draft-boundary {
+  border-inline-start: 2px solid var(--warn);
+  padding-inline-start: 0.8rem;
+  color: var(--warn);
+}
+.preview-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
+  gap: 0.5rem 0.7rem;
+}
+.preview-fields .field {
+  min-width: 0;
+  margin: 0;
+}
+.preview-fields .field input,
+.preview-fields .field select,
+.preview-fields .field textarea {
+  width: 100%;
+  min-width: 0;
+}
+.tool-test .preview-params {
+  border: 1px solid var(--line);
+  padding: 0.65rem;
+}
+.tool-test .field textarea {
+  min-height: 3rem;
+}
+.tool-test .field small {
+  overflow-wrap: anywhere;
+}
+.tool-preview-metrics {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 0.7rem;
+}
+.tool-preview-metrics dt {
+  color: var(--muted);
+}
+.tool-preview-metrics dd {
+  margin: 0;
+}
+.agent-form-tools .check {
+  align-items: flex-start;
+}
+.agent-form-tools .check small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.agent-form-tools .check span {
+  min-width: 0;
+}

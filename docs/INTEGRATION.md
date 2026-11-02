@@ -4,6 +4,16 @@
 
 ## 岗位授权与工具试用
 
+### 用户问答
+
+提问客户端通过 `GET /api/v2/question-projects` 读取本人可访问的项目标识和名称。受理请求为 `POST /api/v2/questions`，只传 `project_id`、`question` 和客户端生成的 `idempotency_key`。在同一项目内，同一用户以相同标识重复提交同一问题可恢复原记录。提问者无需提供素材 ID、用例编号、岗位、工作流或工具参数。
+
+通过 `GET /api/v2/questions?project_id=…` 读取本人历史，`GET /api/v2/questions/{id}` 读取进度、答复、缺口、来源定位及适用的业务表格和地图。项目授权和材料有效性在读取时重新核验。引用中的项目资料由管理人员登记，用户页面不会获取底层资产、调用轨迹或预算数据。
+
+正常项目问题以本次问题和实际材料为验收范围。明确的小样验证与已登记的特定参考批次使用相应的覆盖要求。找不到可靠依据、无法区分多种解释或存在数据缺口时，应读取返回的问题状态和缺口，不能根据 HTTP 成功响应推定业务成功。
+
+### 管理界面
+
 工作台首屏请求 `GET /api/v2/bootstrap?scope=current`。响应包含可见项目列表，业务记录、统计和 Worker 活跃任务 ID 仅限 `current_project_id`。切换项目时附加 `project_id`，服务端复核项目权限。已有集成可继续用无参数的 `/api/v2/bootstrap` 获取其所有可见项目的记录。
 
 工具目录可通过 `GET /api/v2/capabilities?project_id=...` 读取。支持本地试用的条目包含 `local_preview=true`、参数 Schema、工具版本和实现摘要。使用 `POST /api/v2/agents/{agent_id}/tools/{tool_id}/preview`，提交当前发布的智能体 `version`、同项目资料资产 ID 列表 `input_refs` 和符合工具契约的 `arguments`。例如，释义核查的参数可为 `{"source_id":"登记的资料ID","acronym":"AOD"}`。返回实际工具版本、智能体版本、读取过的来源、结果及结果 SHA-256。

@@ -26,8 +26,10 @@ from .public_evidence import PublicEvidenceRequest
 
 router = APIRouter(prefix="/api/v2")
 identity = APIRouter(prefix="/api")
-read = Depends(auth.get_current_user)
+signed_in = Depends(auth.get_current_user)
+read = Depends(auth.require_roles("admin", "operator", "reviewer"))
 edit = Depends(auth.require_roles("admin", "operator"))
+question_write = Depends(auth.require_roles("requester", "operator", "admin"))
 admin = Depends(auth.require_roles("admin"))
 
 
@@ -44,7 +46,7 @@ async def register(body: dict, request: Request, response: Response):
 
 
 @identity.get("/auth/me")
-def me(user: dict = read):
+def me(user: dict = signed_in):
     return user
 
 
@@ -72,6 +74,16 @@ def update_user(user_id: str, body: dict, user: dict = admin):
 @identity.get("/health")
 def health():
     return {"status": "ok", "service": "hangzhi-agent-platform", "version": "2.0.0"}
+
+
+@router.get("/question-projects")
+def question_projects(user: dict = signed_in):
+    """The question portal needs project names, never asset definitions or service configuration."""
+    return [
+        {"id": p["id"], "name": p["name"]}
+        for p in repo.list("projects")
+        if user["role"] == "admin" or user["id"] in p["members"]
+    ]
 
 
 def workers_view(user=None, task_ids=None):
@@ -653,6 +665,27 @@ def asset_content(asset_id: str, user: dict = read):
 @router.get("/tasks")
 def tasks(user: dict = read):
     return visible_records("tasks", user)
+
+
+@router.post("/questions", response_model=c.QuestionAnswer, status_code=202)
+def ask_question(body: c.QuestionInput, user: dict = question_write):
+    from . import questions
+
+    return questions.submit(body, user, repo)
+
+
+@router.get("/questions", response_model=list[c.QuestionAnswer])
+def question_history(project_id: str, user: dict = signed_in):
+    from . import questions
+
+    return questions.history(project_id, user, repo)
+
+
+@router.get("/questions/{question_id}", response_model=c.QuestionAnswer)
+def question_answer(question_id: str, user: dict = signed_in):
+    from . import questions
+
+    return questions.get(question_id, user, repo)
 
 
 @router.post("/tasks", status_code=202)

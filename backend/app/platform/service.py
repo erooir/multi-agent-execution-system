@@ -825,6 +825,11 @@ def create_task(body, user, repository=None, *, preflight=False):
 
             case_contract = frozen_profile(body["case_id"])
             case_contract["scope"] = body["case_scope"]
+            if body["case_scope"] == "project" and any(
+                word in body["goal"].lower()
+                for word in ("翻译", "译成", "译为", "译注", "translate", "translation")
+            ):
+                case_contract["translation_requested"] = True
             if body["case_scope"] == "reference":
                 from ..casework.reference_batches import freeze
 

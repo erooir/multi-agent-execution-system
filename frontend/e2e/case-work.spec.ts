@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 test("用例研判：真实提交、三节点审核、来源证据与智能体监测", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/manage");
   await page
     .getByLabel("用户名", { exact: true })
     .fill(process.env.HANGZHI_SMOKE_USERNAME || "admin");
@@ -87,4 +87,29 @@ test("用例研判：真实提交、三节点审核、来源证据与智能体�
   await expect(monitored).toContainText("1 / 0");
   await monitored.getByRole("button", { name: /review/ }).click();
   await expect(page.locator(".task-strip .badge")).toHaveText("成功");
+  const finding = detail.artifacts[0].content.tool_findings.find(
+    (item: any) => item.tool_id === "series.baseline_anomaly",
+  );
+  expect(finding.tool_call_id).toBeTruthy();
+  await page.getByRole("button", { name: /^结果与产物/ }).click();
+  await page.getByRole("button", { name: "查看内容", exact: true }).click();
+  await page
+    .locator("summary")
+    .filter({ hasText: "注册工具的实际观测" })
+    .click();
+  await page.locator("summary").filter({ hasText: finding.tool_id }).click();
+  await page.getByRole("button", { name: "追溯实际调用" }).click();
+  const trace = page.getByRole("dialog", { name: "工具调用详情" });
+  await expect(trace).toContainText(finding.tool_call_id);
+  await expect(trace).toContainText("第 1 轮");
+  await expect(trace).toContainText("合成逐年观测");
+  await expect(trace).toContainText("baseline_mean");
+  const revoke = await page.request.post(
+    "/api/v2/data-assets/" + finding.source_refs[0] + "/revoke",
+  );
+  expect(revoke.ok()).toBeTruthy();
+  await expect(trace).not.toBeVisible({ timeout: 10_000 });
+  await expect(
+    page.getByRole("button", { name: "查看内容", exact: true }),
+  ).toBeDisabled();
 });

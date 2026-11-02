@@ -12,9 +12,10 @@ import secrets
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Annotated
 from urllib.parse import urlsplit
 
-from fastapi import HTTPException, Request, Response
+from fastapi import Depends, HTTPException, Request, Response
 
 from .identity_records import DuplicateIdentity
 from .storage import now, store
@@ -220,7 +221,7 @@ def register(body: dict, response: Response, request: Request | None = None) -> 
         "id": username,
         "username": username,
         "name": name,
-        "role": "operator",
+        "role": "requester",
         "enabled": True,
         "password_hash": _hash_password(password),
     }
@@ -230,7 +231,7 @@ def register(body: dict, response: Response, request: Request | None = None) -> 
             _insert_record(tx, "users", user)
     except DuplicateIdentity:
         raise HTTPException(409, "用户名已被使用") from None
-    store.audit("register", username, {"role": "operator"}, username)
+    store.audit("register", username, {"role": "requester"}, username)
     return _start_session(user, response, request)
 
 
@@ -273,8 +274,7 @@ async def get_current_user(request: Request) -> dict:
 
 
 def require_roles(*roles: str):
-    async def dependency(request: Request):
-        user = await get_current_user(request)
+    async def dependency(user: Annotated[dict, Depends(get_current_user)]):
         if user["role"] not in roles and user["role"] != "admin":
             raise HTTPException(403, "当前身份没有执行该操作的权限")
         return user
@@ -311,8 +311,8 @@ def create_user(body: dict, actor: dict) -> dict:
     username = _username(body.get("username"))
     password = _validate_password(body.get("password"))
     name = _validate_name(body.get("name", "")) or username
-    role = body.get("role", "operator")
-    if role not in {"operator", "reviewer"}:
+    role = body.get("role", "requester")
+    if role not in {"requester", "operator", "reviewer"}:
         raise HTTPException(422, "只能创建研究员或审核员账号，管理员账号不能通过接口创建")
     ensure_users()
     user = {
@@ -351,7 +351,7 @@ def update_user(user_id: str, body: dict, actor: dict) -> dict:
             raise HTTPException(422, "显示名不能为空")
         changes["name"] = name
     if "role" in body:
-        if body["role"] not in {"admin", "operator", "reviewer"}:
+        if body["role"] not in {"admin", "requester", "operator", "reviewer"}:
             raise HTTPException(422, "角色无效")
         changes["role"] = body["role"]
     if "enabled" in body:

@@ -4,10 +4,12 @@
 
 ## 部署
 
+已有平台升级到问答版本时，先停止 API 和 Worker，按既有私有连接配置运行 `python -m scripts.dm_database init`，再用 `python -m scripts.dm_database check` 核验后启动服务。升级程序仅在识别到完整旧版业务库时新增 `questions` 表及其索引，支持重复执行。缺少其他表、含未知表或身份写入锁异常时会停止。身份、历史任务、不可变版本与独立预算账本均保留。
+
 1. 单独配置有权使用的 DM8 实例。使用 UTF-8 数据库、独立非管理员账号及与账号同名的专用 schema。开发测试版不能外推为生产授权。初始化用账号须具备建表和建索引权限；不要将 SYSDBA 凭据作为应用连接。
 2. 使用 `pyproject.toml` 的 `dameng` extra：`dmPython==2.6.1` 和 `dmSQLAlchemy==2.0.17`。离线准备必须为目标 OS/CPU/Python 准备 **含该 extra** 的依赖，例如 `uv export --frozen --extra dameng --no-dev --no-emit-project --format requirements-txt --output-file requirements-offline.txt`，在无索引环境安装已经核验的 wheel。容器构建上下文同时包含 `scripts/dm_database.py` 和 `scripts/dm_business_migration.py`。Windows 支持把项目虚拟环境安装在 E 盘并将绝对 Python 路径写入私有 `.local/platform-python.txt`；不要把安装介质、数据、密码文件或运行日志交付到 Git。
 3. 用受限的私有文件或服务环境提供连接，格式为 `dm+dmPython://<app-user>:<percent-encoded-password>@<host>:<port>/<app-schema>`。应用强制客户端 UTF-8（`local_code=1`），防止 Windows 客户端按 GBK 编码中文以外字符、单位和审计记录。生产部署使用 `HANGZHI_REQUIRE_DM=true`，连接错误或无连接时不能回退到 SQLite 或 PostgreSQL。
-4. API/Worker 尚未启动时，单进程运行 `python -m scripts.dm_database init`：只允许空的专用 schema 或已经完整初始化的同版 schema，含其他表、缺表或版本不同即拒绝。DM DDL 可隐式提交，初始化中断须检查并修复，不能在 API/Worker 冷启动时并发建表。`python -m scripts.dm_database check` 核验版本标志、身份锁行和达梦中返回的版本标识。
+4. 停止 API 和 Worker 后，单进程运行 `python -m scripts.dm_database init`。空的专用 schema 会初始化。升级前的完整 v1 schema 若仅缺少 `questions`，则新增问题收件箱表，保留原有任务、资产与身份。再次执行会校验现有结构。存在未知表、其他缺表或版本异常时拒绝修改。DM DDL 可能隐式提交，中断后先检查结构。`python -m scripts.dm_database check` 只读核验表清单、版本标志、身份锁行及问题表预期列，使用应用账号即可完成。
 5. Linux Compose 的 API 和 Worker 共用外部达梦服务，私有部署环境设置 `HANGZHI_DM_URL`；不再启动 PostgreSQL 容器。Windows 可运行 `scripts/start.ps1 -DmUrlFile <私有DSN文件> -SkipBuild`。也可将该私有文件的**路径**写入忽略的 `.local/dm-url-file.txt`，供以后正常重启使用。启动脚本拒绝复用连接配置不同的 API/Worker。只有明确维护历史归档时使用 `-LegacySQLite`，且不能将该模式结果作为达梦验收。
 
 ## 停服迁移与恢复

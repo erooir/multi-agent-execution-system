@@ -8,6 +8,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { api, idPath, post, put } from "./api";
+import CandidateEvidence from "./CandidateEvidence";
 import { money, parseObject, splitList, taskTypes, time } from "./domain";
 import type { Bootstrap, Item, Mutation, Notify, User } from "./types";
 import {
@@ -341,6 +342,7 @@ export function ImprovementsPage({
   workers,
   agents,
   tasks,
+  onTask,
   canEdit,
   isAdmin,
   mutate,
@@ -351,6 +353,7 @@ export function ImprovementsPage({
   workers: Item[];
   agents: Item[];
   tasks: Item[];
+  onTask: (id: string) => void;
   isAdmin: boolean;
 }) {
   const [create, setCreate] = useState(false),
@@ -365,7 +368,7 @@ export function ImprovementsPage({
     [action, setAction] = useState<{ item: Item; type: string } | null>(null);
   const [parameters, setParameters] = useState("{}");
   const online = workers.filter((worker) => worker.health === "online");
-  const fresh = improvements.find((i) => i.id === selected?.id) || selected;
+  const fresh = improvements.find((i) => i.id === selected?.id);
   const labels: Record<string, string> = {
     evaluate: "运行冻结评测",
     promote: "晋升候选",
@@ -630,17 +633,12 @@ export function ImprovementsPage({
       {fresh && (
         <Modal wide title={fresh.name} onClose={() => setSelected(null)}>
           <div className="modal-body">
-            <Badge status={fresh.status} />
-            <JsonView value={fresh} label="候选配置与版本引用" />
-            <h3>关联评测证据</h3>
-            {evaluations
-              .filter(
-                (e) =>
-                  e.id === fresh.evaluation_id || e.improvement_id === fresh.id,
-              )
-              .map((e) => (
-                <pre key={e.id}>{JSON.stringify(e, null, 2)}</pre>
-              ))}
+            <CandidateEvidence
+              candidate={fresh}
+              evaluations={evaluations}
+              tasks={tasks}
+              onTask={onTask}
+            />
           </div>
         </Modal>
       )}

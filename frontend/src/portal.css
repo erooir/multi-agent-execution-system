@@ -1,0 +1,72 @@
+.question-portal {
+  min-height: 100vh;
+}
+.question-top {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.75rem clamp(1rem, 5vw, 5rem);
+  border-bottom: 1px solid var(--line);
+  background: var(--sidebar);
+}
+.question-brand,
+.question-account,
+.desk-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+.question-brand > span:last-child {
+  color: var(--muted);
+  font-size: 0.85rem;
+  border-left: 1px solid var(--line);
+  padding-left: 0.65rem;
+}
+.question-project {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.question-project select {
+  width: auto;
+  max-width: 14rem;
+}
+.question-account {
+  margin-left: auto;
+}
+.desk-link {
+  color: var(--secondary);
+  text-decoration: none;
+  font-size: 0.85rem;
+}
+.desk-link:hover {
+  color: var(--accent);
+}
+.question-main {
+  max-width: 1200px;
+  margin: auto;
+  padding: clamp(18px, 3vw, 42px);
+}
+@media (max-width: 680px) {
+  .question-top {
+    flex-wrap: wrap;
+    gap: 0.55rem;
+  }
+  .question-project {
+    order: 3;
+    width: 100%;
+  }
+  .question-project select {
+    max-width: 77%;
+  }
+  .question-brand .brand-mark {
+    width: 32px;
+    height: 32px;
+  }
+  .question-account button {
+    padding: 0.35rem;
+  }
+}

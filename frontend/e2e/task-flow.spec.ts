@@ -5,7 +5,7 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
   playwright,
 }) => {
   const name = `浏览器验收-${Date.now()}`;
-  await page.goto("/");
+  await page.goto("/manage");
   await page
     .getByLabel("用户名", { exact: true })
     .fill(process.env.HANGZHI_SMOKE_USERNAME || "admin");
@@ -185,7 +185,7 @@ test("浏览器查看已完成真实云任务的MCP参数、结果和证据", as
     );
     test.skip(!task, "本环境尚无真实云端MCP验收记录；CI不调用付费模型");
     const page = await context.newPage();
-    await page.goto("/");
+    await page.goto("/manage");
     await page.getByLabel("当前项目").selectOption(task.project_id);
     await page
       .getByRole("navigation")

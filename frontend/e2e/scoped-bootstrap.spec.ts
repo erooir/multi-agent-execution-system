@@ -46,7 +46,7 @@ test("工作台只刷新当前项目，迟到的项目响应不能切回旧项�
       u.searchParams.get("project_id") === id
     );
   };
-  await page.goto("/");
+  await page.goto("/manage");
   const picker = page.getByLabel("当前项目");
   await expect(picker.locator('option[value="' + b.id + '"]')).toBeAttached();
   if ((await picker.inputValue()) !== b.id) {

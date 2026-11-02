@@ -1,0 +1,58 @@
+.trace-filters,
+.trace-round-picker {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin-bottom: 0.8rem;
+}
+.trace-filters p,
+.trace-round-picker p {
+  margin: 0;
+  color: var(--muted);
+}
+.trace-filters .field,
+.trace-round-picker .field {
+  margin: 0;
+}
+.trace-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.45rem 1rem;
+}
+.trace-facts dt {
+  color: var(--muted);
+}
+.trace-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.trace-call pre {
+  max-height: 23rem;
+  overflow: auto;
+}
+.trace-review-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.trace-review-row small {
+  color: var(--muted);
+}
+.trace-observation {
+  padding: 0.5rem 0;
+  overflow-wrap: anywhere;
+}
+.trace-observation button {
+  margin-top: 0.4rem;
+}
+@media (max-width: 640px) {
+  .trace-round-picker .field,
+  .trace-filters .field {
+    width: 100%;
+  }
+}

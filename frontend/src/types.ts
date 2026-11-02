@@ -3,7 +3,7 @@ export interface User {
   id: string;
   username: string;
   name: string;
-  role: "admin" | "operator" | "reviewer";
+  role: "admin" | "operator" | "reviewer" | "requester";
 }
 export interface Bootstrap {
   user: User;
@@ -28,6 +28,7 @@ export type Page =
   | "overview"
   | "casework"
   | "agents"
+  | "tools"
   | "tasks"
   | "workflows"
   | "data"

@@ -1,5 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'platform_processes.ps1')
 $expectedExecutable = Join-Path $projectRoot '.venv/Scripts/python.exe'
 $allowedExecutables = @($expectedExecutable)
 $pythonPointer = Join-Path $projectRoot '.local/platform-python.txt'
@@ -14,14 +15,13 @@ foreach ($kind in @('worker','server')) {
     $stateExecutable = if ($state.executable) { $state.executable } else { $expectedExecutable }
     if ($stateExecutable -notin $allowedExecutables) { throw 'Unrecognized Python runtime; refusing to stop the recorded process.' }
     $pattern = if ($kind -eq 'worker') { '*backend.app.platform.worker*' } else { '*uvicorn backend.app.main:app*' }
-    $recorded = Get-CimInstance Win32_Process -Filter "ProcessId = $($state.pid)" -ErrorAction SilentlyContinue
+    $recorded = Get-PlatformProcesses -ProcessId $state.pid
     if (-not $recorded) { Write-Output "$kind recorded process no longer exists; no process was stopped."; continue }
     if ($recorded.ExecutablePath -ne $stateExecutable -or $recorded.CommandLine -notlike $pattern) { throw "Recorded $kind PID belongs to another process; refusing to stop it." }
-    $allProcesses = @(Get-CimInstance Win32_Process)
     $ownedIds = [System.Collections.Generic.List[int]]::new()
     $ownedIds.Add([int]$state.pid)
     for ($index=0; $index -lt $ownedIds.Count; $index++) {
-        foreach ($child in $allProcesses) {
+        foreach ($child in (Get-PlatformProcesses -ParentProcessId $ownedIds[$index])) {
             if ($child.ParentProcessId -eq $ownedIds[$index] -and $child.Name -eq 'python.exe' -and $child.CommandLine -like $pattern) {
                 $ownedIds.Add([int]$child.ProcessId)
             }

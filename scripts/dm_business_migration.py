@@ -38,7 +38,8 @@ def import_business(engine, source: Path, assets_dir: Path):
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             )
         }
-        if names != {*tables, "schema_version"} or [
+        expected = {*tables, "schema_version"}
+        if names not in (expected, expected - {"questions"}) or [
             r[0] for r in old.execute("SELECT version FROM schema_version")
         ] != [1]:
             raise ValueError("不支持的源表或schema版本；拒绝迁移身份库/账本或遗漏数据")
@@ -63,6 +64,9 @@ def import_business(engine, source: Path, assets_dir: Path):
                         if target.execute(select(table.c.id).limit(1)).first():
                             raise ValueError("达梦业务目标表非空，拒绝覆盖或合并")
                     for name, table in tables.items():
+                        if name not in names:
+                            counts[name] = 0
+                            continue
                         columns = list(table.c.keys())
                         source_cols = {r[1] for r in old.execute(f'PRAGMA table_info("{name}")')}
                         if set(columns) != source_cols:
