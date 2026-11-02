@@ -268,6 +268,7 @@ class Execution:
     lease_lost: bool = False
     active_node_id: str | None = None
     failure: BaseException | None = None
+    case_plan: dict | None = None
 
     @property
     def request(self):
@@ -715,12 +716,11 @@ async def _run_atomic(
         if task_type == "case_analysis":
             from ..casework.engine import execute as execute_case
 
-            last = execution.current().get("quality_verdict") or {}
-            feedback = [i["message"] for i in last.get("issues", [])] if revision else []
+            feedback = []
             if (
                 config.get("case_stage") == "analyze"
                 and config.get("case_strategy") == "adaptive"
-                and not feedback
+                and not execution.case_plan
             ):
                 feedback = ["应用已发布专员的受限字段映射和唯一对应策略，所有更改须可复核"]
             operation = asyncio.to_thread(
@@ -733,6 +733,7 @@ async def _run_atomic(
                 feedback,
                 revision,
                 execution.check,
+                **({"repair_plan": execution.case_plan} if execution.case_plan else {}),
             )
         else:
             operation = asyncio.to_thread(execute_local, task_type, tool_inputs, config)
@@ -762,6 +763,8 @@ async def _run_atomic(
         node.update(status="succeeded", output=output, finished_at=now())
         if output.get("type") == "case_report":
             node["review_passed"] = all(c["passed"] for c in output["content"]["review"])
+        if execution.case_plan:
+            node["repair_action"] = execution.case_plan["action"]
         tx.put("nodes", node)
         instance = tx.get("instances", instance_id)
         instance.update(status="released", released_at=now())
@@ -812,9 +815,49 @@ async def _run_node(
     return output
 
 
+def _prior_case_node(execution, revision, stage):
+    """Find the last executed stage. A reused checkpoint never counts as an agent attempt."""
+    for index in range(revision, -1, -1):
+        row = execution.repository.get("nodes", f"{execution.task['id']}:{index}:{stage}")
+        if row and row["status"] == "succeeded" and isinstance(row.get("output"), dict):
+            return row
+    raise TaskFailure("repair_checkpoint_missing", "上轮成功节点的检查点缺失，无法安全调整流程")
+
+
+def _initial_case_plan(execution):
+    from ..casework.repair_plan import published_plan
+
+    node = next(node for node in _graph(execution) if node["id"] == "analyze")
+    agent = _agent(execution, node["agent_id"], node["agent_version"])
+    strategy = agent.get("parameters", {}).get("case_strategy", "strict")
+    return published_plan(execution.request["case_id"], strategy, execution.inputs)
+
+
+def _case_plan_for_revision(execution, revision):
+    if revision == 0:
+        return _initial_case_plan(execution)
+    for entry in execution.task.get("repair_history", []):
+        if entry["decision"] == "revise" and entry["revision"] == revision:
+            return entry
+    raise TaskFailure("repair_checkpoint_missing", "缺少该轮已保存的流程调整决策，不能重放")
+
+
 async def _execute_graph(execution: Execution, revision: int):
+    if execution.request["task_type"] == "case_analysis":
+        execution.case_plan = _case_plan_for_revision(execution, revision)
     outputs = {}
     for plan in _graph(execution):
+        if revision and execution.case_plan and plan["id"] in execution.case_plan["reused_nodes"]:
+            execution.check()
+            prior = _prior_case_node(execution, revision - 1, plan["id"])
+            if (
+                prior["id"] != execution.case_plan["reused_nodes"][plan["id"]]
+                or prior["agent_id"] != plan["agent_id"]
+                or prior["agent_version"] != plan["agent_version"]
+            ):
+                raise TaskFailure("repair_checkpoint_changed", "复用检查点与冻结节点版本不一致")
+            outputs[plan["id"]] = prior["output"]
+            continue
         previous = [outputs[dep] for dep in plan.get("depends_on", [])]
         for item in previous:
             gate = deterministic_quality(
@@ -841,6 +884,12 @@ async def _preflight(step_input: StepInput) -> StepOutput:
     execution.check()
     if execution.request["task_type"] not in SUPPORTED:
         raise TaskFailure("unsupported_capability", "当前模型和工具目录没有经过验证的此类能力")
+    if execution.request["task_type"] == "case_analysis":
+        from ..casework.team import frozen_profile
+
+        profile = execution.task["snapshot"]["case_profile"]
+        if frozen_profile(profile["case_id"])["signature"] != profile["signature"]:
+            raise TaskFailure("case_profile_changed", "用例执行或修复策略版本已变化，请重新受理")
     if not execution.inputs:
         raise TaskFailure("insufficient_data", "任务没有可用输入")
     for asset in execution.inputs:
@@ -997,6 +1046,26 @@ async def _review_output(execution: Execution, output: dict) -> dict:
 
 
 async def _review(execution: Execution) -> dict:
+    case_check = {}
+    if execution.request["task_type"] == "case_analysis":
+        execution.check()
+        case_check = {
+            "revision": execution.task.get("revision", 0),
+            "case_output_checksum": hashlib.sha256(
+                canonical(execution.outputs[0]["content"]).encode()
+            ).hexdigest(),
+        }
+        saved = execution.task.get("quality_verdict") or {}
+        if saved.get("revision") == case_check["revision"]:
+            if (
+                saved.get("case_output_checksum") != case_check["case_output_checksum"]
+                or len(saved.get("outputs", [])) != 1
+            ):
+                raise TaskFailure("repair_checkpoint_changed", "已审核产物与冻结审核检查点不一致")
+            execution.outputs[0]["quality_verdict"] = {
+                k: v for k, v in saved["outputs"][0].items() if k != "output_index"
+            }
+            return saved
     execution.update("task.evaluating", status="evaluating")
     verdicts = []
     for index, output in enumerate(execution.outputs):
@@ -1005,6 +1074,7 @@ async def _review(execution: Execution) -> dict:
         verdicts.append({"output_index": index, **verdict})
     passed = bool(verdicts) and all(v["passed"] for v in verdicts)
     quality = {
+        **case_check,
         "passed": passed,
         "verdict": "passed" if passed else "failed",
         "outputs": verdicts,
@@ -1020,16 +1090,120 @@ async def _review(execution: Execution) -> dict:
         quality["model_review"] = verdicts[0]["model_review"]
     execution.update(
         "quality.checked",
-        {"passed": quality["passed"], "issue_codes": [issue["code"] for issue in quality["issues"]]},
+        {
+            "passed": quality["passed"],
+            "issue_codes": [issue["code"] for issue in quality["issues"]],
+            **({"revision": case_check["revision"]} if case_check else {}),
+        },
         quality_verdict=quality,
     )
     return quality
+
+
+def _case_counts(report):
+    return {
+        "evidence": len(report["evidence"]),
+        "failed_checks": sum(not check["passed"] for check in report["review"]),
+        "source_gaps": len(report["gaps"]),
+        "withheld_readings": len(report.get("reading_notes", [])),
+    }
+
+
+def _record_repair_outcome(execution):
+    plan = execution.case_plan
+    if not plan or plan.get("decision") != "revise" or "outcome" in plan:
+        return
+    report = execution.outputs[0]["content"]
+    remaining = {c["name"] for c in report["review"] if not c["passed"]}
+    before = set(plan["failed_checks"])
+    outcome = {
+        "passed": execution.quality["passed"],
+        "remaining_checks": sorted(remaining),
+        "resolved_checks": sorted(before - remaining),
+        "new_checks": sorted(remaining - before),
+        "after_counts": _case_counts(report),
+    }
+    history = [
+        {**item, "outcome": outcome} if item == plan else item for item in execution.task["repair_history"]
+    ]
+    execution.update(
+        "task.repair_reviewed",
+        {"revision": plan["revision"], "action": plan["action"], **outcome},
+        repair_history=history,
+    )
+
+
+def _plan_case_revision(execution):
+    from ..casework.repair_plan import build_plan, hard_blocked
+
+    revision = execution.task.get("revision", 0)
+    history = execution.task.get("repair_history", [])
+    if any(p["source_revision"] == revision and p["decision"] == "stop" for p in history):
+        return False
+    actions = [p["action"] for p in history if p["decision"] == "revise"]
+    initial = _initial_case_plan(execution)
+    if initial:
+        actions.append(initial["action"])
+    prepared = _prior_case_node(execution, revision, "prepare")
+    report = execution.outputs[0]["content"]
+    plan = build_plan(
+        execution.request["case_id"],
+        report,
+        records=prepared["output"]["content"]["records"],
+        attempted_actions=actions,
+    )
+    blocked = hard_blocked(execution.quality)
+    if plan["decision"] == "revise" and (blocked or revision >= execution.request.get("max_revisions", 0)):
+        reason = "硬性审核未过，不采用自动修复" if blocked else "已达到受理时冻结的修订上限"
+        plan = {
+            **plan,
+            "decision": "stop",
+            "action": None,
+            "label": "结束修订",
+            "reason": reason,
+            "rerun_stages": [],
+            "reused_stages": [],
+            "targets": [],
+        }
+    revise = plan["decision"] == "revise"
+    plan = {
+        **plan,
+        "source_revision": revision,
+        "before_counts": _case_counts(report),
+        "revision": revision + int(revise),
+        "reused_nodes": {
+            stage: _prior_case_node(execution, revision, stage)["id"] for stage in plan["reused_stages"]
+        },
+    }
+    if revise and (
+        "review" not in plan["rerun_stages"]
+        or set(plan["rerun_stages"]) & set(plan["reused_stages"])
+        or set(plan["rerun_stages"]) | set(plan["reused_stages"]) != {"prepare", "analyze", "review"}
+    ):
+        raise TaskFailure("invalid_repair_plan", "调整决策与冻结三节点流程不匹配")
+    summary = {key: value for key, value in plan.items() if key != "targets"}
+    # Save the decision and revision increment together. A lease takeover uses these same checkpoints.
+    with execution.repository.transaction() as tx:
+        task = execution.check(tx)
+        task["repair_history"] = [*history, plan]
+        if revise:
+            task.update(status="revising", revision=plan["revision"])
+            tx.event(task["id"], "task.revising", {"revision": plan["revision"], "strategy": plan["action"]})
+        execution.task = tx.put("tasks", task)
+        tx.event(task["id"], "task.repair_planned" if revise else "task.repair_stopped", summary)
+    return revise
 
 
 async def _evaluate(step_input: StepInput) -> StepOutput:
     execution = context()
     while True:
         execution.quality = await _review(execution)
+        if execution.request["task_type"] == "case_analysis":
+            _record_repair_outcome(execution)
+            if execution.quality["passed"] or not _plan_case_revision(execution):
+                break
+            await _execute_graph(execution, execution.task["revision"])
+            continue
         if execution.quality["passed"] or execution.task.get("revision", 0) >= execution.request.get(
             "max_revisions", 0
         ):

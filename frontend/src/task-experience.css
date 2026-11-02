@@ -269,3 +269,25 @@
   max-width: 100%;
   max-height: 25rem;
 }
+.case-repair {
+  padding: 0.7rem 0;
+  overflow-wrap: anywhere;
+}
+.case-repair + .case-repair {
+  border-top: 1px solid var(--border);
+}
+.case-repair h4,
+.case-repair p {
+  margin: 0 0 0.45rem;
+}
+.case-repair dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1rem;
+}
+.case-repair dt {
+  color: var(--muted);
+}
+.case-repair dd {
+  margin: 0;
+}

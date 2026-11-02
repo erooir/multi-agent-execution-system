@@ -246,12 +246,24 @@ _HANDLERS = {
 }
 
 
-def analyze(case_id: str, records: list[dict], *, feedback: list[str] | None = None) -> dict:
+def analyze(
+    case_id: str,
+    records: list[dict],
+    *,
+    feedback: list[str] | None = None,
+    repair_action: str | None = None,
+    repair_targets=(),
+) -> dict:
     if case_id not in _HANDLERS:
         raise ValueError("未知文档分析任务")
     if not isinstance(records, list):
         raise TypeError("输入必须为记录列表")
-    run = Run(records, retry=bool(feedback))
+    run = Run(
+        records,
+        retry=bool(feedback) and repair_action is None,
+        repair_action=repair_action,
+        repair_targets=tuple(repair_targets),
+    )
     products = _HANDLERS[case_id](run)
     if set(products) != set(CATALOG[case_id]["outputs"]):
         raise RuntimeError("分析工具产物与登记契约不一致")

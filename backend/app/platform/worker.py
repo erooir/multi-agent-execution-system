@@ -108,6 +108,7 @@ def register_worker(repository: Repository, worker_id: str, status: str, active:
             "active_task_ids": active,
             "runtime": "agno-3.0.10",
             "telemetry_enabled": False,
+            "auto_improve": os.environ.get("HANGZHI_AUTO_IMPROVE", "").lower() == "true",
         },
     )
 

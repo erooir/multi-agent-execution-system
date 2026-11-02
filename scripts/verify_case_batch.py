@@ -394,6 +394,17 @@ def main():
                 detail = api(client, "GET", f"/v2/tasks/{tid}").json()
                 if not bundle or detail["status"] != bundle["status"] or bundle["mode"] != "local":
                     raise ValueError("Result/terminal state mismatch")
+                repairs = detail.get("repair_history", [])
+                changes = [plan for plan in repairs if plan["decision"] == "revise"]
+                if len(changes) != detail["revision"] or any(
+                    not p["action"]
+                    or "review" not in p["rerun_stages"]
+                    or "passed" not in p.get("outcome", {})
+                    for p in changes
+                ):
+                    raise ValueError(
+                        "Case revisions must identify the changed operation and its reviewed outcome"
+                    )
                 node_fields = (
                     "node_id",
                     "agent_id",
@@ -406,6 +417,7 @@ def main():
                     "review_passed",
                 )
                 rec.update(
+                    repair_history=repairs,
                     status=detail["status"],
                     reason=detail.get("reason_code"),
                     revision=detail["revision"],

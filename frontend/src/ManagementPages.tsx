@@ -338,6 +338,7 @@ export function ImprovementsPage({
   projectId,
   improvements,
   evaluations,
+  workers,
   agents,
   tasks,
   canEdit,
@@ -347,6 +348,7 @@ export function ImprovementsPage({
 }: Common & {
   improvements: Item[];
   evaluations: Item[];
+  workers: Item[];
   agents: Item[];
   tasks: Item[];
   isAdmin: boolean;
@@ -362,6 +364,7 @@ export function ImprovementsPage({
     [selected, setSelected] = useState<Item | null>(null),
     [action, setAction] = useState<{ item: Item; type: string } | null>(null);
   const [parameters, setParameters] = useState("{}");
+  const online = workers.filter((worker) => worker.health === "online");
   const fresh = improvements.find((i) => i.id === selected?.id) || selected;
   const labels: Record<string, string> = {
     evaluate: "运行冻结评测",
@@ -388,7 +391,10 @@ export function ImprovementsPage({
         <div>
           <strong>每一次晋升都需要可追溯的评测证据</strong>
           <p>
-            候选只能调整授权配置。评测不足、硬性失败或退化都会阻止晋升；运行任务保持原快照。
+            {online.length
+              ? `在线 Worker 中 ${online.filter((w) => w.auto_improve === true).length}/${online.length} 个已报告开启跨任务自动维护。`
+              : "当前没有在线 Worker。"}
+            候选从实际失败中选择操作，经独立留出资料复验后方可发布。
           </p>
         </div>
       </div>

@@ -1028,6 +1028,8 @@ def redact_derived(record, blocked_sources):
         output["warnings"] = ["来源已撤回或过期，派生产物内容不再提供"]
     if "tool_calls" in output:
         output["tool_calls"] = [{**item, "summary": {}} for item in output["tool_calls"]]
+    if "repair_history" in output:
+        output["repair_history"] = []
     for key in ("summary", "metrics"):
         if key in output:
             output[key] = {}
@@ -1054,6 +1056,7 @@ def task_detail(task_id, user, repository=None):
         if result.get("result"):
             result["result"] = redact_derived(result["result"], blocked)
         result["quality_verdict"] = None
+        result["repair_history"] = []
         result["tool_calls"] = [{**item, "summary": {}} for item in result.get("tool_calls", [])]
         result["content_withheld"] = True
     elif (task.get("semantic_evidence") or {}).get("focus") == "scientific_terms":

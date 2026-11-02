@@ -36,7 +36,14 @@ class Member(Contract):
 class ToolParameters(Contract):
     case_stage: Literal["prepare", "analyze", "review"] | None = None
     case_scope: str | None = Field(default=None, pattern=r"^[BTG](0[1-9]|10)$")
-    case_strategy: Literal["strict", "adaptive"] = "strict"
+    case_strategy: Literal[
+        "strict",
+        "adaptive",
+        "chart_ocr_reconcile",
+        "match_unique_clauses",
+        "expand_research_evidence",
+        "apply_field_dictionary",
+    ] = "strict"
     operation: Literal["normalize", "select", "deduplicate", "sort", "filter"] = "normalize"
     select_fields: list[str] | None = Field(default=None, max_length=50)
     filter: dict[str, str | int | float | bool | None] | None = None

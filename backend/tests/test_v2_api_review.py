@@ -121,6 +121,7 @@ async def test_withdrawn_sources_hidden_on_all_collection_paths(db):
     with TestClient(app) as client:
         original = db.get("tasks", task["id"])
         original["quality_verdict"] = {"issues": [{"message": "WITHDRAWN_SENTINEL"}]}
+        original["repair_history"] = [{"targets": ["WITHDRAWN_SENTINEL"]}]
         original["result"]["quality_verdict"] = original["quality_verdict"]
         db.put("tasks", original)
         for response in (

@@ -55,6 +55,30 @@ def _verify_sources(record, repository):
             if frozen.get("project_id") != record["project_id"]:
                 s.fail("permission_denied", "评测来源不能跨项目", 403)
             s.verify_frozen_asset(frozen, current)
+    evidence = record.get("source_repair")
+    if (
+        record["policy"].get("scope") == replay.SCOPE
+        and record["candidate"]["parameters"].get("case_strategy", "strict") not in {"strict", "adaptive"}
+        and not evidence
+    ):
+        s.fail("evaluation_changed", "用例修复候选缺少开发任务的审核依据", 409)
+    if evidence is not None:
+        if not isinstance(evidence, dict):
+            s.fail("evaluation_changed", "用例修复候选的审核依据无效", 409)
+        sample = next(
+            (
+                x
+                for x in record["samples"]
+                if x["split"] == "development" and x["task_id"] == evidence.get("task_id")
+            ),
+            None,
+        )
+        if (
+            not sample
+            or evidence.get("action") != record["candidate"]["parameters"].get("case_strategy")
+            or replay.source_diagnosis(sample, repository) != evidence
+        ):
+            s.fail("evaluation_changed", "开发任务的审核证据或修复动作已经变化，拒绝使用候选", 409)
 
 
 def create(body, user, repository=None):
@@ -98,6 +122,10 @@ def create(body, user, repository=None):
                 }
             )
         baseline = tx.get("agent_versions", f"{agent['id']}:{agent['current_version']}")
+        if body.get("coverage_repair") and any(
+            x["snapshot"]["agents"][0]["version"] != baseline["version"] for x in samples
+        ):
+            s.fail("baseline_changed", "截取范围候选的开发或保留任务已不是当前专员基线", 409)
         candidate = {
             **baseline,
             "instructions": body["instructions"],
@@ -330,8 +358,26 @@ def rollback(candidate_id, user, repository=None):
         return record
 
 
+def _extractive_quality(task, config, repository):
+    from .quality import deterministic_quality
+    from .runtime import execute_local
+
+    snapshot = task["snapshot"]
+    nodes = snapshot["workflow"]["nodes"]
+    if len(nodes) != 1:
+        return None
+    try:
+        for frozen in snapshot["inputs"]:
+            s.verify_frozen_asset(frozen, repository.get("data_assets", frozen["id"]))
+        config = {**config, **nodes[0].get("config", {})}
+        output = execute_local(task["request"]["task_type"], snapshot["inputs"], config)
+        return deterministic_quality(task["request"], output, snapshot["inputs"])
+    except (ValueError, RuntimeError, OSError, TypeError, KeyError):
+        return None
+
+
 async def maintain(repository=None):
-    """Preauthorized narrow policy: increase extractive coverage, never permissions/code.
+    """Preauthorized narrow policies operate on observed, source-grounded defects.
 
     The opt-in deployment setting is configured before tasks begin. Two independent
     terminal samples and a holdout gain gate are required; running snapshots stay fixed.
@@ -353,48 +399,88 @@ async def maintain(repository=None):
         if repository.list("improvements", source_task_id=task["id"]):
             continue
         agents = task["snapshot"].get("agents", [])
-        if not agents:
+        nodes = task["snapshot"]["workflow"]["nodes"]
+        quality = task.get("quality_verdict") or {}
+        if (
+            len(agents) != 1
+            or len(nodes) != 1
+            or agents[0].get("structure") != "atomic"
+            or "max_chars" in nodes[0].get("config", {})
+            or quality.get("hard_failures")
+            or {issue["code"] for issue in quality.get("issues", [])} != {"min_length"}
+        ):
             continue
         agent_id = agents[0].get("agent_id", agents[0]["id"])
         agent = repository.get("agents", agent_id)
-        if not agent or agent["status"] != "published":
+        if not agent or agent["status"] != "published" or agents[0]["version"] != agent["current_version"]:
             continue
-        samples = [
-            t
-            for t in repository.list("tasks", task["project_id"])
-            if t["status"] in s.TERMINAL
-            and t["request"]["mode"] == "local"
-            and t["request"]["task_type"] == task["request"]["task_type"]
-            and any(a.get("agent_id", a["id"]) == agent_id for a in t["snapshot"]["agents"])
-            and len(t["snapshot"].get("workflow", {}).get("nodes", [])) == 1
-            and len(t["snapshot"]["agents"]) == 1
-            and t["snapshot"]["agents"][0].get("structure") == "atomic"
-        ]
-        if len(samples) < 2:
+        node_id = f"{task['id']}:{task.get('revision', 0)}:{nodes[0]['id']}"
+        output = (repository.get("nodes", node_id) or {}).get("output") or {}
+        fragments = (output.get("content") or {}).get("fragments", [])
+        if output.get("method") != "extractive" or not any(row.get("truncated") for row in fragments):
+            continue
+        limit = min(20000, task["request"]["quality"]["min_length"])
+        if limit <= agent.get("parameters", {}).get("max_chars", 1500):
             continue
         parameters = {
             **agent.get("parameters", {}),
-            "max_chars": min(20000, max(4000, task["request"]["quality"].get("min_length", 1) * 2)),
+            "max_chars": limit,
         }
-        candidate = create(
-            {
-                "project_id": task["project_id"],
-                "name": "自动覆盖范围候选",
-                "agent_id": agent_id,
-                "instructions": agent["instructions"],
-                "tool_ids": agent["tool_ids"],
-                "parameters": parameters,
-                "sample_task_ids": [t["id"] for t in samples[-10:]],
-                "source_task_id": task["id"],
-            },
-            actor,
-            repository,
-        )
-        if candidate["status"] not in ("candidate", "rejected", "evaluated"):
+        if not (_extractive_quality(task, parameters, repository) or {}).get("passed"):
             continue
-        candidate = await evaluate(candidate["id"], actor, repository)
-        if candidate["verdict"]["passed"]:
-            promote(candidate["id"], actor, repository)
+        samples = [task["id"]]
+        used = {a["checksum"] for a in task["snapshot"]["inputs"]}
+        for t in reversed(repository.list("tasks", task["project_id"])):
+            if (
+                t["status"] not in s.TERMINAL
+                or t["request"]["mode"] != "local"
+                or t["request"]["task_type"] != task["request"]["task_type"]
+                or t["snapshot"]["agents"] != task["snapshot"]["agents"]
+                or t["snapshot"]["workflow"]["nodes"] != nodes
+            ):
+                continue
+            hashes = {a["checksum"] for a in t["snapshot"]["inputs"]}
+            if hashes and not hashes & used and _extractive_quality(t, parameters, repository) is not None:
+                samples.append(t["id"])
+                used.update(hashes)
+                if len(samples) == 10:
+                    break
+        if len(samples) < 2:
+            continue
+        proposal = {
+            "project_id": task["project_id"],
+            "name": "自动覆盖范围候选",
+            "agent_id": agent_id,
+            "instructions": agent["instructions"],
+            "tool_ids": agent["tool_ids"],
+            "parameters": parameters,
+            "sample_task_ids": samples,
+            "source_task_id": task["id"],
+            "coverage_repair": {
+                "reviewed_node_id": node_id,
+                "failed_check": "min_length",
+                "max_chars": limit,
+            },
+        }
+        try:
+            candidate = create(proposal, actor, repository)
+            if candidate["status"] != "candidate":
+                continue
+            candidate = await evaluate(candidate["id"], actor, repository)
+            if candidate["verdict"]["passed"]:
+                promote(candidate["id"], actor, repository)
+        except s.DomainError as exc:
+            if exc.code not in {
+                "input_changed",
+                "input_unavailable",
+                "revoked_input",
+                "expired_input",
+                "baseline_changed",
+                "evaluation_changed",
+                "invalid_state",
+            }:
+                raise
+            continue
         count += 1
     # Roll back a promoted version after a real hard quality regression.
     for candidate in repository.list("improvements", status="promoted"):
@@ -411,13 +497,39 @@ async def maintain(repository=None):
                 for a in t["snapshot"]["agents"]
             )
         ]
-        if failures:
-            rollback(candidate["id"], actor, repository)
+        for task in failures:
+            if task["request"]["mode"] != "local" or task["request"]["task_type"] not in {
+                "source_summary",
+                "text_analysis",
+            }:
+                continue
+            try:
+                _validate_sample_scope(task, candidate["agent_id"])
+            except s.DomainError:
+                continue
+            before = _extractive_quality(task, candidate["baseline"].get("parameters", {}), repository)
+            after = _extractive_quality(task, candidate["candidate"].get("parameters", {}), repository)
+            if before and before["passed"] and after and not after["passed"]:
+                with repository.transaction() as tx:
+                    current = tx.get("improvements", candidate["id"], for_update=True)
+                    agent = tx.get("agents", candidate["agent_id"], for_update=True)
+                    if (
+                        current["status"] == "promoted"
+                        and agent["current_version"] == current["candidate_version"]
+                    ):
+                        current["regression_evidence"] = {
+                            "task_id": task["id"],
+                            "baseline_passed": True,
+                            "candidate_failed_checks": [issue["code"] for issue in after["issues"]],
+                        }
+                        tx.put("improvements", current)
+                        rollback(current["id"], actor, tx)
+                break
     return count
 
 
 async def _maintain_cases(repository, actor):
-    """A single allowlisted config candidate per failed source; baseline-vs-candidate checks on newer failures."""
+    """Learn a bounded change from a failed review, including failures repaired before the task finished."""
     tasks = [
         t
         for t in repository.list("tasks")
@@ -470,7 +582,13 @@ async def _maintain_cases(repository, actor):
                             raise
                         s.audit(tx, fresh["project_id"], "improvement.rollback_obsolete", fresh["id"], actor)
                     break
-    for t in failures:
+    sources = [
+        task
+        for task in tasks
+        if task.get("reason_code") == "quality_not_met"
+        or (task["status"] == "succeeded" and task.get("revision", 0) > 0)
+    ]
+    for t in sources:
         if count >= 2:
             break
         if repository.list("improvements", source_task_id=t["id"]):
@@ -478,24 +596,25 @@ async def _maintain_cases(repository, actor):
         code = t["request"]["case_id"]
         agent_id = replay.team.role_id(t["project_id"], "analyze", code)
         agent = repository.get("agents", agent_id)
-        if (
-            not agent
-            or agent["status"] != "published"
-            or agent["parameters"].get("case_strategy", "strict") != "strict"
-        ):
-            continue
-        # Do not automatically repeat a strategy that an operator or the measured regression gate rolled back.
-        if any(
-            old.get("policy", {}).get("scope") == replay.SCOPE
-            and old.get("agent_id") == agent_id
-            and old.get("baseline_version") == agent["current_version"]
-            and old.get("baseline_flow_hash") == s.digest(t["snapshot"]["workflow"])
-            for old in repository.list("improvements", t["project_id"], status="rolled_back")
-        ):
+        if not agent or agent["status"] != "published":
             continue
         try:
             target = replay.validate(t, agent_id)
             if target["version"] != agent["current_version"]:
+                continue
+            diagnosis = replay.source_diagnosis(t, repository)
+            if not diagnosis or diagnosis["action"] == agent["parameters"].get("case_strategy"):
+                continue
+            action = diagnosis["action"]
+            # Do not reintroduce a policy which was rolled back on this same agent and workflow baseline.
+            if any(
+                old.get("policy", {}).get("scope") == replay.SCOPE
+                and old.get("agent_id") == agent_id
+                and old.get("baseline_version") == agent["current_version"]
+                and old.get("baseline_flow_hash") == s.digest(t["snapshot"]["workflow"])
+                and old["candidate"]["parameters"].get("case_strategy") in {"adaptive", action}
+                for old in repository.list("improvements", t["project_id"], status="rolled_back")
+            ):
                 continue
             selected = []
             used = set()
@@ -531,11 +650,11 @@ async def _maintain_cases(repository, actor):
             cand = create(
                 {
                     "project_id": t["project_id"],
-                    "name": "用例证据检索策略候选",
+                    "name": f"{code} · {diagnosis['label']}",
                     "agent_id": agent_id,
                     "instructions": agent["instructions"],
                     "tool_ids": agent["tool_ids"],
-                    "parameters": {**agent["parameters"], "case_strategy": "adaptive"},
+                    "parameters": {**agent["parameters"], "case_strategy": action},
                     "sample_task_ids": selected,
                     "source_task_id": t["id"],
                 },
@@ -556,6 +675,7 @@ async def _maintain_cases(repository, actor):
                 "expired_input",
                 "baseline_changed",
                 "unsupported_evaluation_scope",
+                "unsupported_repair_strategy",
                 "evaluation_changed",
                 "quality_gate_failed",
             }:

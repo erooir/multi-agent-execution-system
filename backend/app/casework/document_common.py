@@ -70,6 +70,8 @@ def tokens(text):
 class Run:
     records: list[dict]
     retry: bool = False
+    repair_action: str | None = None
+    repair_targets: tuple[str, ...] = ()
     gaps: list[str] = field(default_factory=list)
     evidence: list[dict] = field(default_factory=list)
     _seen: dict = field(default_factory=dict)
@@ -157,6 +159,16 @@ class Run:
             ]
             if not entries:
                 entries = self.find(patterns, 5 if self.retry else 2)
+            if (
+                not entries
+                and self.repair_action == "expand_research_evidence"
+                and (not self.repair_targets or name in self.repair_targets)
+            ):
+                from .repair_plan import research_alternatives
+
+                entries = [
+                    self.excerpt(row, quote) for row, quote in research_alternatives(name, self.records)
+                ]
             if not entries:
                 self.gap(f"未找到 {name} 的可定位证据")
             result[name] = entries

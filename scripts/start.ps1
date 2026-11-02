@@ -1,7 +1,8 @@
 param(
     [ValidateRange(1024,65535)][int]$Port = 8000,
     [switch]$SkipBuild, [string]$DmUrlFile, [switch]$LegacySQLite,
-    [switch]$Offline = ($env:HANGZHI_OFFLINE -eq 'true')
+    [switch]$Offline = ($env:HANGZHI_OFFLINE -eq 'true'),
+    [switch]$AutoImprove = ($env:HANGZHI_AUTO_IMPROVE -eq 'true')
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
@@ -31,7 +32,14 @@ if ($LegacySQLite) {
     if ($LASTEXITCODE -ne 0) { throw 'Provision the locked dameng driver extra before starting.' }
 }
 $env:HANGZHI_OFFLINE = if ($Offline) { 'true' } else { 'false' }
-$profile = $env:HANGZHI_DATABASE_URL + '|' + $env:HANGZHI_OFFLINE
+$autoPolicy = Join-Path $localDirectory 'auto-improve.txt'
+if (-not $PSBoundParameters.ContainsKey('AutoImprove') -and -not $env:HANGZHI_AUTO_IMPROVE -and (Test-Path -LiteralPath $autoPolicy)) {
+    $choice = (Get-Content -LiteralPath $autoPolicy -Raw).Trim()
+    if ($choice -notin @('true','false')) { throw 'Invalid local automatic improvement policy; use true or false.' }
+    $AutoImprove = $choice -eq 'true'
+}
+$env:HANGZHI_AUTO_IMPROVE = if ($AutoImprove) { 'true' } else { 'false' }
+$profile = $env:HANGZHI_DATABASE_URL + '|' + $env:HANGZHI_OFFLINE + '|' + $env:HANGZHI_AUTO_IMPROVE
 $sha = [System.Security.Cryptography.SHA256]::Create()
 try { $profileId = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($profile))).Replace('-','').ToLowerInvariant() } finally { $sha.Dispose() }
 if (-not $SkipBuild) {
@@ -54,7 +62,7 @@ if ($listener.Count -gt 0) {
     if ($health.version -ne '2.0.0' -or $health.service -ne 'hangzhi-agent-platform') { throw "Port $Port is occupied by another service." }
     if (-not (Test-Path -LiteralPath $serverState)) { throw 'Existing API is not recorded by this workspace; stop it explicitly before starting.' }
     $record = Get-Content -LiteralPath $serverState -Raw | ConvertFrom-Json
-    if ($record.profile_id -ne $profileId) { throw 'Existing API has a different database or model access policy. Stop it before switching.' }
+    if ($record.profile_id -ne $profileId) { throw 'Existing API uses a different database, model or improvement policy. Stop it before switching.' }
     $process = Get-CimInstance Win32_Process -Filter "ProcessId = $($record.pid)" -ErrorAction SilentlyContinue
     if ($record.root -ne $projectRoot -or -not $process -or $process.ExecutablePath -ne $pythonExecutable -or $process.CommandLine -notlike '*uvicorn backend.app.main:app*') { throw 'Existing API ownership could not be verified.' }
     $running = $true
@@ -80,7 +88,7 @@ if (Test-Path -LiteralPath $workerState) {
     if ($record.root -ne $projectRoot) { throw 'Recorded worker workspace mismatch' }
     $process = Get-CimInstance Win32_Process -Filter "ProcessId = $($record.pid)" -ErrorAction SilentlyContinue
     if ($process) {
-        if ($record.profile_id -ne $profileId) { throw 'Existing worker has a different database or model access policy. Stop it before switching.' }
+        if ($record.profile_id -ne $profileId) { throw 'Existing worker uses a different database, model or improvement policy. Stop it before switching.' }
         if ($process.ExecutablePath -ne $pythonExecutable -or $process.CommandLine -notlike '*backend.app.platform.worker*') { throw 'Recorded worker PID belongs to another process; inspect the state file.' }
         $workerRunning = $true
     }
@@ -94,5 +102,6 @@ if (-not $workerRunning) {
 }
 Write-Output "Hangzhi v2: http://127.0.0.1:$Port"
 if ($Offline) { Write-Output 'Model access: fully offline.' } else { Write-Output 'Model access: online gateway available for authorized, budgeted tasks.' }
+Write-Output "Cross-task automatic improvement: $env:HANGZHI_AUTO_IMPROVE"
 Write-Output 'API is ready; worker process is running. Check the operations page for its heartbeat.'
 Write-Output 'Existing identities and lifetime budget are preserved. Fresh installations: read the private bootstrap-admin.json.'

@@ -6,6 +6,7 @@ from time import perf_counter
 from ..platform import service as s
 from ..platform.db import now
 from . import engine, team
+from .repair_plan import allowed_action, build_plan, hard_blocked, published_plan
 
 SCOPE = "local_case_team"
 
@@ -48,18 +49,57 @@ def validate(sample, agent_id):
     return next(a for a in versions if a["agent_id"] == agent_id)
 
 
+def source_diagnosis(sample, repository):
+    """Only development-task observations may select a policy; never infer it from a case ID alone."""
+    from ..platform.quality import deterministic_quality
+
+    request = sample["request"]
+    task_id = sample.get("task_id") or sample["id"]
+    outputs = {}
+    for stage, expected_type in (("prepare", "case_records"), ("review", "case_report")):
+        node = repository.get("nodes", f"{task_id}:0:{stage}")
+        if not node or node["project_id"] != request["project_id"] or node["status"] != "succeeded":
+            return None
+        output = node.get("output") or {}
+        if output.get("type") != expected_type:
+            return None
+        outputs[stage] = output["content"]
+        if stage == "review" and hard_blocked(
+            deterministic_quality(request, output, sample["snapshot"]["inputs"])
+        ):
+            return None
+    plan = build_plan(request["case_id"], outputs["review"], records=outputs["prepare"]["records"])
+    if plan["decision"] != "revise":
+        return None
+    return {
+        "task_id": task_id,
+        "source_revision": 0,
+        "prepared_node_id": f"{task_id}:0:prepare",
+        "review_node_id": f"{task_id}:0:review",
+        "review_checksum": s.digest(outputs["review"]),
+        # Source targets (clause topics, record fields) stay inside source-governed
+        # task nodes/evaluation samples, not in persistent published metadata.
+        "policy_version": plan["policy_version"],
+        "action": plan["action"],
+        "label": plan["label"],
+        "failed_checks": plan["failed_checks"],
+        "rerun_stages": plan["rerun_stages"],
+        "reused_stages": plan["reused_stages"],
+    }
+
+
 def batch_checks(samples, baseline, candidate, tx):
     if candidate["instructions"] != baseline["instructions"] or set(candidate["tool_ids"]) != set(
         baseline["tool_ids"]
     ):
         s.fail("permission_denied", "用例候选只能调整本地分析策略，不得调整指令或工具", 403)
-    # Only one bounded strategy dimension is currently executable and measurable.
     params = {**baseline["parameters"], **candidate.get("parameters", {})}
-    if params.get("case_strategy", "strict") not in {"strict", "adaptive"} or {
+    code = samples[0]["request"]["case_id"]
+    strategy = params.get("case_strategy", "strict")
+    if (strategy not in {"strict", "adaptive"} and not allowed_action(code, strategy)) or {
         k: v for k, v in params.items() if k != "case_strategy"
     } != {k: v for k, v in baseline["parameters"].items() if k != "case_strategy"}:
         s.fail("permission_denied", "不能改变分析角色、用例、解析器或审核规则", 403)
-    candidate["parameters"] = params
     first = samples[0]["snapshot"]["workflow"]
     flow_id = first["definition_id"]
     current = tx.get("workflows", flow_id, for_update=True)
@@ -79,7 +119,22 @@ def batch_checks(samples, baseline, candidate, tx):
                 422,
             )
         source_sets.append(hashes)
-    return {"workflow_id": flow_id, "baseline_flow": deepcopy(first), "baseline_flow_hash": s.digest(first)}
+    fields = {"workflow_id": flow_id, "baseline_flow": deepcopy(first), "baseline_flow_hash": s.digest(first)}
+    if strategy != "strict":
+        # Compatibility for old API clients: resolve a new "adaptive" request against the observed defect.
+        # Already published adaptive versions and saved candidates retain their historical execution strategy.
+        for sample in samples:
+            if sample["split"] != "development":
+                continue
+            diagnosis = source_diagnosis(sample, tx)
+            if diagnosis and strategy in {"adaptive", diagnosis["action"]}:
+                params["case_strategy"] = diagnosis["action"]
+                fields["source_repair"] = diagnosis
+                break
+        else:
+            s.fail("unsupported_repair_strategy", "开发样本没有该动作能够修正的真实审核失败", 422)
+    candidate["parameters"] = params
+    return fields
 
 
 def replay_sample(sample, version):
@@ -94,25 +149,46 @@ def replay_sample(sample, version):
     feedback = []
     history = []
     start = perf_counter()
-    if strategy not in {"strict", "adaptive"}:
+    if strategy not in {"strict", "adaptive"} and not allowed_action(profile["case_id"], strategy):
         s.fail("invalid_candidate", "未知分析策略")
+    plan = published_plan(profile["case_id"], strategy, inputs)
+    applied = []
+    prepared = None
     for revision in range(req.get("max_revisions", 1) + 1):
-        prepared = engine.execute("prepare", profile, inputs, [], _asset_bytes, feedback, revision)
-        hints = feedback or (["按冻结策略执行受控二次检索"] if strategy == "adaptive" else [])
-        analysis = engine.execute("analyze", profile, inputs, [prepared], _asset_bytes, hints, revision)
+        kwargs = {"repair_plan": plan} if plan else {}
+        if prepared is None or not plan or "prepare" in plan["rerun_stages"]:
+            prepared = engine.execute(
+                "prepare", profile, inputs, [], _asset_bytes, feedback, revision, **kwargs
+            )
+        hints = feedback or (["按冻结策略执行受控二次检索"] if strategy == "adaptive" and not plan else [])
+        analysis = engine.execute(
+            "analyze", profile, inputs, [prepared], _asset_bytes, hints, revision, **kwargs
+        )
         report = engine.execute(
-            "review", profile, inputs, [prepared, analysis], _asset_bytes, feedback, revision
+            "review", profile, inputs, [prepared, analysis], _asset_bytes, feedback, revision, **kwargs
         )
         quality = deterministic_quality(req, report, inputs)
+        if plan:
+            applied.append(plan["action"])
         history.append(
             {
                 "revision": revision,
                 "passed": quality["passed"],
                 "gaps": report["content"]["gaps"],
                 "check_count": len(report["content"]["review"]),
+                "plan": plan,
             }
         )
-        if quality["passed"] or quality.get("hard_failures"):
+        if quality["passed"] or hard_blocked(quality) or revision >= req.get("max_revisions", 1):
+            break
+        plan = build_plan(
+            profile["case_id"],
+            report["content"],
+            records=prepared["content"]["records"],
+            attempted_actions=applied,
+        )
+        if plan["decision"] != "revise":
+            history[-1]["next_plan"] = plan
             break
         feedback = [c["message"] for c in report["content"]["review"] if not c["passed"]]
         if not feedback:
@@ -131,6 +207,11 @@ def quality_gain(results):
     def delta(p):
         b, a = p["baseline"], p["candidate"]
         bp, ap = b["quality"]["passed"], a["quality"]["passed"]
+        if not ap and b.get("output") and a.get("output"):
+            prior = {c["name"] for c in b["output"]["content"]["review"] if not c["passed"]}
+            current = {c["name"] for c in a["output"]["content"]["review"] if not c["passed"]}
+            if current - prior:
+                return -1  # A partial result lost a previously satisfied check.
         if bp != ap:
             return 1 if ap else -1
         if ap:
@@ -169,8 +250,18 @@ def bind_promoted(record, version, tx):
     next_id = max(v["version"] for v in tx.list("workflow_versions", definition_id=fid)) + 1
     flow.update(nodes=nodes, current_version=next_id)
     saved = tx.put("workflows", flow)
+    version_fields = {}
+    if diagnosis := record.get("source_repair"):
+        version_fields["repair_origin"] = {
+            "improvement_id": record["id"],
+            "source_task_id": diagnosis["task_id"],
+            "review_node_id": diagnosis["review_node_id"],
+            "failed_checks": diagnosis["failed_checks"],
+            "action": diagnosis["action"],
+        }
     new = tx.put(
-        "workflow_versions", {**saved, "id": f"{fid}:{next_id}", "definition_id": fid, "version": next_id}
+        "workflow_versions",
+        {**saved, "id": f"{fid}:{next_id}", "definition_id": fid, "version": next_id, **version_fields},
     )
     record.update(candidate_flow_version=next_id, candidate_flow_hash=s.digest(new))
 

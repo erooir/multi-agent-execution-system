@@ -16,6 +16,7 @@ def catalog():
 
 def frozen_profile(code):
     from .provider_versions import profile as provider_profile
+    from .repair_plan import POLICY_VERSION
 
     definition = catalog()[code]
     providers = provider_profile()
@@ -34,6 +35,8 @@ def frozen_profile(code):
             "media",
             "provider_versions",
             "reference_batches",
+            "repair_plan",
+            "document_common",
             "geo_raster",
         }
         prefix = "geo_" if code.startswith("G") else "document_"
@@ -43,7 +46,13 @@ def frozen_profile(code):
             continue
         h.update(path.name.encode())
         h.update(path.read_text(encoding="utf-8").replace("\r\n", "\n").encode())
-    return {"case_id": code, "profile": definition, "providers": providers, "signature": h.hexdigest()}
+    return {
+        "case_id": code,
+        "profile": definition,
+        "providers": providers,
+        "repair_policy_version": POLICY_VERSION,
+        "signature": h.hexdigest(),
+    }
 
 
 def assigned_workflow(project_id, code):
@@ -138,6 +147,7 @@ def install(project_id, user, repository):
 
 def verify_team(flow, agents, project_id, code):
     from ..platform.service import fail
+    from .repair_plan import allowed_action
 
     nodes = flow["nodes"]
     if [n["id"] for n in nodes] != list(STAGES):
@@ -155,3 +165,10 @@ def verify_team(flow, agents, project_id, code):
             or n.get("config")
         ):
             fail("case_team_invalid", "节点角色、工具或依赖与已验证流程不一致", 422)
+        strategy = agent.get("parameters", {}).get("case_strategy", "strict")
+        if (
+            stage == "analyze"
+            and strategy not in {"strict", "adaptive"}
+            and not allowed_action(code, strategy)
+        ):
+            fail("case_team_invalid", "此分析版本的修复操作不适用于该用例", 422)

@@ -389,15 +389,25 @@ function TaskDetail({
       task.snapshot?.nodes ||
       task.snapshot?.workflow_snapshot?.nodes ||
       [];
-    return (task.nodes || [])
-      .filter((n: Item) => n.attempt === (task.revision || 0) + 1)
-      .map((n: Item) => ({
-        ...n,
-        depends_on:
-          n.depends_on ||
-          frozen.find((f: Item) => f.id === n.node_id)?.depends_on ||
-          [],
-      }));
+    const records: Item[] = task.nodes || [];
+    const revision = task.revision || 0;
+    const plan = (task.repair_history || []).find(
+      (p: Item) => p.decision === "revise" && p.revision === revision,
+    );
+    const reused = Object.values(plan?.reused_nodes || {});
+    const current = records.filter(
+      (n) => n.attempt === revision + 1 && !plan?.reused_nodes?.[n.node_id],
+    );
+    const checkpoints = records
+      .filter((n) => reused.includes(n.id))
+      .map((n) => ({ ...n, reusedFromAttempt: n.attempt }));
+    return [...current, ...checkpoints].map((n: Item) => ({
+      ...n,
+      depends_on:
+        n.depends_on ||
+        frozen.find((f: Item) => f.id === n.node_id)?.depends_on ||
+        [],
+    }));
   }, [task]);
   async function showArtifact(item: Item) {
     try {
@@ -476,14 +486,8 @@ function TaskDetail({
         <div>
           <small>执行进度</small>
           <strong>
-            {
-              (task.nodes || []).filter(
-                (n: Item) =>
-                  n.status === "succeeded" &&
-                  n.attempt === (task.revision || 0) + 1,
-              ).length
-            }{" "}
-            / {graphNodes.length} 节点
+            {graphNodes.filter((n: Item) => n.status === "succeeded").length} /{" "}
+            {graphNodes.length} 节点
           </strong>
           <span>第 {(task.revision || 0) + 1} 轮实际执行</span>
         </div>
@@ -560,6 +564,9 @@ function TaskDetail({
             <Graph nodes={graphNodes} agents={agents} onNode={setInspect} />
             <JsonView value={task.nodes} label="全部修订轮次的节点记录" />
           </Panel>
+          {!!task.repair_history?.length && !task.content_withheld && (
+            <RepairHistory history={task.repair_history} />
+          )}
           <Panel title="运行实例">
             <div className="table-scroll">
               {task.instances?.length ? (
@@ -895,6 +902,86 @@ export function ToolCalls({
     </>
   );
 }
+const stageLabels: Record<string, string> = {
+  prepare: "资料解析",
+  analyze: "专业分析",
+  review: "独立核查",
+};
+
+function RepairHistory({ history }: { history: Item[] }) {
+  const stages = (values: string[] = []) =>
+    values.map((key) => stageLabels[key] || key).join("、");
+  return (
+    <Panel title="流程调整记录">
+      {history.map((plan, i) => (
+        <div className="case-repair" key={i}>
+          <h4>
+            {plan.decision === "revise"
+              ? `第 ${plan.revision + 1} 轮 · ${plan.label}`
+              : "停止自动修订"}
+          </h4>
+          <p>{plan.reason}</p>
+          <dl>
+            <dt>上轮未通过</dt>
+            <dd>{plan.failed_checks?.join("、") || "—"}</dd>
+            {!!plan.targets?.length && (
+              <>
+                <dt>修复对象</dt>
+                <dd>{plan.targets.join("、")}</dd>
+              </>
+            )}
+            {plan.decision === "revise" && (
+              <>
+                <dt>执行步骤</dt>
+                <dd>{stages(plan.rerun_stages)}</dd>
+                <dt>复用步骤</dt>
+                <dd>{stages(plan.reused_stages) || "无"}</dd>
+                <dt>复核结果</dt>
+                <dd>
+                  {plan.outcome
+                    ? plan.outcome.passed
+                      ? "通过"
+                      : "仍有未通过项"
+                    : "待复核"}
+                </dd>
+              </>
+            )}
+            {!!plan.outcome?.resolved_checks?.length && (
+              <>
+                <dt>已解决</dt>
+                <dd>{plan.outcome.resolved_checks.join("、")}</dd>
+              </>
+            )}
+            {plan.before_counts && plan.outcome?.after_counts && (
+              <>
+                <dt>核查变化</dt>
+                <dd>
+                  未通过检查 {plan.before_counts.failed_checks} →{" "}
+                  {plan.outcome.after_counts.failed_checks} 项；可定位证据{" "}
+                  {plan.before_counts.evidence} →{" "}
+                  {plan.outcome.after_counts.evidence} 条
+                </dd>
+              </>
+            )}
+            {!!plan.outcome?.remaining_checks?.length && (
+              <>
+                <dt>仍未通过</dt>
+                <dd>{plan.outcome.remaining_checks.join("、")}</dd>
+              </>
+            )}
+            {!!plan.outcome?.new_checks?.length && (
+              <>
+                <dt>新增问题</dt>
+                <dd>{plan.outcome.new_checks.join("、")}</dd>
+              </>
+            )}
+          </dl>
+        </div>
+      ))}
+    </Panel>
+  );
+}
+
 function eventLabel(type: string) {
   return (
     (
@@ -910,6 +997,9 @@ function eventLabel(type: string) {
         "node.completed": "节点完成",
         "review.completed": "自动评审完成",
         "task.revising": "进入有界修订",
+        "task.repair_planned": "已选择修复路径",
+        "task.repair_stopped": "停止自动修订",
+        "task.repair_reviewed": "修复路径复核完成",
         "task.succeeded": "任务成功",
         "task.partial": "部分交付",
       } as Record<string, string>

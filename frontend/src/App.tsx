@@ -473,6 +473,7 @@ export default function App() {
                   isAdmin={user.role === "admin"}
                   improvements={scoped("improvements")}
                   evaluations={scoped("evaluations")}
+                  workers={data.workers}
                   agents={agents}
                   tasks={tasks}
                 />

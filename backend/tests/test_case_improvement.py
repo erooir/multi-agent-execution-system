@@ -4,13 +4,15 @@ from copy import deepcopy
 
 import pytest
 
-from backend.app.casework import team
+from backend.app.casework import replay, team
 from backend.app.casework.reference_batches import registry_path, signed_entry
 from backend.app.platform import improvement, runtime, service
 from backend.app.platform.db import Repository
+from backend.tests import test_v2_platform as platform
 from scripts.register_reference_batches import install
 
 USER = {"id": "case-test", "role": "admin"}
+isolated_platform = platform.db
 
 
 @pytest.fixture
@@ -113,6 +115,12 @@ async def test_case_team_measured_promotion_and_reversible_binding(context):
     old_flow = deepcopy(one["snapshot"]["workflow"])
     assert one["status"] in {"partial", "failed"}
     c = candidate(db, pid, [one, two])
+    diagnosis = c["source_repair"]
+    assert c["candidate"]["parameters"]["case_strategy"] == diagnosis["action"] == "match_unique_clauses"
+    assert diagnosis["task_id"] == one["id"] and diagnosis["review_node_id"] == f"{one['id']}:0:review"
+    assert (
+        "case_gaps" in diagnosis["failed_checks"] and "targets" not in diagnosis and "reason" not in diagnosis
+    )
     out = await improvement.evaluate(c["id"], USER, db)
     assert (
         out["verdict"]["passed"]
@@ -124,6 +132,8 @@ async def test_case_team_measured_promotion_and_reversible_binding(context):
     assert [s["split"] for s in evaluation["samples"]] == ["development", "holdout"]
     promoted = improvement.promote(c["id"], USER, db)
     assert promoted["candidate_flow_version"] == 2
+    origin = db.get("workflow_versions", old_flow["definition_id"] + ":2")["repair_origin"]
+    assert origin["source_task_id"] == one["id"] and origin["action"] == diagnosis["action"]
     assert (
         db.get("workflow_versions", old_flow["id"]) == old_flow
         and db.get("tasks", one["id"])["snapshot"]["workflow"] == old_flow
@@ -153,6 +163,10 @@ async def test_case_strategy_holdout_content_and_permissions(context):
         candidate(db, pid, [one, independent], parameters={"case_scope": "B01"})
     with pytest.raises(service.DomainError, match="指令"):
         candidate(db, pid, [one, independent], instructions="replace policy")
+    with pytest.raises(service.DomainError, match="角色"):
+        candidate(db, pid, [one, independent], parameters={"case_strategy": "apply_field_dictionary"})
+    with pytest.raises(service.DomainError, match="开发样本"):
+        candidate(db, pid, [independent, one])  # The only fixable diagnosis is in holdout.
     c = candidate(db, pid, [one, independent])
     r = await improvement.evaluate(c["id"], USER, db)
     assert r["status"] == "rejected" and not r["verdict"]["holdout_passed"]
@@ -173,6 +187,7 @@ async def test_case_automatic_opt_in_and_protection_against_later_publication(co
     promoted = db.list("improvements", status="promoted")[0]
     assert sample["id"] not in promoted["sample_task_ids"]
     assert promoted["policy"]["scope"] == "local_case_team"
+    assert promoted["source_repair"]["action"] == "match_unique_clauses"
     await terminal(db, pid, "missing", malformed=True)
     await improvement.maintain(db)
     assert db.get("improvements", promoted["id"])["status"] == "promoted"
@@ -186,6 +201,83 @@ async def test_case_automatic_opt_in_and_protection_against_later_publication(co
     )
 
 
+async def test_maintenance_learns_from_repaired_runs_and_measures_saved_revisions(context, monkeypatch):
+    db, pid = context
+    first = await terminal(db, pid, "first repaired", revisions=1)
+    second = await terminal(db, pid, "second repaired", revisions=1)
+    assert all(job["status"] == "succeeded" and job["revision"] == 1 for job in [first, second])
+    monkeypatch.setenv("HANGZHI_AUTO_IMPROVE", "true")
+    await improvement.maintain(db)
+    promoted = db.list("improvements", status="promoted")[0]
+    pairs = db.get("evaluations", promoted["evaluation_id"])["samples"]
+    assert {p["split"] for p in pairs} == {"development", "holdout"}
+    assert all(p["baseline"]["attempts"] == 2 and p["candidate"]["attempts"] == 1 for p in pairs)
+    assert all(p["candidate"]["history"][0]["plan"]["action"] == "match_unique_clauses" for p in pairs)
+    fresh = await terminal(db, pid, "new independent topic", revisions=1)
+    assert fresh["status"] == "succeeded" and fresh["revision"] == 0
+
+
+async def test_no_candidate_for_unrepairable_development_material(context, monkeypatch):
+    db, pid = context
+    await terminal(db, pid, "missing one", malformed=True)
+    await terminal(db, pid, "missing two", malformed=True)
+    monkeypatch.setenv("HANGZHI_AUTO_IMPROVE", "true")
+    assert await improvement.maintain(db) == 0 and not db.list("improvements")
+
+
+async def test_legacy_adaptive_replay_and_named_candidate_evidence_integrity(context):
+    db, pid = context
+    one = await terminal(db, pid, "legacy")
+    two = await terminal(db, pid, "other")
+    baseline = replay.validate(one, team.role_id(pid, "analyze", "T06"))
+    legacy = {**baseline, "parameters": {**baseline["parameters"], "case_strategy": "adaptive"}}
+    result = replay.replay_sample(one, legacy)
+    assert result["quality"]["passed"] and result["attempts"] == 1 and result["history"][0]["plan"] is None
+    record = candidate(db, pid, [one, two], parameters={"case_strategy": "match_unique_clauses"})
+    record["source_repair"]["failed_checks"] = ["invented_failure"]
+    db.put("improvements", record)
+    with pytest.raises(service.DomainError, match="审核证据"):
+        await improvement.evaluate(record["id"], USER, db)
+
+
+async def test_extractive_maintenance_requires_truncation_and_independent_holdout(
+    isolated_platform, monkeypatch
+):
+    db = isolated_platform
+    p = platform.project(db)
+    monkeypatch.setenv("HANGZHI_AUTO_IMPROVE", "true")
+
+    async def summarize(key, text):
+        asset = platform.asset(db, p, text, modality="text", media_type="text/plain")
+        return await platform.run(
+            db,
+            platform.task_body(
+                p,
+                asset,
+                task_type="source_summary",
+                quality={"min_length": 3000},
+                max_revisions=0,
+                idempotency_key=key,
+            ),
+        )
+
+    text = "Original synthetic observation. " * 160
+    first = await summarize("source-a", text)
+    duplicate = await summarize("duplicate", text)
+    assert first["status"] == duplicate["status"] == "failed"
+    assert await improvement.maintain(db) == 0 and not db.list("improvements")
+    await summarize("independent", "Second independent synthetic observation. " * 150)
+    assert await improvement.maintain(db) == 1
+    promoted = db.list("improvements", status="promoted")[0]
+    assert promoted["coverage_repair"]["failed_check"] == "min_length"
+    assert promoted["candidate"]["parameters"]["max_chars"] == 3000
+    partial_source = await summarize("unrepairable", "No further source text.")
+    assert partial_source["status"] == "failed"
+    assert await improvement.maintain(db) == 0
+    assert db.get("improvements", promoted["id"])["status"] == "promoted"
+    assert len(db.list("improvements")) == 1
+
+
 async def test_auto_rollback_requires_replayed_degradation(context, monkeypatch):
     from backend.app.casework import engine
 
@@ -197,10 +289,14 @@ async def test_auto_rollback_requires_replayed_degradation(context, monkeypatch)
     promoted = db.list("improvements", status="promoted")[0]
     original = engine.execute
 
-    def faulty(stage, profile, inputs, prev, read_bytes, feedback, revision, checkpoint=None):
-        result = original(stage, profile, inputs, prev, read_bytes, feedback, revision, checkpoint)
-        # Isolated fault injection: corrupt an adaptive-only product after release; never bypass independent review.
-        if stage == "analyze" and feedback and any(a["source_id"] == "unseen" for a in inputs):
+    def faulty(
+        stage, profile, inputs, prev, read_bytes, feedback, revision, checkpoint=None, *, repair_plan=None
+    ):
+        result = original(
+            stage, profile, inputs, prev, read_bytes, feedback, revision, checkpoint, repair_plan=repair_plan
+        )
+        # Corrupt only the newly published action; never bypass independent review.
+        if stage == "analyze" and repair_plan and any(a["source_id"] == "unseen" for a in inputs):
             result["content"]["products"]["clause_map"][0]["before"]["evidence_ids"] = ["not-a-real-citation"]
         return result
 

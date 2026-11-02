@@ -140,7 +140,7 @@ for _code in TOPICS:
     CATALOG[_code]["outputs"].append("source_notes")
 
 
-def _repair(records):
+def _repair(records, targets=()):
     """Only explicit, scoped mapping dictionaries may translate unknown columns."""
     mappings = {}
     gaps = []
@@ -150,6 +150,8 @@ def _repair(records):
         if f.get("kind") != "field_dictionary":
             continue
         scope = f.get("target_source_id")
+        if targets and scope not in targets:
+            continue
         aliases = f.get("aliases")
         if not isinstance(scope, str) or not scope or not isinstance(aliases, dict):
             gaps.append("字段字典缺少目标资料ID或映射对象")
@@ -183,11 +185,19 @@ def _repair(records):
     return out, applied, gaps
 
 
-def analyze(case_id: str, records: list[dict], *, feedback: list[str] | None = None) -> dict:
+def analyze(
+    case_id: str,
+    records: list[dict],
+    *,
+    feedback: list[str] | None = None,
+    repair_action: str | None = None,
+    repair_targets=(),
+) -> dict:
     """Outputs contain only derived values or explicit, located observations."""
     if case_id not in ANALYZERS:
         raise ValueError("未知地理任务")
-    mapped, used, issues = _repair(records) if feedback else (records, set(), [])
+    use_dictionary = repair_action == "apply_field_dictionary" or (repair_action is None and feedback)
+    mapped, used, issues = _repair(records, repair_targets) if use_dictionary else (records, set(), [])
     ctx = Run(mapped)
     for i in used:
         ctx.ref(mapped[i])

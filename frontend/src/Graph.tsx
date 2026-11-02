@@ -33,7 +33,12 @@ function AgentNode({ data }: any) {
       </p>
       <div className="node-foot">
         <Badge status={data.status || "pending"} />
-        <span>{data.node_id || data.id}</span>
+        <span>
+          {data.reusedFromAttempt
+            ? `复用第 ${data.reusedFromAttempt} 轮 · `
+            : ""}
+          {data.node_id || data.id}
+        </span>
       </div>
       <Handle type="source" position={Position.Right} />
     </div>

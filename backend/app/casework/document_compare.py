@@ -116,7 +116,17 @@ def clauses(run):
                 and (not old["topic"] or not n["topic"] or norm(old["topic"]) == norm(n["topic"]))
             ]
             method = "clause_id"
-        if not matched and run.retry and old["topic"]:
+        if (
+            not matched
+            and old["topic"]
+            and (
+                run.retry
+                or (
+                    run.repair_action == "match_unique_clauses"
+                    and (not run.repair_targets or norm(old["topic"]) in run.repair_targets)
+                )
+            )
+        ):
             candidates = [
                 (i, n)
                 for i, n in enumerate(sides["after"])

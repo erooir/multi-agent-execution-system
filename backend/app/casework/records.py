@@ -28,7 +28,7 @@ def _plain(v):
     return v
 
 
-def extract(assets, read_bytes, *, revision=False, case_code=None):
+def extract(assets, read_bytes, *, revision=False, case_code=None, chart_sources=None):
     rows, gaps = [], []
     size = 0
 
@@ -45,6 +45,7 @@ def extract(assets, read_bytes, *, revision=False, case_code=None):
             {
                 "source_id": asset["id"],
                 "source_version": asset["source_version"],
+                "media_type": asset["media_type"],
                 "location": location,
                 "text": text,
                 "fields": fields,
@@ -52,6 +53,7 @@ def extract(assets, read_bytes, *, revision=False, case_code=None):
         )
 
     for a in assets:
+        retry_source = revision and (chart_sources is None or a["id"] in chart_sources)
         mime = a["media_type"].split(";")[0].lower()
         value = a.get("content")
         data = read_bytes(a) if a.get("content_ref") else None
@@ -68,7 +70,7 @@ def extract(assets, read_bytes, *, revision=False, case_code=None):
                 if not value.strip():
                     from .media import ocr_pdf_page
 
-                    value = ocr_pdf_page(data, i, revision=revision)
+                    value = ocr_pdf_page(data, i, revision=retry_source)
                     if not value:
                         gaps.append(f"{a['id']} 第{i}页没有可读取文本或OCR结果")
                 if value.strip():
@@ -78,7 +80,7 @@ def extract(assets, read_bytes, *, revision=False, case_code=None):
 
                     for loc, text, fields in chart_objects(page, value):
                         add(a, {"page": i, **loc}, text, fields)
-                if revision and case_code == "B05" and chart_budget > 0:
+                if retry_source and case_code == "B05" and chart_budget > 0:
                     from .document_chart_ocr import extract_monthly_labels
 
                     for index, image in enumerate(page.images):
@@ -164,7 +166,7 @@ def extract(assets, read_bytes, *, revision=False, case_code=None):
         elif a["modality"] in {"image", "audio", "video"}:
             from .media import read_medium
 
-            observations, issues = read_medium(a, data, revision=revision)
+            observations, issues = read_medium(a, data, revision=retry_source)
             for loc, text, fields in observations:
                 add(a, loc, text, fields)
             gaps.extend(issues)

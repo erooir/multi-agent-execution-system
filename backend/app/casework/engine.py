@@ -129,22 +129,37 @@ def audit(code, candidate, records):
     return checks
 
 
-def execute(stage, profile, inputs, previous, read_bytes, feedback, revision, checkpoint=None):
+def execute(
+    stage, profile, inputs, previous, read_bytes, feedback, revision, checkpoint=None, *, repair_plan=None
+):
     from .control import guarded
     from .provider_versions import bind
 
     with guarded(checkpoint), bind(profile["providers"]):
-        return _execute(stage, profile, inputs, previous, read_bytes, feedback, revision)
+        return _execute(stage, profile, inputs, previous, read_bytes, feedback, revision, repair_plan)
 
 
-def _execute(stage, profile, inputs, previous, read_bytes, feedback, revision):
+def _execute(stage, profile, inputs, previous, read_bytes, feedback, revision, repair_plan):
     code = profile["case_id"]
     if frozen_profile(code)["signature"] != profile["signature"]:
         raise ValueError("用例合同或算法版本已变化，须重新受理任务")
     refs = [a["id"] for a in inputs]
     common = {"media_type": "application/json", "source_refs": refs, "warnings": []}
+    action = repair_plan["action"] if repair_plan else None
+    targets = repair_plan["targets"] if repair_plan else []
+    if action:
+        from .repair_plan import allowed_action
+
+        if not allowed_action(code, action):
+            raise ValueError("修复动作超出冻结用例的授权范围")
     if stage == "prepare":
-        records, gaps = extract(inputs, read_bytes, revision=bool(revision), case_code=code)
+        records, gaps = extract(
+            inputs,
+            read_bytes,
+            revision=action == "chart_ocr_reconcile",
+            case_code=code,
+            chart_sources=targets if action == "chart_ocr_reconcile" and targets else None,
+        )
         return {
             **common,
             "type": "case_records",
@@ -160,7 +175,10 @@ def _execute(stage, profile, inputs, previous, read_bytes, feedback, revision):
             from .geo_cases import analyze
         else:
             from .document_cases import analyze
-        result = analyze(code, prepared["records"], feedback=feedback)
+        if action:
+            result = analyze(code, prepared["records"], repair_action=action, repair_targets=targets)
+        else:
+            result = analyze(code, prepared["records"], feedback=feedback)
         result["gaps"] = list(dict.fromkeys([*prepared["gaps"], *result["gaps"]]))
         return {
             **common,
