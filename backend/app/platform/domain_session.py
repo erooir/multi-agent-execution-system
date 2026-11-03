@@ -27,12 +27,18 @@ class DomainToolSession(ToolSession):
             invocation.record = record
         super().save(record, event_type, arguments=arguments, result=result)
 
+    def on_domain_result(self, operation, arguments, result, record, reader):
+        pass
+
+    def domain_bindings(self):
+        return {
+            operation.name: self._binding(operation)
+            for operation in operation_catalog().values()
+            if operation.name in self.tools
+        }
+
     def bindings(self):
-        functions = super().bindings()
-        for operation in operation_catalog().values():
-            if operation.name in self.tools:
-                functions[operation.name] = self._binding(operation)
-        return functions
+        return {**super().bindings(), **self.domain_bindings()}
 
     def _binding(self, operation):
         async def bound(**arguments):
@@ -65,6 +71,7 @@ class DomainToolSession(ToolSession):
                     }
                     self.derived.append(citation)
                     result["data"]["derived_evidence"] = citation
+                self.on_domain_result(operation, arguments, result, record, reader)
                 return result
             finally:
                 _active.reset(token)

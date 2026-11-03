@@ -1,0 +1,44 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Description",
+      "type": "string"
+    },
+    "provider": {
+      "enum": [
+        "calculator",
+        "duckduckgo"
+      ],
+      "title": "Provider",
+      "type": "string"
+    },
+    "include_tools": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 30,
+      "title": "Include Tools",
+      "type": "array"
+    }
+  },
+  "required": [
+    "project_id",
+    "name",
+    "provider"
+  ],
+  "title": "NativeToolkitInput",
+  "type": "object"
+}

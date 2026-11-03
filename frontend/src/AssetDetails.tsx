@@ -46,6 +46,9 @@ export function AgentDetails({
       ? published
       : undefined;
   const specs: Item[] = version?.runtime_bindings?.tools || [];
+  const dualMode = Boolean(
+    agent.executor_bindings?.local?.id && agent.executor_bindings?.cloud?.id,
+  );
   const previews = specs.filter(
     (s) =>
       s.local_preview === true &&
@@ -72,12 +75,16 @@ export function AgentDetails({
       </div>
       {version?.role_contract && (
         <section className="asset-role">
-          <h3>已发布岗位合同 · v{version.version}</h3>
-          <RoleFacts role={version.role_contract} tools={specs} />
+          <h3>已发布用例岗位合同 · v{version.version}</h3>
+          <RoleFacts
+            role={version.role_contract}
+            tools={specs}
+            agent={version}
+          />
         </section>
       )}
       {version && !version.role_contract && agent.case_role && (
-        <p className="muted">此版本尚未发布新版岗位合同。</p>
+        <p className="muted">此版本尚未发布新版用例岗位合同。</p>
       )}
       {agent.status === "draft" && (
         <p className="draft-boundary">
@@ -91,16 +98,22 @@ export function AgentDetails({
         <section>
           <span>当前定义的执行方式</span>
           <strong>
-            {agent.execution_strategy === "tool_agent"
-              ? "自主选择授权工具"
-              : "固定执行能力"}
+            {dualMode
+              ? "本地固定工具 + 云端领域工具循环"
+              : agent.execution_strategy === "tool_agent"
+                ? "自主选择授权工具"
+                : "固定流程执行"}
           </strong>
           <small>
-            {agent.model_policy === "local"
-              ? "本地确定性处理"
-              : offline
-                ? "离线部署 · 云模型停用"
-                : "统一网关 · 计入累计预算"}
+            {dualMode
+              ? offline
+                ? "同一资产按任务模式切换 · 离线部署云模型停用"
+                : "同一资产按任务模式切换 · 云端经统一网关计费"
+              : agent.model_policy === "local"
+                ? "本地确定性处理"
+                : offline
+                  ? "离线部署 · 云模型停用"
+                  : "统一网关 · 计入累计预算"}
           </small>
         </section>
         <section>
@@ -132,8 +145,8 @@ export function AgentDetails({
         <section>
           <h3>
             {version
-              ? `v${version.version} 已冻结的能力、工具与技能`
-              : "发布版本的能力、工具与技能"}
+              ? `v${version.version} 已冻结的能力、工具与文档技能包`
+              : "发布版本的能力、工具与文档技能包"}
           </h3>
           <div className="binding-list">
             {(version?.tool_ids || []).map((id: string) => (
@@ -155,14 +168,16 @@ export function AgentDetails({
             {(version?.skill_refs || []).map((ref: Item) => (
               <div key={ref.skill_id}>
                 <code>{ref.skill_id}</code>
-                <small>技能 v{ref.version}</small>
+                <small>文档技能包 v{ref.version}</small>
               </div>
             ))}
             {!version?.tool_ids?.length &&
               !version?.tool_refs?.length &&
               !version?.skill_refs?.length && (
                 <p className="muted">
-                  {version ? "未授权工具或技能。" : "尚无可读取的已发布版本。"}
+                  {version
+                    ? "未授权工具或文档技能包。"
+                    : "尚无可读取的已发布版本。"}
                 </p>
               )}
           </div>
@@ -290,7 +305,7 @@ function VersionValue({ field, value }: { field: string; value: any }) {
     specialized: "任务专用",
     atomic: "元智能体",
     composite: "复合智能体",
-    fixed: "固定执行能力",
+    fixed: "固定流程执行",
     tool_agent: "自主工具型",
   };
   return <span className="version-text">{names[value] || String(value)}</span>;
@@ -390,7 +405,7 @@ export function AgentVersions({
             ))}
             <span>{version.members?.length || 0} 个成员</span>
             <span>{version.tool_refs?.length || 0} 项版本化工具授权</span>
-            <span>{version.skill_refs?.length || 0} 项技能授权</span>
+            <span>{version.skill_refs?.length || 0} 项文档技能包授权</span>
           </div>
           <ParameterSummary parameters={version.parameters} />
           <JsonView value={version} label="不可变配置快照与引用" />

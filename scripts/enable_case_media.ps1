@@ -1,5 +1,6 @@
 # Source this before starting an API/worker. Never download at runtime.
-$mediaHome = if ($env:HANGZHI_MEDIA_HOME) { $env:HANGZHI_MEDIA_HOME } else { 'E:\Hangzhi\offline-media' }
+$workspaceMediaHome = Join-Path (Split-Path -Parent $PSScriptRoot) '.local/offline-media'
+$mediaHome = if ($env:HANGZHI_MEDIA_HOME) { $env:HANGZHI_MEDIA_HOME } elseif (Test-Path -LiteralPath $workspaceMediaHome) { $workspaceMediaHome } else { 'E:\Hangzhi\offline-media' }
 foreach ($programName in @('tesseract','ffmpeg','ffprobe')) {
     $varName = 'HANGZHI_'+$programName.ToUpperInvariant()+'_PATH'
     $programFile = Join-Path $mediaHome "runtime/Library/bin/$programName.exe"

@@ -1,0 +1,61 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Description",
+      "type": "string"
+    },
+    "transport": {
+      "enum": [
+        "stdio",
+        "streamable_http"
+      ],
+      "title": "Transport",
+      "type": "string"
+    },
+    "url": {
+      "default": "",
+      "maxLength": 1000,
+      "title": "Url",
+      "type": "string"
+    },
+    "launcher_id": {
+      "default": "",
+      "maxLength": 100,
+      "title": "Launcher Id",
+      "type": "string"
+    },
+    "secret_ref": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Secret Ref"
+    }
+  },
+  "required": [
+    "project_id",
+    "name",
+    "transport"
+  ],
+  "title": "McpServerInput",
+  "type": "object"
+}

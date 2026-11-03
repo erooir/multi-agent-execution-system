@@ -34,6 +34,7 @@ import type { Bootstrap, Item, Mutation, Page, User } from "./types";
 import { Badge, Confirm, Empty, ErrorLine, Panel, SectionTitle } from "./ui";
 import { AgentsPage, DataPage, WorkflowsPage } from "./AssetPages";
 import TasksPage from "./TaskPages";
+import CapabilityPages from "./CapabilityPages";
 import { modeName } from "./domain";
 import MetricsPanel from "./MetricsPanel";
 import Casework, { type CaseTab } from "./Casework";
@@ -48,11 +49,12 @@ import {
 } from "./ManagementPages";
 const nav: { id: Page; name: string; icon: any; group: string }[] = [
   { id: "overview", name: "工作台总览", icon: Gauge, group: "工作空间" },
-  { id: "casework", name: "用例研判", icon: Layers3, group: "工作空间" },
+  { id: "casework", name: "用例任务", icon: Layers3, group: "工作空间" },
   { id: "agents", name: "智能体资产", icon: Bot, group: "工作空间" },
   { id: "tasks", name: "任务运行", icon: Activity, group: "工作空间" },
   { id: "workflows", name: "协作流程", icon: Workflow, group: "资产与知识" },
   { id: "tools", name: "工具目录", icon: Wrench, group: "资产与知识" },
+  { id: "capabilities", name: "接入能力", icon: Sparkles, group: "资产与知识" },
   { id: "data", name: "数据资产", icon: Database, group: "资产与知识" },
   { id: "knowledge", name: "知识与记忆", icon: Layers3, group: "资产与知识" },
   {
@@ -489,6 +491,7 @@ function ManagementApp() {
                   key={projectId}
                   {...common}
                   assets={assets}
+                  agents={agents}
                   workflows={workflows}
                   tasks={tasks}
                   offline={!!data.system.offline}
@@ -548,6 +551,13 @@ function ManagementApp() {
                   workflows={workflows}
                   agents={agents}
                   initialId={workflowId}
+                />
+              )}
+              {page === "capabilities" && (
+                <CapabilityPages
+                  key={projectId}
+                  {...common}
+                  isAdmin={user.role === "admin"}
                 />
               )}
               {page === "data" && (
@@ -791,7 +801,7 @@ function Overview({
       <SectionTitle
         eyebrow="WORKSPACE OVERVIEW"
         title="工作台总览"
-        description={`${project?.name || "当前项目"} · 查看岗位分工、工具授权与实际执行情况。`}
+        description={`${project?.name || "当前项目"} · 查看智能体与用例岗位、工具授权及实际执行情况。`}
         actions={
           <button className="primary" onClick={() => go("tasks")}>
             <Plus size={18} />

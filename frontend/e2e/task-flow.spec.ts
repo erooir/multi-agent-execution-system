@@ -46,7 +46,7 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
     .getByRole("navigation")
     .getByRole("button", { name: "任务运行", exact: true })
     .click();
-  await page.getByRole("button", { name: "新建任务", exact: true }).focus();
+  await page.getByRole("button", { name: "新建通用任务", exact: true }).focus();
   await page.keyboard.press("Enter");
   dialog = page.getByRole("dialog");
   await dialog.getByLabel("任务名称", { exact: true }).fill(name);

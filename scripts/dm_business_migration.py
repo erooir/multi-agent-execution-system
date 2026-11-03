@@ -1,4 +1,4 @@
-"""Fail-closed one-time transfer of a stopped, version-1 business SQLite database into empty DM8 tables."""
+"""Fail-closed one-time transfer of a stopped v1/v2 business SQLite database into empty DM8 tables."""
 
 from __future__ import annotations
 
@@ -10,8 +10,9 @@ from pathlib import Path
 
 from sqlalchemy import func, select
 
-from backend.app.platform.dameng import assert_schema, identity_guard
-from backend.app.platform.db_schema import tables
+from backend.app.platform.dameng import identity_guard
+from backend.app.platform.db import assert_dm_schema
+from backend.app.platform.db_schema import CAPABILITY_TABLES, SCHEMA_VERSION, tables
 
 
 def _check_asset(payload, assets_dir):
@@ -39,9 +40,11 @@ def import_business(engine, source: Path, assets_dir: Path):
             )
         }
         expected = {*tables, "schema_version"}
-        if names not in (expected, expected - {"questions"}) or [
-            r[0] for r in old.execute("SELECT version FROM schema_version")
-        ] != [1]:
+        legacy = expected - CAPABILITY_TABLES
+        versions = [r[0] for r in old.execute("SELECT version FROM schema_version")]
+        if names not in (expected, legacy, expected - {"questions"}, legacy - {"questions"}) or (
+            versions != ([SCHEMA_VERSION] if CAPABILITY_TABLES <= names else [1])
+        ):
             raise ValueError("不支持的源表或schema版本；拒绝迁移身份库/账本或遗漏数据")
         if old.execute(
             "SELECT 1 FROM tasks WHERE status IS NULL OR status NOT IN ('succeeded','partial','failed','cancelled') LIMIT 1"
@@ -49,7 +52,7 @@ def import_business(engine, source: Path, assets_dir: Path):
             raise ValueError("源库仍有非终态任务，须先收束、停服并备份")
         counts = {}
         with engine.connect() as target:
-            assert_schema(target)
+            assert_dm_schema(target)
             target.commit()
             # Session setting, outside the data transaction. The application schema
             # remains intact on rollback; historical SSE cursors must not be renumbered.

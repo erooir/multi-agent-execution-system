@@ -32,6 +32,14 @@
       },
       "title": "Mcp Servers",
       "type": "array"
+    },
+    "definitions": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Definitions",
+      "type": "array"
     }
   },
   "required": [

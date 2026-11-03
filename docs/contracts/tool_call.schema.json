@@ -59,7 +59,8 @@
       "enum": [
         "running",
         "completed",
-        "failed"
+        "failed",
+        "uncertain"
       ],
       "title": "Status",
       "type": "string"
@@ -119,6 +120,47 @@
       "additionalProperties": true,
       "title": "Summary",
       "type": "object"
+    },
+    "external": {
+      "default": false,
+      "title": "External",
+      "type": "boolean"
+    },
+    "transport": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Transport"
+    },
+    "server_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Server Id"
+    },
+    "upstream_request_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Upstream Request Id"
     }
   },
   "required": [

@@ -31,6 +31,7 @@ export type Page =
   | "tools"
   | "tasks"
   | "workflows"
+  | "capabilities"
   | "data"
   | "knowledge"
   | "improvements"

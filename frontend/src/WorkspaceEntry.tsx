@@ -38,20 +38,28 @@ export default function WorkspaceEntry({
     return () => controller.abort();
   }, [projectId]);
   const published = agents.filter((a) => a.status === "published");
+  const dual = published.filter(
+    (a) => a.executor_bindings?.local && a.executor_bindings?.cloud,
+  ).length;
   const fixed = published.filter(
-    (a) => (a.execution_strategy || "fixed") === "fixed",
+    (a) =>
+      (a.execution_strategy || "fixed") === "fixed" &&
+      !(a.executor_bindings?.local && a.executor_bindings?.cloud),
   ).length;
   const autonomous = published.filter(
-    (a) => a.execution_strategy === "tool_agent",
+    (a) =>
+      a.execution_strategy === "tool_agent" &&
+      !(a.executor_bindings?.local && a.executor_bindings?.cloud),
   ).length;
   return (
     <section className="workspace-entry" aria-label="项目工作入口">
       <div className="workspace-intro">
         <span className="eyebrow">项目工作入口</span>
-        <h2>岗位、工具与协作任务</h2>
+        <h2>智能体、工具与任务</h2>
         <p>
-          当前项目已发布 <strong>{fixed}</strong> 个固定执行岗位和{" "}
-          <strong>{autonomous}</strong> 个自主工具岗位。
+          当前项目已发布 <strong>{fixed}</strong> 个固定流程执行智能体、{" "}
+          <strong>{autonomous}</strong> 个自主工具型智能体和{" "}
+          <strong>{dual}</strong> 个本地 / 云端双模式用例智能体。
         </p>
         <button className="text-button" onClick={() => go("agents")}>
           查看智能体资产 <ArrowUpRight size={15} />
@@ -68,7 +76,7 @@ export default function WorkspaceEntry({
         <button onClick={() => openCasework("roles")}>
           <GitCompareArrows />
           <span>
-            <strong>岗位对照</strong>
+            <strong>用例岗位对照</strong>
             <small>比较算法、验收条件与许可</small>
           </span>
         </button>
@@ -78,7 +86,7 @@ export default function WorkspaceEntry({
             <strong>工具目录</strong>
             <small>
               {toolCount !== null
-                ? `${toolCount} 项登记工具 · 查看岗位授权`
+                ? `${toolCount} 项登记工具 · 查看智能体授权`
                 : error
                   ? "目录数量暂不可用"
                   : "正在读取目录数量…"}
@@ -88,7 +96,7 @@ export default function WorkspaceEntry({
         <button onClick={() => openCasework("monitor")}>
           <Activity />
           <span>
-            <strong>岗位运行监测</strong>
+            <strong>智能体运行监测</strong>
             <small>查看节点尝试、修订与审核</small>
           </span>
         </button>

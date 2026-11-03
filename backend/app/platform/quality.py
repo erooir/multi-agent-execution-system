@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 
 def text_of(asset: dict) -> str:
@@ -18,7 +19,12 @@ def deterministic_quality(request: dict, output: dict, inputs: list[dict], *, sc
     def check(name: str, passed: bool, message: str, hard: bool = False):
         checks.append({"name": name, "passed": bool(passed)})
         if not passed:
-            issues.append({"code": name, "message": message, "hard": hard})
+            category = (
+                "content_coverage"
+                if name in {"min_records", "required_fields", "min_length"}
+                else "output_contract"
+            )
+            issues.append({"code": name, "category": category, "message": message, "hard": hard})
 
     content = output.get("content")
     refs = output.get("source_refs", [])
@@ -96,7 +102,11 @@ def deterministic_quality(request: dict, output: dict, inputs: list[dict], *, sc
             citations = content.get("citations", []) if isinstance(content, dict) else []
 
             def valid_citation(citation):
-                if not isinstance(citation, dict) or citation.get("source_id") not in refs:
+                if not isinstance(citation, dict):
+                    return False
+                if citation.get("kind") == "external_result":
+                    return citation in output.get("external_evidence", [])
+                if citation.get("source_id") not in refs:
                     return False
                 if citation.get("kind") == "derived_result":
                     return citation in output.get("derived_evidence", [])
@@ -147,6 +157,44 @@ def deterministic_quality(request: dict, output: dict, inputs: list[dict], *, sc
             "图片必须通过真实解码并包含有效尺寸和来源",
             True,
         )
+    elif task_type == "image_ocr":
+        images = content.get("images", []) if isinstance(content, dict) else []
+        valid = bool(images) and {item.get("source_id") for item in images} == set(assets)
+        for image in images:
+            blocks = image.get("blocks", [])
+            valid = valid and isinstance(image.get("text"), str) and isinstance(blocks, list)
+            valid = valid and image.get("no_text") is (not blocks)
+            for block in blocks:
+                score = block.get("confidence")
+                bbox = block.get("bbox")
+                valid = valid and isinstance(block.get("text"), str)
+                valid = valid and type(score) in {int, float} and math.isfinite(score) and 0 <= score <= 1
+                valid = valid and isinstance(bbox, list) and len(bbox) >= 4
+                valid = valid and all(
+                    isinstance(point, list)
+                    and len(point) == 2
+                    and all(type(value) in {int, float} and math.isfinite(value) for value in point)
+                    for point in bbox
+                )
+        check("ocr_result_schema", valid, "OCR 产物必须覆盖每张图片并包含真实坐标和置信度", True)
+        text = "\n".join(image.get("text", "") for image in images)
+        check("min_length", len(text.strip()) >= policy.get("min_length", 1), "识别文本长度未达到要求")
+    elif task_type == "image_understand":
+        text = content.get("text", "") if isinstance(content, dict) else ""
+        evidence = content.get("evidence", []) if isinstance(content, dict) else []
+        valid = bool(evidence)
+        for item in evidence:
+            source = assets.get(item.get("source_id"))
+            bbox = item.get("bbox")
+            valid = valid and bool(source) and item.get("source_version") == source["source_version"]
+            valid = valid and (
+                bbox is None
+                or isinstance(bbox, list)
+                and len(bbox) == 4
+                and all(type(value) in {int, float} and math.isfinite(value) for value in bbox)
+            )
+        check("image_evidence", valid, "视觉证据必须引用真实图片和有效区域", True)
+        check("min_length", len(text.strip()) >= policy.get("min_length", 1), "图像理解文本长度未达到要求")
     else:
         check("supported_output", False, "没有经过验证的产物校验器", True)
     return {
@@ -172,7 +220,14 @@ def combine_review(deterministic: dict, model_review: dict | None = None) -> dic
             result["issues"] = [
                 *deterministic["issues"],
                 {
-                    "code": "automatic_review_failed",
+                    "code": (
+                        "review_protocol_failed"
+                        if model_review.get("protocol_error")
+                        else "automatic_review_failed"
+                    ),
+                    "category": (
+                        "review_protocol" if model_review.get("protocol_error") else "content_coverage"
+                    ),
                     "message": "；".join(model_review.get("issues", [])) or "自动评审未通过",
                     "suggested_changes": model_review.get("suggested_changes", []),
                     "hard": False,

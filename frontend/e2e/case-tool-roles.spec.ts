@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test("岗位对照显示共享算法和不同权限，当前专员可执行已授权的本地证据工具", async ({
+test("用例岗位对照显示共享算法和不同权限，当前专员可执行已授权的本地证据工具", async ({
   page,
 }) => {
   test.setTimeout(90_000);
@@ -17,7 +17,7 @@ test("岗位对照显示共享算法和不同权限，当前专员可执行已�
     expect(res.ok()).toBeTruthy();
     return res.json();
   };
-  const p = await post("projects", { name: "岗位工具验收-" + Date.now() });
+  const p = await post("projects", { name: "用例岗位工具验收-" + Date.now() });
   await post("data-assets", {
     project_id: p.id,
     name: "合成科研定义",
@@ -33,7 +33,7 @@ test("岗位对照显示共享算法和不同权限，当前专员可执行已�
   await page.getByLabel("当前项目").selectOption(p.id);
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "用例研判" })
+    .getByRole("button", { name: "用例任务" })
     .click();
   const installed = page.waitForResponse(
     (r) =>
@@ -41,13 +41,13 @@ test("岗位对照显示共享算法和不同权限，当前专员可执行已�
       r.request().method() === "POST",
   );
   await page
-    .getByRole("button", { name: "安装项目协作组", exact: true })
+    .getByRole("button", { name: "发布本项目用例岗位与流程", exact: true })
     .click();
   expect((await installed).ok()).toBeTruthy();
   await expect(
-    page.getByRole("button", { name: "安装项目协作组", exact: true }),
+    page.getByRole("button", { name: "发布本项目用例岗位与流程", exact: true }),
   ).not.toBeVisible({ timeout: 30_000 });
-  await page.getByRole("button", { name: "岗位对照", exact: true }).click();
+  await page.getByRole("button", { name: "用例岗位对照", exact: true }).click();
   await expect(page.locator(".role-conclusion strong")).toHaveText(
     "共用同一主算法",
   );
@@ -56,7 +56,7 @@ test("岗位对照显示共享算法和不同权限，当前专员可执行已�
     "evidence.compare_passages",
   );
   await expect(page.locator(".role-column:visible").first()).toContainText(
-    "当前发布流程已绑定岗位授权",
+    "当前发布流程已绑定用例岗位授权",
   );
   await page
     .getByRole("button", { name: "地理计算 · G03 / G09", exact: true })
@@ -83,12 +83,8 @@ test("岗位对照显示共享算法和不同权限，当前专员可执行已�
     .getByRole("navigation")
     .getByRole("button", { name: "智能体资产" })
     .click();
-  await page.getByLabel("执行方式筛选").selectOption("tool_agent");
-  await expect(
-    page.locator(".asset-card").filter({ hasText: specialist.name }),
-  ).toHaveCount(0);
-  await page.getByLabel("执行方式筛选").selectOption("fixed");
-  await page.getByLabel("岗位分工").selectOption("analyze");
+  await page.getByLabel("执行方式筛选").selectOption("dual");
+  await page.getByLabel("用例岗位分工").selectOption("analyze");
   await page.getByLabel("发布状态").selectOption("published");
   await page.getByLabel("搜索智能体").fill("T01");
   await expect(page.locator(".asset-card")).toHaveCount(1);
@@ -97,7 +93,9 @@ test("岗位对照显示共享算法和不同权限，当前专员可执行已�
     .filter({ hasText: specialist.name })
     .click();
   const dlg = page.getByRole("dialog");
-  await expect(dlg).toContainText("已发布岗位合同");
+  await expect(dlg).toContainText("已发布用例岗位合同");
+  await expect(dlg).toContainText(specialist.executor_bindings.local.id);
+  await expect(dlg).toContainText(specialist.executor_bindings.cloud.id);
   await dlg
     .locator("summary")
     .filter({ hasText: "试用此版本的本地工具" })

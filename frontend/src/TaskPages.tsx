@@ -12,7 +12,7 @@ import {
 import { api, ApiError, idPath, post } from "./api";
 import { money, reasonNames, taskTypes, terminal, time } from "./domain";
 import type { Item, Mutation, Notify } from "./types";
-import { ToolCallDialog, ToolCalls } from "./TaskToolTrace";
+import { NodeExecutionFacts, ToolCallDialog, ToolCalls } from "./TaskToolTrace";
 import { roundNodes } from "./taskTraceModel";
 import {
   Badge,
@@ -116,7 +116,7 @@ export default function TasksPage({
                   }}
                 >
                   <Plus size={18} />
-                  新建任务
+                  新建通用任务
                 </button>
               </>
             )}
@@ -490,7 +490,8 @@ function TaskDetail({
             : "批量任务"}
         </span>
         <span>
-          修订 {task.revision ?? 0} / {task.request?.max_revisions ?? "—"}
+          修订 / 恢复 {task.revision ?? 0} /{" "}
+          {task.request?.max_revisions ?? "—"}
         </span>
         <span className="mono">{task.id}</span>
         <small>最近同步 {time(updated)}</small>
@@ -567,7 +568,7 @@ function TaskDetail({
           { id: "events", label: `事件轨迹 · ${task.events?.length || 0}` },
           {
             id: "calls",
-            label: `工具与技能 · ${task.tool_calls?.length || 0}`,
+            label: `工具与技能（Skill） · ${task.tool_calls?.length || 0}`,
           },
           { id: "snapshot", label: "输入与冻结快照" },
         ]}
@@ -607,7 +608,10 @@ function TaskDetail({
               </label>
             </div>
             <Graph nodes={graphNodes} agents={agents} onNode={setInspect} />
-            <JsonView value={task.nodes} label="全部修订轮次的节点记录" />
+            <JsonView
+              value={task.nodes}
+              label="全部修订 / 恢复轮次的节点记录"
+            />
           </Panel>
           {!!task.repair_history?.length && !task.content_withheld && (
             <RepairHistory history={task.repair_history} />
@@ -850,7 +854,7 @@ function TaskDetail({
         </Panel>
       )}
       {tab === "calls" && (
-        <Panel title="真实工具、MCP 与技能调用">
+        <Panel title="真实工具、MCP 与技能（Skill）调用">
           <ToolCalls
             task={task}
             calls={task.tool_calls || []}
@@ -897,7 +901,9 @@ function TaskDetail({
         >
           <div className="modal-body">
             <Badge status={inspect.status || "unknown"} />
+            <NodeExecutionFacts node={inspect} />
             <pre>{JSON.stringify(inspect, null, 2)}</pre>
+            <h3>本节点实际工具记录</h3>
             <ToolCalls
               task={task}
               onSelect={setCallId}
@@ -954,21 +960,33 @@ function RepairHistory({
   const stages = (values: string[] = []) =>
     values.map((key) => stageLabels[key] || key).join("、");
   return (
-    <Panel title="流程调整记录">
+    <Panel title="技术恢复与业务修复记录">
       {history.map((plan, i) => (
         <div className="case-repair" key={i}>
           <h4>
             {plan.decision === "revise"
-              ? `第 ${plan.revision + 1} 轮 · ${plan.label}`
+              ? `第 ${plan.revision + 1} 轮 · ${plan.entry_kind === "technical_recovery" ? "技术错误恢复" : plan.label}`
               : "停止自动修订"}
           </h4>
           <p>{plan.reason}</p>
           <dl>
-            <dt>上轮未通过</dt>
-            <dd>{plan.failed_checks?.join("、") || "—"}</dd>
+            <dt>
+              {plan.entry_kind === "technical_recovery"
+                ? "技术错误"
+                : "上轮未通过"}
+            </dt>
+            <dd>
+              {plan.entry_kind === "technical_recovery"
+                ? plan.reason_code || plan.error_category || "—"
+                : plan.failed_checks?.join("、") || "—"}
+            </dd>
             {!!plan.targets?.length && (
               <>
-                <dt>修复对象</dt>
+                <dt>
+                  {plan.entry_kind === "technical_recovery"
+                    ? "关联业务对象"
+                    : "修复对象"}
+                </dt>
                 <dd>{plan.targets.join("、")}</dd>
               </>
             )}
@@ -978,13 +996,23 @@ function RepairHistory({
                 <dd>{stages(plan.rerun_stages)}</dd>
                 <dt>复用步骤</dt>
                 <dd>{stages(plan.reused_stages) || "无"}</dd>
-                <dt>复核结果</dt>
+                <dt>
+                  {plan.entry_kind === "technical_recovery"
+                    ? "恢复结果"
+                    : "复核结果"}
+                </dt>
                 <dd>
-                  {plan.outcome
-                    ? plan.outcome.passed
-                      ? "通过"
-                      : "仍有未通过项"
-                    : "待复核"}
+                  {plan.entry_kind === "technical_recovery"
+                    ? plan.recovery_outcome
+                      ? plan.recovery_outcome.passed
+                        ? "恢复完成，业务复核通过"
+                        : "恢复完成，业务复核仍有未通过项"
+                      : "待恢复"
+                    : plan.outcome
+                      ? plan.outcome.passed
+                        ? "通过"
+                        : "仍有未通过项"
+                      : "待复核"}
                 </dd>
               </>
             )}
@@ -1052,8 +1080,12 @@ function eventLabel(type: string) {
         "task.cancelled": "任务已取消",
         "node.started": "节点开始",
         "node.completed": "节点完成",
+        "node.failed": "节点本次尝试失败",
+        "node.reused": "复用成功节点结果",
+        "model.recoverable": "模型错误已确认可安全恢复",
+        "review.retrying": "评审协议修正重试",
         "review.completed": "自动评审完成",
-        "task.revising": "进入有界修订",
+        "task.revising": "进入有界修订 / 错误恢复",
         "task.repair_planned": "已选择修复路径",
         "task.repair_stopped": "停止自动修订",
         "task.repair_reviewed": "修复路径复核完成",

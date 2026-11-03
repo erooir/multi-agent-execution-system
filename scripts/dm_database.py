@@ -9,10 +9,48 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 
 from backend.app.identity_records import DMIdentityStore
-from backend.app.platform.dameng import assert_schema, database_url, prepare_schema
+from backend.app.platform.dameng import database_url, identity_guard, identity_metadata
+from backend.app.platform.db_schema import CAPABILITY_TABLES, SCHEMA_VERSION, metadata, schema
+
+
+def assert_initialized(connection):
+    from backend.app.platform.db import assert_dm_schema
+
+    assert_dm_schema(connection)
+
+
+def prepare_schema(engine):
+    """Initialize or incrementally upgrade DM8 without deleting or rebuilding business tables."""
+    if engine.dialect.name != "dm":
+        raise ValueError("只允许初始化达梦schema")
+    with engine.begin() as connection:
+        existing = {name.lower() for name in inspect(connection).get_table_names()}
+        expected = set(metadata.tables) | set(identity_metadata.tables)
+        if not existing:
+            metadata.create_all(connection)
+            identity_metadata.create_all(connection)
+            connection.execute(identity_guard.insert().values(id=1))
+            connection.execute(schema.insert().values(version=SCHEMA_VERSION))
+        else:
+            legacy = expected - CAPABILITY_TABLES
+            recognized = (expected, legacy, expected - {"questions"}, legacy - {"questions"})
+            if existing not in recognized:
+                raise RuntimeError("达梦schema必须为空或为受支持的完整平台schema；拒绝自动接管或修复")
+            versions = connection.execute(schema.select()).scalars().all()
+            if versions not in ([1], [SCHEMA_VERSION]) or (
+                not CAPABILITY_TABLES <= existing and versions != [1]
+            ):
+                raise RuntimeError("达梦平台schema版本与表结构不匹配")
+            for name in ("questions", *sorted(CAPABILITY_TABLES)):
+                if name not in existing:
+                    metadata.tables[name].create(connection)
+            if versions == [1]:
+                connection.execute(schema.update().values(version=SCHEMA_VERSION))
+    with engine.connect() as connection:
+        assert_initialized(connection)
 
 
 def import_identity(engine, source: Path):
@@ -76,9 +114,14 @@ def main():
                 )
             )
         with engine.connect() as connection:
-            assert_schema(connection)
+            assert_initialized(connection)
             banners = connection.execute(text("SELECT BANNER FROM V$VERSION")).scalars().all()
-            print(json.dumps({"schema_version": 1, "dialect": "dm", "server": banners}, ensure_ascii=True))
+            print(
+                json.dumps(
+                    {"schema_version": SCHEMA_VERSION, "dialect": "dm", "server": banners},
+                    ensure_ascii=True,
+                )
+            )
     finally:
         engine.dispose()
 

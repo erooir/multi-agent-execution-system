@@ -145,6 +145,19 @@ def run_stage(
             trace,
         )
         findings.append(item)
+    return apply_tool_findings(stage, output, previous, findings, code)
+
+
+def apply_tool_findings(stage, output, previous, findings, code):
+    content = output["content"]
+    prepared = (
+        content if stage == "prepare" else next(o["content"] for o in previous if o["type"] == "case_records")
+    )
+    candidate = (
+        content
+        if stage == "analyze"
+        else next((o["content"] for o in previous if o["type"] == "case_candidate"), {})
+    )
     if stage == "review":
         checks = []
         for item in [*prepared.get("tool_findings", []), *candidate.get("tool_findings", []), *findings]:

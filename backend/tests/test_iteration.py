@@ -10,9 +10,10 @@ import pytest
 from backend.app.model_gateway import BudgetLedger, ModelCallError, _validated_run
 from backend.app.platform import runtime
 from backend.app.platform.db import Repository
+from backend.app.platform.mcp_runtime import connect_mcp, create_builtin_mcp
 from backend.app.platform.quality import deterministic_quality
 from backend.app.platform.tool_registry import catalog, freeze_bindings, permissions
-from backend.app.platform.tool_runtime import LocalMCP, ToolSession
+from backend.app.platform.tool_runtime import ToolSession
 from backend.tests.test_v2_runtime import execute, seed
 
 pytest_plugins = ["backend.tests.test_v2_postgres"]
@@ -86,47 +87,51 @@ def tool_agent(agent):
 
 @pytest.mark.asyncio
 async def test_real_mcp_handshake_aggregate_transform_and_cleanup():
-    client = LocalMCP()
+    from agno.tools.mcp import MCPTools
+
+    client = await connect_mcp(create_builtin_mcp())
+    assert isinstance(client, MCPTools)
     try:
         records = [{"team": "A", "amount": 2}, {"team": "B", "amount": 3}, {"team": "A", "amount": 2}]
-        value = await client.call(
-            "table_aggregate",
-            {"records": records, "metric": "sum", "value_field": "amount", "group_by": "team"},
+        result = await client.functions["table_aggregate"].entrypoint(
+            records=records, metric="sum", value_field="amount", group_by="team"
         )
+        value = json.loads(result.content)
         assert value["matched_rows"] == 3
         assert value["groups"][0]["value"] == 4
         assert value["groups"][0]["row_numbers"] == [1, 3]
-        value = await client.call("table_transform", {"records": records, "operation": "deduplicate"})
-        assert value["total_rows"] == 2
-        value = await client.call(
-            "table_transform",
-            {
-                "records": [
-                    {"team": "A", "amount": 2},
-                    {"team": "B", "amount": 4},
-                    {"team": "A", "amount": 3},
-                ],
-                "operation": "filter",
-                "where": {"team": "A"},
-                "sort_by": "amount",
-                "descending": True,
-            },
+        result = await client.functions["table_transform"].entrypoint(
+            records=records, operation="deduplicate"
         )
+        assert json.loads(result.content)["total_rows"] == 2
+        result = await client.functions["table_transform"].entrypoint(
+            records=[
+                {"team": "A", "amount": 2},
+                {"team": "B", "amount": 4},
+                {"team": "A", "amount": 3},
+            ],
+            operation="filter",
+            where={"team": "A"},
+            sort_by="amount",
+            descending=True,
+        )
+        value = json.loads(result.content)
         assert value["records"] == [{"team": "A", "amount": 3}, {"team": "A", "amount": 2}]
         assert value["row_numbers"] == [3, 1]
-        value = await client.call(
-            "table_transform",
-            {
-                "records": [{"amount": "2"}, {"amount": "10"}, {"amount": None}],
-                "operation": "sort",
-                "sort_by": "amount",
-                "descending": True,
-            },
+        result = await client.functions["table_transform"].entrypoint(
+            records=[{"amount": "2"}, {"amount": "10"}, {"amount": None}],
+            operation="sort",
+            sort_by="amount",
+            descending=True,
         )
-        assert value["records"] == [{"amount": "10"}, {"amount": "2"}, {"amount": None}]
+        assert json.loads(result.content)["records"] == [
+            {"amount": "10"},
+            {"amount": "2"},
+            {"amount": None},
+        ]
     finally:
         await client.close()
-    assert client.task.done()
+    assert not client.initialized
 
 
 def test_sdk_error_string_never_becomes_successful_model_output():
@@ -150,11 +155,24 @@ async def test_tool_agent_real_skill_and_mcp_are_used_in_formal_runtime(tool_rep
     task["snapshot"]["agents"] = [agent]
     tool_repository.put("tasks", task)
 
-    async def agent_double(spec, messages, bindings, **kwargs):
-        assert "get_skill_script" not in bindings
-        skill = await bindings["get_skill_instructions"]("table-analysis")
-        assert "table_aggregate" in skill["data"]["instructions"]
-        result = await bindings["table_aggregate"]("input-1", "sum", "amount")
+    async def agent_double(spec, messages, tool_bindings=None, **kwargs):
+        from agno.skills import Skills
+        from agno.tools.mcp import MCPTools
+
+        native_tools = kwargs["native_tools"]
+        skills = kwargs["skills"]
+        assert isinstance(skills, Skills)
+        assert any(isinstance(item, MCPTools) for item in native_tools)
+        skill_functions = {function.name: function for function in skills.get_tools()}
+        assert "get_skill_script" not in skill_functions
+        raw_skill = await skill_functions["get_skill_instructions"].entrypoint(skill_name="table-analysis")
+        assert "table_aggregate" in json.loads(raw_skill)["instructions"]
+        toolkit = next(item for item in native_tools if isinstance(item, MCPTools))
+        parameters = toolkit.functions["table_aggregate"].parameters
+        assert "source_id" in parameters["properties"] and "records" not in parameters["properties"]
+        result = await toolkit.functions["table_aggregate"].entrypoint(
+            source_id="input-1", metric="sum", value_field="amount"
+        )
         assert result["data"]["groups"][0]["value"] == 5
         return {
             "text": json.dumps({"text": "金额合计5。", "citations": [result["data"]["derived_evidence"]]}),
@@ -189,7 +207,7 @@ async def test_tool_boundaries_changed_versions_and_call_limit(tool_repository):
     execution = runtime.Execution(tool_repository, claimed, "fixture-worker", claimed["lease_token"])
     execution.active_node_id = "n1"
     agent = tool_agent(claimed["snapshot"]["agents"][0])
-    session = ToolSession(execution, agent, 0, permissions(agent))
+    session = await ToolSession(execution, agent, 0, permissions(agent)).initialize()
     bindings = session.bindings()
     try:
         denied = await bindings["read_source"]("another-project")
@@ -417,7 +435,7 @@ async def test_closed_real_mcp_session_is_reported_as_failure(tool_repository):
     execution = runtime.Execution(tool_repository, claimed, "fixture-worker", claimed["lease_token"])
     execution.active_node_id = "n1"
     agent = tool_agent(claimed["snapshot"]["agents"][0])
-    session = ToolSession(execution, agent, 0, permissions(agent))
+    session = await ToolSession(execution, agent, 0, permissions(agent)).initialize()
     assert (await session.bindings()["table_aggregate"]("input-1", "sum", "amount"))["data"]["groups"][0][
         "value"
     ] == 2
@@ -493,7 +511,10 @@ async def test_review_uses_actual_read_excerpts_and_reports_incomplete_coverage(
     task["snapshot"]["agents"] = [tool_agent(task["snapshot"]["agents"][0])]
     tool_repository.put("tasks", task)
 
-    async def agent_fixture(spec, messages, bindings, **kwargs):
+    async def agent_fixture(spec, messages, bindings=None, **kwargs):
+        bindings = {
+            item.name: item.entrypoint for item in kwargs["native_tools"] if hasattr(item, "entrypoint")
+        }
         await bindings["read_source"]("input-1", 0, 2000)
         return {
             "text": json.dumps(
@@ -543,7 +564,10 @@ async def test_invalid_tool_output_is_revised_with_field_feedback_and_kept_priva
     tool_repository.put("tasks", task)
     rounds = []
 
-    async def agent_fixture(spec, messages, bindings, **kwargs):
+    async def agent_fixture(spec, messages, bindings=None, **kwargs):
+        bindings = {
+            item.name: item.entrypoint for item in kwargs["native_tools"] if hasattr(item, "entrypoint")
+        }
         await bindings["read_source"]("input-1", 0, 100)
         rounds.append(messages)
         if len(rounds) == 1:

@@ -13,9 +13,11 @@
 - API 默认绑定 `127.0.0.1`，Worker 作为独立进程共享平台数据库。只有管理 API 可从浏览器访问，AgentOS 原生模型、团队和工作流路由不公开。
 - `HANGZHI_DATABASE_URL` 配置平台业务库；正式入口强制达梦连接，连接配置缺失即停止启动。达梦凭据仅在服务端环境或受保护凭据文件中设置，不能写入 Git 或命令记录。
 - 身份及设置随业务保存在达梦，迁移保留账号和历史任务，旧登录会话失效。上传文件位于 `.local/platform-assets/`；任务产物以业务库内容及索引保存。
-- 模型历史账本固定为仓库 `.local/budget.sqlite3`。更换业务库、工作目录、`WORKBENCH_DATA_DIR` 或升级代码都不会获得新额度。默认网关在历史账本缺失时拒绝启动计费；只能从完整、可信的最新备份恢复。
-- 模型密钥通过服务端环境读取。日志、截图、异常和前端只显示是否已配置，不显示值。
-- 禁止运行时安装依赖、下载模型/字体或启用遥测。对外部请求的许可由任务策略和网关共同执行。
+- 模型历史账本固定为仓库 `.local/budget.sqlite3`。更换业务库、工作目录、`WORKBENCH_DATA_DIR` 或升级代码都不会获得新额度。默认网关在历史账本缺失时拒绝启动计费；只能从完整、可信的最新备份恢复。需要在独立适配目录或独立验收服务中共用同一历史账本时，可显式设置 `HANGZHI_BUDGET_LEDGER_PATH` 指向该唯一原件；不要复制成两份可分别消费的账本，API 与 Worker 必须配置相同路径。
+- 模型密钥只从当前进程的 `DEEPSEEK_API_KEY_ZX` 或 Windows 当前用户注册表中的同名用户变量读取；旧变量名不再生效。日志、截图、异常和前端只显示是否已配置，不显示值。真实 deepseek-flash 验收须重启 API/Worker 后确认新变量已识别，不得打印密钥或使用旧进程缓存。
+- 外部 HTTP Tool 需要 `HANGZHI_TOOL_HOSTS`，Streamable HTTP MCP 需要 `HANGZHI_MCP_HOSTS`；stdio MCP 通过 `HANGZHI_MCP_LAUNCHERS` JSON 登记预装绝对路径、固定参数和 cwd。`HANGZHI_ALLOW_LOCAL_HTTP=true` 仅用于明确的本机 fixture。所有 `secret_ref` 只引用 Worker 环境变量，不能把密钥值写入定义。
+- 外部 MCP/Toolkit 由 Agno 原生驱动执行。升级后先运行 `uv sync --frozen --python 3.12`，再执行 `.venv/Scripts/python.exe -m scripts.enable_agent_tools` 补齐新模板；启动脚本会执行 schema v1→v2 加表迁移，不重置身份、业务或预算数据。
+- 禁止运行时安装依赖、下载模型/字体或启用遥测。RapidOCR 模型随固定依赖提供。对外部请求的许可由任务策略、部署白名单和网关共同执行。
 
 ## 跨任务自动维护开关
 
@@ -37,7 +39,7 @@ usage = model_gateway.usage(task_id)
 
 2026-10-17 核对 [DeepSeek 中文价格表](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)：当前 Flash 高峰输入为人民币 2 元/百万 tokens、输出为 8 元/百万 tokens。网关继续用 4/16 的保守费率，忽略缓存及低峰优惠。它表示预算占用，不是供应商实际账单。模型 ID 由 `HANGZHI_MODEL_ID` 配置，但仅允许已核价的 Flash 名称；更换供应商或计费模型需要更新适配、价格依据和测试，不能只改字符串绕过控制。
 
-输入、输出 token 缺失或无效、超时、连接失败和在途取消均保留费用预留。收到未核价模型或实际用量超过预留时停止后续请求，需核对供应商及账本。不得用“调用失败”作为自动退款依据。
+输入、输出 token 缺失或无效、超时、连接失败和在途取消均保留费用预留。收到未核价模型或实际用量超过预留时停止后续请求，需核对供应商及账本。不得用“调用失败”作为自动退款依据。费用不确定只影响账务展示与对账，不再阻止任务恢复：超时、连接失败、限流、服务端故障、截断和可纠正的输出错误在冻结修订次数、任务预算、20 次请求及截止时间上限内自动重试，全部尝试继续独立预留和计量。HTTP 400 等请求合同错误保留不含密钥和请求原文的供应商诊断，先修正请求，不盲目重放相同负载。
 
 `usage` 包含 `cost_cny`、`reserved_cny`、`total_cny`、`request_count`、`input_tokens`、`output_tokens`、`uncertain_count`、`accounting_complete`。任务可按 purpose 查询，工具多轮调用返回所有实际请求合计。`accounting_complete=false` 必须在结果和管理界面保留，不可将未知费用显示为零。
 
@@ -141,7 +143,7 @@ ARM64 用 `linux-aarch64-python3.12`。上下文只含已审核的 backend 应�
 Windows 准备目录 `E:/Hangzhi/offline-media` 中可移植的是与目标组件匹配且获准迁移的 `runtime/share/tessdata`、`models/whisper-base` 和 `translation/translate-{en_zh,ru_en}-1_9`。将这些数据放入 **Linux 宿主自己的 HANGZHI_MEDIA_DIR**，不用 E 盘绝对路径作为容器内路径。Tesseract、FFmpeg、ffprobe 和 DM 客户端要使用 Linux 发行版适配的程序/动态库；Compose 默认前三者位于 /usr/bin，可用 HANGZHI_CONTAINER_TESSERACT_PATH、HANGZHI_CONTAINER_FFMPEG_PATH、HANGZHI_CONTAINER_FFPROBE_PATH 调整容器内绝对路径。语言用 HANGZHI_OCR_LANG，默认 eng+rus；词库未知或缺失不会自动下载。API/Worker 需使用相同挂载和配置，避免受理时指纹与执行时不符。
 
 1. 在 API 与 Worker 尚未运行时，按[DM8 初始化与迁移](DAMENG.md)在独立 schema 运行 `python -m scripts.dm_database init` / `check`。凭据仅由部署系统传入；不要展示含真实环境值的 compose config 或容器 inspect 输出。
-2. 在 Linux 主机用 `scripts/compose.yaml` 启动两个服务，检查回环地址 `127.0.0.1:8000/api/v2/health` 与 Worker 心跳。默认 `HANGZHI_OFFLINE=false`；如需云取证，私下提供 DEEPSEEK_API_KEY，必要时提供 HANGZHI_MODEL_PROXY。即使允许云网关，HF_HUB_OFFLINE=1、PROJ_NETWORK=OFF、Agno 遥测关闭，避免运行时抓取模型/地理资源。
+2. 在 Linux 主机用 `scripts/compose.yaml` 启动两个服务，检查回环地址 `127.0.0.1:8000/api/v2/health` 与 Worker 心跳。默认 `HANGZHI_OFFLINE=false`；如需云取证，私下提供 DEEPSEEK_API_KEY_ZX，必要时提供 HANGZHI_MODEL_PROXY。即使允许云网关，HF_HUB_OFFLINE=1、PROJ_NETWORK=OFF、Agno 遥测关闭，避免运行时抓取模型/地理资源。
 3. **可选全离线模式**：设置 `HANGZHI_OFFLINE=true` 并重新创建 API/Worker。应用拒绝付费模型调用；如果需要实际网络隔离，宿主/部署网络还须封禁公网、仅保留回环或获准 DM/内网服务。Compose 使用 Linux host 网络与专用 DM；一个策略开关或 Web 健康检查不能证明物理断网。验收专用 8100 实例保持独立，不复用正式运行目录。
 4. 执行[用例验收](CASEWORK.md)核对合成样本、可信批次和权限，分别记录实际软件、权重、许可、耗时及结果；小样本不证明全部原件或目标机服务时限。
 

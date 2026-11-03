@@ -95,8 +95,36 @@ def install(project_id, user, repository, *, upgrade=False, case_id=None):
                 if first_visit:
                     original_versions[aid] = agent["current_version"] if agent else None
                 if first_visit and (not agent or upgrade):
+                    from .executors.registry import binding as executor_binding
+
                     role = contract(stage, group)
                     refs = [{"tool_id": key, "version": versions[key]} for key in role["grants"]]
+                    expected_executors = executor_binding(stage, group if stage == "analyze" else None)
+                    bindings = agent.get("executor_bindings") if agent else None
+                    previous_dual = (
+                        agent
+                        and agent.get("execution_strategy") == "tool_agent"
+                        and agent.get("model_policy") == "cloud"
+                        and isinstance(bindings, dict)
+                        and set(bindings) == {"local", "cloud"}
+                        and all(
+                            isinstance(bindings[mode], dict)
+                            and bindings[mode].get("id") == expected_executors[mode]["id"]
+                            and type(bindings[mode].get("version")) is int
+                            and bindings[mode]["version"] >= 1
+                            and isinstance(bindings[mode].get("implementation"), str)
+                            and len(bindings[mode]["implementation"]) == 64
+                            and all(char in "0123456789abcdef" for char in bindings[mode]["implementation"])
+                            for mode in ("local", "cloud")
+                        )
+                    )
+                    dual_mode = previous_dual and bindings == expected_executors
+                    legacy_local = (
+                        agent
+                        and agent.get("execution_strategy") == "fixed"
+                        and agent.get("model_policy") == "local"
+                        and not agent.get("executor_bindings")
+                    )
                     if agent and (
                         not agent.get("built_in")
                         or agent.get("case_role") != stage
@@ -108,8 +136,7 @@ def install(project_id, user, repository, *, upgrade=False, case_id=None):
                         or set(agent.get("modalities", []))
                         != {"text", "structured", "image", "audio", "video"}
                         or agent.get("instructions") not in ("", role["duty"])
-                        or agent.get("execution_strategy") != "fixed"
-                        or agent.get("model_policy") != "local"
+                        or not (previous_dual or legacy_local)
                         or agent.get("members")
                         or agent.get("skill_refs")
                         or agent.get("tool_ids") != ["case_analysis"]
@@ -123,10 +150,30 @@ def install(project_id, user, repository, *, upgrade=False, case_id=None):
                         and (agent.get("role_contract") != role or agent.get("tool_refs") != refs)
                     ):
                         s.fail("asset_conflict", "岗位授权或职责已被编辑，不能自动覆盖。", 409)
-                    if agent and agent.get("role_contract") == role and agent.get("tool_refs") == refs:
-                        if agent.get("runtime_bindings") != freeze_bindings(agent):
-                            s.fail("tool_version_changed", "工具实现与已发布版本不同，须显式迁移。", 409)
-                    else:
+                    current_bindings = (
+                        freeze_bindings(agent)
+                        if agent and agent.get("role_contract") == role and agent.get("tool_refs") == refs
+                        else None
+                    )
+                    runtime_changed = bool(agent and agent.get("runtime_bindings") != current_bindings)
+                    if runtime_changed:
+                        previous_bindings = agent.get("runtime_bindings") or {}
+                        for kind in ("tools", "skills", "mcp_servers"):
+                            previous_items = previous_bindings.get(kind, [])
+                            current_items = current_bindings.get(kind, [])
+                            if any(item.get("external") for item in previous_items) or sorted(
+                                (item["id"], str(item["version"])) for item in previous_items
+                            ) != sorted((item["id"], str(item["version"])) for item in current_items):
+                                s.fail(
+                                    "tool_version_changed", "工具版本或外部绑定已变化，不能自动迁移。", 409
+                                )
+                    if (
+                        not agent
+                        or not dual_mode
+                        or runtime_changed
+                        or agent.get("role_contract") != role
+                        or agent.get("tool_refs") != refs
+                    ):
                         version = (
                             max(
                                 (v["version"] for v in tx.list("agent_versions", definition_id=aid)),
@@ -150,6 +197,9 @@ def install(project_id, user, repository, *, upgrade=False, case_id=None):
                             },
                             tool_ids=["case_analysis"],
                             tool_refs=refs,
+                            model_policy="cloud",
+                            execution_strategy="tool_agent",
+                            executor_bindings=expected_executors,
                         ).model_dump()
                         agent = {
                             **previous,
@@ -259,6 +309,21 @@ def verify_team(flow, agents, project_id, code):
             or n.get("config")
         ):
             fail("case_team_invalid", "节点角色、工具或依赖与已验证流程不一致", 422)
+        from .executors.registry import binding as executor_binding
+
+        expected_executors = executor_binding(stage, code if stage == "analyze" else None)
+        legacy_local = (
+            agent.get("execution_strategy") == "fixed"
+            and agent.get("model_policy") == "local"
+            and not agent.get("executor_bindings")
+        )
+        dual_mode = (
+            agent.get("execution_strategy") == "tool_agent"
+            and agent.get("model_policy") == "cloud"
+            and agent.get("executor_bindings") == expected_executors
+        )
+        if not (legacy_local or dual_mode):
+            fail("case_team_invalid", "冻结岗位的本地/云端执行器绑定与已验证实现不一致", 422)
         strategy = agent.get("parameters", {}).get("case_strategy", "strict")
         if agent.get("role_contract") or agent.get("tool_refs"):
             expected = contract(stage, code)

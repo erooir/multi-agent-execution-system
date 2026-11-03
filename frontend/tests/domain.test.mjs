@@ -93,3 +93,9 @@ test("configuration JSON rejects arrays/null, member lists normalize whitespace"
   assert.deepEqual(parseObject('{"max_chars":100}'), { max_chars: 100 });
   assert.deepEqual(splitList("one， two\none,,two"), ["one", "two"]);
 });
+test("image OCR and understanding remain distinct, explicit task capabilities", async () => {
+  const { taskTypes } = await import("../src/domain.ts");
+  assert.equal(taskTypes.image_ocr, "图片 OCR");
+  assert.equal(taskTypes.image_understand, "图像理解");
+  assert.equal(statusNames.uncertain, "结果不确定");
+});

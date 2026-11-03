@@ -9,6 +9,7 @@ from datetime import date
 
 from PIL import Image, ImageOps
 
+from ..platform.ocr import normalize_confidence, xywh_bbox
 from .media import command
 from .provider_versions import ocr_args
 
@@ -30,14 +31,17 @@ def _words(im, *, psm=11, digits=False):
         io.StringIO(raw.decode("utf-8", errors="replace")), delimiter="\t", quoting=csv.QUOTE_NONE
     ):
         if r.get("level") == "5" and r.get("text", "").strip():
+            left, top, width, height = (
+                round(value) for value in xywh_bbox(r["left"], r["top"], r["width"], r["height"])
+            )
             result.append(
                 (
                     r["text"].strip(),
-                    int(r["left"]),
-                    int(r["top"]),
-                    int(r["width"]),
-                    int(r["height"]),
-                    float(r["conf"]),
+                    left,
+                    top,
+                    width,
+                    height,
+                    normalize_confidence(float(r["conf"]) / 100),
                 )
             )
     return result
@@ -221,7 +225,7 @@ def _read_labels(im, bounds, palette):
         padded = ImageOps.expand(crop, border=20, fill=255)
         results = _words(padded, psm=7, digits=True)
         label = "".join(w[0] for w in results)
-        valid = bool(re.fullmatch(r"\d{1,3}(?:,\d{3})*|\d+", label)) and all(w[-1] >= 45 for w in results)
+        valid = bool(re.fullmatch(r"\d{1,3}(?:,\d{3})*|\d+", label)) and all(w[-1] >= 0.45 for w in results)
         if not valid:
             alternate = _words(padded, psm=13, digits=True)
             other = "".join(w[0] for w in alternate)

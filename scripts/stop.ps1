@@ -10,7 +10,7 @@ if (Test-Path -LiteralPath $pythonPointer) {
 foreach ($kind in @('worker','server')) {
     $statePath = Join-Path $projectRoot ".local/$kind.json"
     if (-not (Test-Path -LiteralPath $statePath)) { continue }
-    $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+    $state = Get-Content -LiteralPath $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($state.root -ne $projectRoot) { throw 'Recorded workspace mismatch' }
     $stateExecutable = if ($state.executable) { $state.executable } else { $expectedExecutable }
     if ($stateExecutable -notin $allowedExecutables) { throw 'Unrecognized Python runtime; refusing to stop the recorded process.' }

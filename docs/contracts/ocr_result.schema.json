@@ -1,0 +1,88 @@
+{
+  "$defs": {
+    "OcrBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "bbox": {
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "title": "Bbox",
+          "type": "array"
+        }
+      },
+      "required": [
+        "text",
+        "confidence",
+        "bbox"
+      ],
+      "title": "OcrBlock",
+      "type": "object"
+    },
+    "OcrImageResult": {
+      "additionalProperties": false,
+      "properties": {
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_version": {
+          "title": "Source Version",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "blocks": {
+          "items": {
+            "$ref": "#/$defs/OcrBlock"
+          },
+          "title": "Blocks",
+          "type": "array"
+        },
+        "no_text": {
+          "title": "No Text",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "source_id",
+        "source_version",
+        "text",
+        "blocks",
+        "no_text"
+      ],
+      "title": "OcrImageResult",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "images": {
+      "items": {
+        "$ref": "#/$defs/OcrImageResult"
+      },
+      "title": "Images",
+      "type": "array"
+    }
+  },
+  "required": [
+    "images"
+  ],
+  "title": "OcrResult",
+  "type": "object"
+}

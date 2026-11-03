@@ -126,7 +126,7 @@ def test_concurrent_database_cold_start(tmp_path):
         repositories = list(pool.map(lambda _: Repository(url), range(8)))
     for repository in repositories:
         with repository.engine.connect() as connection:
-            assert connection.execute(select(schema.c.version)).scalars().all() == [1]
+            assert connection.execute(select(schema.c.version)).scalars().all() == [2]
         repository.engine.dispose()
 
 

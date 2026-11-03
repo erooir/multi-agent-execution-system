@@ -16,7 +16,15 @@ from .db import QUEUE_AGING_SECONDS, QUEUE_POLICY_VERSION, ROOT, TERMINAL, now, 
 from .tool_registry import freeze_bindings, permissions, validate_frozen
 
 ASSET_DIR = ROOT / ".local" / "platform-assets"
-TOOLS = {"structured_transform", "source_summary", "text_analysis", "image_inspect", "case_analysis"}
+TOOLS = {
+    "structured_transform",
+    "source_summary",
+    "text_analysis",
+    "image_inspect",
+    "image_ocr",
+    "image_understand",
+    "case_analysis",
+}
 CAPABILITIES = [
     {
         "id": "structured_transform",
@@ -55,6 +63,24 @@ CAPABILITIES = [
         "description": "解码、格式、尺寸和色彩模式，不等同于图像理解",
     },
     {
+        "id": "image_ocr",
+        "name": "图片 OCR",
+        "modalities": ["image"],
+        "available": True,
+        "modes": ["local", "rehearsal"],
+        "tool_id": "image_ocr",
+        "description": "本地 RapidOCR 实际识别中英文文字，输出区域和真实置信度；无需外发图片",
+    },
+    {
+        "id": "image_understand",
+        "name": "图像理解",
+        "modalities": ["image"],
+        "available": True,
+        "modes": ["cloud"],
+        "tool_id": "image_understand",
+        "description": "云端视觉模型理解公开图片；原图经统一预算网关发送并独立评审",
+    },
+    {
         "id": "audio_transcribe",
         "name": "音频转写",
         "modalities": ["audio"],
@@ -75,9 +101,9 @@ CAPABILITIES = [
         "name": "用例协作分析",
         "modalities": ["text", "structured", "image", "audio", "video"],
         "available": True,
-        "modes": ["local"],
+        "modes": ["local", "cloud"],
         "tool_id": "case_analysis",
-        "description": "项目内资料解析、专业计算与独立审核；按所选用例验证交付",
+        "description": "同一三节点用例支持本地确定性工具或云端领域Agent；节点输入输出合同一致",
     },
 ]
 
@@ -298,6 +324,79 @@ def audit(tx, project_id, action, entity_id, user, detail=None):
     )
 
 
+def capability_view(record):
+    return {key: value for key, value in record.items() if key != "draft_spec"}
+
+
+def capability_definitions(project_id, user, repository=None):
+    repository = repository or repo
+    project_access(project_id, user, repository=repository)
+    return [capability_view(item) for item in repository.list("capability_definitions", project_id)]
+
+
+def capability_versions(definition_id, user, repository=None):
+    repository = repository or repo
+    required("capability_definitions", definition_id, user, repository=repository)
+    return repository.list("capability_versions", definition_id=definition_id)
+
+
+def capability_catalog(project_id, user, repository=None):
+    repository = repository or repo
+    project_access(project_id, user, repository=repository)
+    from .tool_registry import catalog
+
+    return {"capabilities": CAPABILITIES, **catalog(project_id, repository)}
+
+
+def import_skill(package, project_id, user, repository=None):
+    repository = repository or repo
+    from . import capability_service
+
+    return capability_service.import_skill(package, project_id, user, repository)
+
+
+def create_http_tool(body, user, repository=None):
+    repository = repository or repo
+    from . import capability_service
+
+    return capability_service.create_http_tool(body, user, repository)
+
+
+def create_native_toolkit(body, user, repository=None):
+    repository = repository or repo
+    from . import capability_service
+
+    return capability_service.create_native_toolkit(body, user, repository)
+
+
+def create_mcp_server(body, user, repository=None):
+    repository = repository or repo
+    from . import capability_service
+
+    return capability_service.create_mcp_server(body, user, repository)
+
+
+async def discover_mcp(definition_id, user, repository=None):
+    repository = repository or repo
+    from . import capability_service
+
+    return await capability_service.discover_mcp(definition_id, user, repository)
+
+
+def publish_capability(definition_id, user, repository=None, tool_bindings=None):
+    repository = repository or repo
+    from . import capability_service
+
+    return capability_service.publish(definition_id, user, repository, tool_bindings)
+
+
+def capability_action(definition_id, action_name, user, repository=None):
+    repository = repository or repo
+    from . import capability_service
+
+    return capability_service.action(definition_id, action_name, user, repository)
+
+
 def create_project(body, user, repository=None):
     repository = repository or repo
     if user["role"] not in ("admin", "operator"):
@@ -313,8 +412,11 @@ def create_project(body, user, repository=None):
 
 def seed_templates(tx, project_id):
     """Executable, published tool definitions; no demo tasks or fabricated metrics."""
-    for capability in CAPABILITIES[:4]:
+    for capability in (item for item in CAPABILITIES if item["available"] and item["id"] != "case_analysis"):
         agent_id = f"{project_id[:12]}-{capability['id']}"
+        workflow_id = f"{project_id[:12]}-flow-{capability['id']}"
+        if tx.get("agents", agent_id) or tx.get("workflows", workflow_id):
+            continue
         agent = AgentInput(
             project_id=project_id,
             name=capability["name"],
@@ -325,21 +427,22 @@ def seed_templates(tx, project_id):
             model_policy="cloud" if "cloud" in capability["modes"] else "local",
         ).model_dump()
         if capability["id"] in {"source_summary", "text_analysis"}:
-            from .tool_registry import BASE_TOOL_IDS, catalog
+            from .tool_registry import DEFINITIONS, catalog
 
-            available = catalog()
+            available = catalog(project_id, tx)
+            base_tool_ids = {item[0] for item in DEFINITIONS}
             agent.update(
                 execution_strategy="tool_agent",
                 tool_refs=[
                     {"tool_id": item["id"], "version": item["version"]}
                     for item in available["tools"]
-                    if item["id"] in BASE_TOOL_IDS
+                    if item["id"] in base_tool_ids
                 ],
                 skill_refs=[
                     {"skill_id": item["id"], "version": item["version"]} for item in available["skills"]
                 ],
             )
-            agent["runtime_bindings"] = freeze_bindings(agent)
+            agent["runtime_bindings"] = freeze_bindings(agent, tx)
         agent.update(id=agent_id, status="published", current_version=1, built_in=True)
         tx.put("agents", agent)
         tx.put(
@@ -353,7 +456,6 @@ def seed_templates(tx, project_id):
                 "checksum": digest(agent),
             },
         )
-        workflow_id = f"{project_id[:12]}-flow-{capability['id']}"
         wf = {
             "id": workflow_id,
             "project_id": project_id,
@@ -387,9 +489,22 @@ def validate_agent(body, tx, agent_id=None):
         body["model_policy"] != "cloud" or not body.get("tool_refs")
     ):
         fail("invalid_agent_strategy", "工具型智能体需要云模型政策和已授权工具")
+    if body.get("executor_bindings"):
+        from ..casework.executors.registry import binding as executor_binding
+
+        managed = tx.get("agents", agent_id) if agent_id else None
+        stage = body.get("parameters", {}).get("case_stage")
+        code = body.get("parameters", {}).get("case_scope")
+        if (
+            not managed
+            or not managed.get("built_in")
+            or managed.get("case_role") != stage
+            or body["executor_bindings"] != executor_binding(stage, code)
+        ):
+            fail("invalid_agent_strategy", "领域执行器绑定只能由用例协作组升级发布", 422)
     if body.get("tool_refs") or body.get("skill_refs"):
         try:
-            freeze_bindings(body)
+            freeze_bindings(body, tx)
         except ValueError as exc:
             fail(str(exc), "工具或技能版本不可用，或技能所需工具未获授权", 422)
     if body["structure"] == "atomic" and body["members"]:
@@ -445,7 +560,7 @@ def agent_action(agent_id, action, user, repository=None):
                 fail("invalid_state", "退役智能体不能发布", 409)
             validate_agent(agent, tx, agent_id)
             if agent.get("tool_refs") or agent.get("skill_refs"):
-                agent["runtime_bindings"] = freeze_bindings(agent)
+                agent["runtime_bindings"] = freeze_bindings(agent, tx)
             else:
                 agent.pop("runtime_bindings", None)
             version = (
@@ -523,6 +638,7 @@ def validate_nodes(nodes, tx, project_id):
                 "descending",
                 "deduplicate",
                 "max_chars",
+                "min_confidence",
             }
             config = node.get("config", {})
             ToolParameters.model_validate(config)
@@ -720,7 +836,7 @@ def compatible_agent(tx, definition, body, inputs, version=None, boundary=None, 
         return False
     tools = permissions(agent)
     try:
-        validate_frozen(agent)
+        validate_frozen(agent, tx)
     except ValueError:
         return False
     if boundary is not None:

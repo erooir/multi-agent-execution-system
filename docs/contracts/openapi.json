@@ -717,6 +717,361 @@
         }
       }
     },
+    "/api/v2/capability-definitions": {
+      "get": {
+        "summary": "Capability Definitions",
+        "operationId": "capability_definitions_api_v2_capability_definitions_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/capability-definitions/skills/import": {
+      "post": {
+        "summary": "Import Skill",
+        "operationId": "import_skill_api_v2_capability_definitions_skills_import_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_skill_api_v2_capability_definitions_skills_import_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/capability-definitions/tools": {
+      "post": {
+        "summary": "Create Http Tool",
+        "operationId": "create_http_tool_api_v2_capability_definitions_tools_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HttpToolInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/capability-definitions/toolkits": {
+      "post": {
+        "summary": "Create Native Toolkit",
+        "operationId": "create_native_toolkit_api_v2_capability_definitions_toolkits_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NativeToolkitInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/capability-definitions/mcp": {
+      "post": {
+        "summary": "Create Mcp Server",
+        "operationId": "create_mcp_server_api_v2_capability_definitions_mcp_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/McpServerInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/capability-definitions/{definition_id}/versions": {
+      "get": {
+        "summary": "Capability Versions",
+        "operationId": "capability_versions_api_v2_capability_definitions__definition_id__versions_get",
+        "parameters": [
+          {
+            "name": "definition_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Definition Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/capability-definitions/{definition_id}/discover": {
+      "post": {
+        "summary": "Discover Mcp",
+        "operationId": "discover_mcp_api_v2_capability_definitions__definition_id__discover_post",
+        "parameters": [
+          {
+            "name": "definition_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Definition Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/capability-definitions/{definition_id}/publish": {
+      "post": {
+        "summary": "Publish Capability",
+        "operationId": "publish_capability_api_v2_capability_definitions__definition_id__publish_post",
+        "parameters": [
+          {
+            "name": "definition_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Definition Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SkillPublishInput"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/capability-definitions/{definition_id}/{action}": {
+      "post": {
+        "summary": "Capability Action",
+        "operationId": "capability_action_api_v2_capability_definitions__definition_id___action__post",
+        "parameters": [
+          {
+            "name": "definition_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Definition Id"
+            }
+          },
+          {
+            "name": "action",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/agents/{agent_id}/tools/{tool_id}/preview": {
       "post": {
         "summary": "Preview Tool",
@@ -2569,13 +2924,15 @@
                 "source_summary",
                 "text_analysis",
                 "image_inspect",
+                "image_ocr",
+                "image_understand",
                 "audio_transcribe",
                 "video_analyze",
                 "case_analysis"
               ]
             },
             "type": "array",
-            "maxItems": 6,
+            "maxItems": 8,
             "minItems": 1,
             "title": "Capabilities"
           },
@@ -2653,6 +3010,19 @@
             "type": "array",
             "maxItems": 5,
             "title": "Skill Refs"
+          },
+          "executor_bindings": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ExecutorBinding"
+            },
+            "propertyNames": {
+              "enum": [
+                "local",
+                "cloud"
+              ]
+            },
+            "type": "object",
+            "title": "Executor Bindings"
           }
         },
         "additionalProperties": false,
@@ -2825,6 +3195,25 @@
         ],
         "title": "AssetInput"
       },
+      "Body_import_skill_api_v2_capability_definitions_skills_import_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "project_id"
+        ],
+        "title": "Body_import_skill_api_v2_capability_definitions_skills_import_post"
+      },
       "Body_upload_api_v2_data_assets_upload_post": {
         "properties": {
           "file": {
@@ -2917,6 +3306,14 @@
             },
             "type": "array",
             "title": "Mcp Servers"
+          },
+          "definitions": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Definitions"
           }
         },
         "additionalProperties": false,
@@ -2971,6 +3368,34 @@
         ],
         "title": "ConnectorInput"
       },
+      "ExecutorBinding": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Id"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version"
+          },
+          "implementation": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Implementation"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "version",
+          "implementation"
+        ],
+        "title": "ExecutorBinding"
+      },
       "FailureCount": {
         "properties": {
           "reason_code": {
@@ -3002,6 +3427,79 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "HttpToolInput": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Description"
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Url"
+          },
+          "input_schema": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Input Schema"
+          },
+          "output_schema": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Output Schema"
+          },
+          "secret_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secret Ref"
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "maximum": 60.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Timeout Seconds",
+            "default": 15
+          },
+          "max_result_bytes": {
+            "type": "integer",
+            "maximum": 80000.0,
+            "minimum": 1.0,
+            "title": "Max Result Bytes",
+            "default": 80000
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_id",
+          "name",
+          "description",
+          "url",
+          "input_schema",
+          "output_schema"
+        ],
+        "title": "HttpToolInput"
       },
       "ImprovementInput": {
         "properties": {
@@ -3135,6 +3633,66 @@
         ],
         "title": "LatencyMetrics"
       },
+      "McpServerInput": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Description",
+            "default": ""
+          },
+          "transport": {
+            "type": "string",
+            "enum": [
+              "stdio",
+              "streamable_http"
+            ],
+            "title": "Transport"
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 1000,
+            "title": "Url",
+            "default": ""
+          },
+          "launcher_id": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Launcher Id",
+            "default": ""
+          },
+          "secret_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secret Ref"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_id",
+          "name",
+          "transport"
+        ],
+        "title": "McpServerInput"
+      },
       "Member": {
         "properties": {
           "agent_id": {
@@ -3234,6 +3792,50 @@
           "hours"
         ],
         "title": "MetricsWindow"
+      },
+      "NativeToolkitInput": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Description",
+            "default": ""
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "calculator",
+              "duckduckgo"
+            ],
+            "title": "Provider"
+          },
+          "include_tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Include Tools"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_id",
+          "name",
+          "provider"
+        ],
+        "title": "NativeToolkitInput"
       },
       "OperationalMetrics": {
         "properties": {
@@ -3697,6 +4299,20 @@
         ],
         "title": "SchedulingPolicy"
       },
+      "SkillPublishInput": {
+        "properties": {
+          "tool_bindings": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Tool Bindings"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SkillPublishInput"
+      },
       "SkillReference": {
         "properties": {
           "skill_id": {
@@ -3772,6 +4388,8 @@
               "source_summary",
               "text_analysis",
               "image_inspect",
+              "image_ocr",
+              "image_understand",
               "audio_transcribe",
               "video_analyze",
               "case_analysis"
@@ -4034,7 +4652,8 @@
             "enum": [
               "running",
               "completed",
-              "failed"
+              "failed",
+              "uncertain"
             ],
             "title": "Status"
           },
@@ -4091,6 +4710,44 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Summary"
+          },
+          "external": {
+            "type": "boolean",
+            "title": "External",
+            "default": false
+          },
+          "transport": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transport"
+          },
+          "server_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Id"
+          },
+          "upstream_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upstream Request Id"
           }
         },
         "additionalProperties": false,
@@ -4269,6 +4926,8 @@
               "source_summary",
               "text_analysis",
               "image_inspect",
+              "image_ocr",
+              "image_understand",
               "audio_transcribe",
               "video_analyze",
               "case_analysis"

@@ -4,7 +4,7 @@ from copy import deepcopy
 
 from PIL import Image, ImageDraw
 
-from backend.app.casework import document_figures
+from backend.app.casework import document_chart_ocr, document_figures
 from backend.app.casework.document_cases import analyze
 from backend.app.casework.engine import audit
 
@@ -121,3 +121,13 @@ def test_unreadable_figure_is_a_gap_even_when_body_has_projections():
     records = [r for r in specimen() if r["location"].get("figure") != 7]
     out = analyze("T05", records)
     assert any("图7未检查原图" in g for g in out["gaps"])
+
+
+def test_tesseract_tsv_coordinates_are_pixels_and_confidence_is_normalized(monkeypatch):
+    monkeypatch.setattr(document_chart_ocr, "ocr_args", lambda language: ["tesseract"])
+    monkeypatch.setattr(
+        document_chart_ocr,
+        "command",
+        lambda *args, **kwargs: b"level\tleft\ttop\twidth\theight\tconf\ttext\n5\t1\t2\t30\t40\t96\t456\n",
+    )
+    assert document_chart_ocr._words(Image.new("RGB", (10, 10), "white")) == [("456", 1, 2, 30, 40, 0.96)]

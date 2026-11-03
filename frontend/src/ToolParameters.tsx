@@ -25,6 +25,8 @@ export function ParameterSummary({ parameters = {} }: { parameters?: Item }) {
       `按 ${parameters.sort_by} ${parameters.descending ? "降序" : "升序"}`,
     parameters.deduplicate && "删除完全重复的记录",
     parameters.max_chars && `文本长度上限：${parameters.max_chars} 字符`,
+    parameters.min_confidence !== undefined &&
+      `OCR 最低置信度：${parameters.min_confidence}`,
   ].filter(Boolean);
   return values.length ? (
     <ul className="parameter-summary">
@@ -193,7 +195,7 @@ export default function ToolParameters({
         <summary>高级参数 JSON · 筛选条件及完整配置</summary>
         <Field
           label="执行参数 JSON"
-          hint='可设置 filter 等值筛选，例如 {"filter":{"status":"active"}}。所有参数受后端白名单校验。'
+          hint='可设置 filter 等值筛选，例如 {"filter":{"status":"active"}}；OCR 可设置 min_confidence（0 至 1）。所有参数受后端白名单校验。'
         >
           <textarea
             className="mono"

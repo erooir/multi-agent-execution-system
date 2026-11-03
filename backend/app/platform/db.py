@@ -14,15 +14,17 @@ from sqlalchemy import (
     and_,
     case,
     create_engine,
+    false,
     func,
+    inspect,
     or_,
     select,
     true,
 )
 from sqlalchemy import event as sa_event
 
-from .dameng import database_url, ensure_initialized, json_scalar, supports_row_lock
-from .db_schema import metadata, schema, tables
+from .dameng import database_url, json_scalar, supports_row_lock
+from .db_schema import SCHEMA_VERSION, metadata, schema, tables
 
 ROOT = Path(__file__).resolve().parents[3]
 TERMINAL = {"succeeded", "partial", "failed", "cancelled"}
@@ -34,6 +36,25 @@ QUEUE_POLICY_VERSION = "interactive-aging-v1"
 _REFERENCE_FILTERS = frozenset(
     {"task_id", "agent_id", "node_id", "instance_id", "workflow_id", "definition_id", "owner_id"}
 )
+
+
+def assert_dm_schema(connection):
+    from .dameng import identity_guard, identity_metadata
+
+    expected = set(metadata.tables) | set(identity_metadata.tables)
+    if {name.lower() for name in inspect(connection).get_table_names()} != expected:
+        raise RuntimeError("达梦平台业务表不完整；请使用受控 init 升级现有 schema")
+    for name in ("questions", "capability_definitions", "capability_versions"):
+        connection.execute(select(metadata.tables[name]).where(false()))
+    if connection.execute(select(schema.c.version)).scalars().all() != [SCHEMA_VERSION]:
+        raise RuntimeError("达梦平台schema版本不匹配")
+    if connection.execute(select(identity_guard.c.id)).scalars().all() != [1]:
+        raise RuntimeError("达梦身份写入锁未正确初始化")
+
+
+def ensure_initialized(engine):
+    with engine.connect() as connection:
+        assert_dm_schema(connection)
 
 
 def now():
@@ -102,10 +123,12 @@ class Repository:
             try:
                 metadata.create_all(conn)
                 versions = conn.execute(select(schema.c.version)).scalars().all()
-                if versions and versions != [1]:
+                if versions and versions not in ([1], [SCHEMA_VERSION]):
                     raise RuntimeError("Unsupported platform schema; run an explicit migration")
-                if not versions:
-                    conn.execute(schema.insert().values(version=1))
+                if versions == [1]:
+                    conn.execute(schema.update().values(version=SCHEMA_VERSION))
+                elif not versions:
+                    conn.execute(schema.insert().values(version=SCHEMA_VERSION))
                 conn.commit()
             except BaseException:
                 conn.rollback()

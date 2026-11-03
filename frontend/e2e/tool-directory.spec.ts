@@ -12,7 +12,7 @@ async function openTools(page: Page, projectId: string) {
   ).toBeVisible();
 }
 
-test("工具目录检索与技能依赖可追到发布岗位，试用与只读权限可区分", async ({
+test("工具目录检索与技能依赖可追到发布智能体，试用与只读权限可区分", async ({
   page,
   browser,
   baseURL,
@@ -41,17 +41,17 @@ test("工具目录检索与技能依赖可追到发布岗位，试用与只读�
   const details = page.getByRole("region", { name: "所选目录条目" });
   await page.getByLabel("工具分类").selectOption("mcp");
   await expect(details).toContainText("已登记 MCP 服务");
-  await page.getByLabel("搜索工具或技能").fill("baseline_anomaly");
+  await page.getByLabel("搜索工具或技能（Skill）").fill("baseline_anomaly");
   await expect(page.getByRole("heading", { name: "没有匹配项" })).toBeVisible();
   await page.getByRole("button", { name: "清除筛选" }).click();
-  await page.getByRole("button", { name: /^技能包 · / }).click();
+  await page.getByRole("button", { name: /^文档技能包 · / }).click();
   await details
     .getByRole("button", { name: "授权资料目录", exact: true })
     .click();
   await expect(details.locator(".catalog-identifier")).toContainText(
     "data.list_sources",
   );
-  await page.getByLabel("搜索工具或技能").fill("extract_quantities");
+  await page.getByLabel("搜索工具或技能（Skill）").fill("extract_quantities");
   await page.getByLabel("仅看本项目已授权").check();
   const specialist = details.getByRole("button", {
     name: "用试验研究证据阅读卡专员试用",
@@ -99,16 +99,18 @@ test("工具目录检索与技能依赖可追到发布岗位，试用与只读�
     ).toBeTruthy();
     await openTools(viewerPage, p.id);
     await viewerPage
-      .getByLabel("搜索工具或技能")
+      .getByLabel("搜索工具或技能（Skill）")
       .fill("series.baseline_anomaly");
-    const holders = viewerPage.getByRole("region", { name: "本项目授权岗位" });
+    const holders = viewerPage.getByRole("region", {
+      name: "本项目授权智能体",
+    });
     await expect(
-      holders.getByRole("button", { name: /查看.*海冰.*岗位/ }),
+      holders.getByRole("button", { name: /查看.*海冰.*智能体/ }),
     ).toHaveCount(1);
     await expect(holders.getByRole("button", { name: /试用/ })).toHaveCount(0);
-    await holders.getByRole("button", { name: /查看.*海冰.*岗位/ }).click();
+    await holders.getByRole("button", { name: /查看.*海冰.*智能体/ }).click();
     await expect(viewerPage.getByRole("dialog")).toContainText(
-      "已发布岗位合同",
+      "已发布用例岗位合同",
     );
     await expect(
       viewerPage.getByRole("dialog").getByLabel("试用工具"),

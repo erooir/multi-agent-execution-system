@@ -235,6 +235,29 @@ export function ArtifactContent({
             </div>
           )}
         </>
+      ) : artifact.type === "image_ocr" && Array.isArray(content?.images) ? (
+        <section>
+          <div className="result-heading">
+            <FileText size={18} />
+            <strong>OCR 识别文本</strong>
+          </div>
+          {content.images.map((image: Item, index: number) => (
+            <figure className="evidence-card" key={image.source_id || index}>
+              <blockquote>{image.text || "未识别到文字"}</blockquote>
+              <figcaption>
+                {image.source_id || `图片 ${index + 1}`} ·{" "}
+                {image.blocks?.length || 0} 个文字区域
+              </figcaption>
+            </figure>
+          ))}
+        </section>
+      ) : artifact.type === "image_understanding" &&
+        typeof content?.text === "string" ? (
+        <section>
+          <h3>图像理解</h3>
+          <div className="result-prose">{content.text}</div>
+          <JsonView value={content.evidence} label="图片来源与区域证据" />
+        </section>
       ) : typeof content === "string" || typeof content?.text === "string" ? (
         <div className="result-prose">
           {typeof content === "string" ? content : content.text}

@@ -7,7 +7,9 @@ from types import SimpleNamespace
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # The lifetime budget belongs to this project, never to a disposable runtime directory.
-BUDGET_LEDGER_PATH = PROJECT_ROOT / ".local" / "budget.sqlite3"
+BUDGET_LEDGER_PATH = Path(
+    os.environ.get("HANGZHI_BUDGET_LEDGER_PATH", str(PROJECT_ROOT / ".local" / "budget.sqlite3"))
+)
 DATA_DIR = Path(os.environ.get("WORKBENCH_DATA_DIR", str(PROJECT_ROOT / ".local")))
 MODEL_ID = os.environ.get("HANGZHI_MODEL_ID", "deepseek-flash")
 PRICED_MODEL_IDS = frozenset({"deepseek-flash", "deepseek-v4-flash"})
@@ -24,7 +26,7 @@ settings = SimpleNamespace(
 
 
 def get_api_key() -> str | None:
-    value = os.environ.get("deepseek_api_key") or os.environ.get("DEEPSEEK_API_KEY")
+    value = os.environ.get("DEEPSEEK_API_KEY_ZX")
     if value:
         return value.strip()
     if os.name == "nt":
@@ -32,7 +34,7 @@ def get_api_key() -> str | None:
 
         try:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
-                return str(winreg.QueryValueEx(key, "deepseek_api_key")[0]).strip()
+                return str(winreg.QueryValueEx(key, "DEEPSEEK_API_KEY_ZX")[0]).strip()
         except FileNotFoundError:
             pass
     return None

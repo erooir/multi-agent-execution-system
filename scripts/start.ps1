@@ -70,7 +70,7 @@ if ($listener.Count -gt 0) {
     catch { throw "Port $Port is occupied by an unrecognized or unhealthy service; no new processes started." }
     if ($health.version -ne '2.0.0' -or $health.service -ne 'hangzhi-agent-platform') { throw "Port $Port is occupied by another service." }
     if (-not (Test-Path -LiteralPath $serverState)) { throw 'Existing API is not recorded by this workspace; stop it explicitly before starting.' }
-    $record = Get-Content -LiteralPath $serverState -Raw | ConvertFrom-Json
+    $record = Get-Content -LiteralPath $serverState -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($record.profile_id -ne $profileId) { throw 'Existing API uses a different database, model or improvement policy. Stop it before switching.' }
     $process = Get-PlatformProcesses -ProcessId $record.pid
     if ($record.root -ne $projectRoot -or -not $process -or $process.ExecutablePath -ne $pythonExecutable -or $process.CommandLine -notlike '*uvicorn backend.app.main:app*') { throw 'Existing API ownership could not be verified.' }
@@ -93,7 +93,7 @@ if (-not $ready) { throw 'API did not become ready; worker was not started. Insp
 $workerState = Join-Path $localDirectory 'worker.json'
 $workerRunning = $false
 if (Test-Path -LiteralPath $workerState) {
-    $record = Get-Content -LiteralPath $workerState -Raw | ConvertFrom-Json
+    $record = Get-Content -LiteralPath $workerState -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($record.root -ne $projectRoot) { throw 'Recorded worker workspace mismatch' }
     $process = Get-PlatformProcesses -ProcessId $record.pid
     if ($process) {

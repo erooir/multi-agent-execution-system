@@ -52,6 +52,9 @@ export function AgentForm({
   const [toolSearch, setToolSearch] = useState("");
   const selectingModelTools =
     form.execution_strategy === "tool_agent" || form.structure === "composite";
+  const dualMode = Boolean(
+    form.executor_bindings?.local && form.executor_bindings?.cloud,
+  );
   const toolsInScope = extensions.tools.filter(
     (tool: Item) =>
       (!item?.role_contract || item.role_contract.grants?.includes(tool.id)) &&
@@ -113,7 +116,7 @@ export function AgentForm({
       onSubmit={() => {
         if (missingTools.length)
           throw Error(
-            "技能仍需授权工具：" + [...new Set(missingTools)].join("、"),
+            "文档技能包仍需授权工具：" + [...new Set(missingTools)].join("、"),
           );
         if (form.execution_strategy === "tool_agent" && !form.tool_refs.length)
           throw Error("自主工具型智能体至少需要一项版本化工具授权。");
@@ -152,7 +155,11 @@ export function AgentForm({
       <div className="form-grid">
         <Field
           label="运行方式"
-          hint="工具型适用于云端文本分析和资料摘要，自主选择已授权工具。"
+          hint={
+            dualMode
+              ? "同一用例资产在本地模式使用固定 role_tools，在云端模式使用领域 Agno 工具循环。"
+              : "工具型适用于云端文本分析和资料摘要，自主选择已授权工具。"
+          }
         >
           <select
             value={form.execution_strategy}
@@ -193,9 +200,11 @@ export function AgentForm({
               });
             }}
           >
-            <option value="fixed">固定执行能力</option>
+            <option value="fixed">固定流程执行</option>
             <option value="tool_agent" disabled={!extensions.tools.length}>
-              自主工具型 Agent
+              {dualMode
+                ? "双模式用例 · 本地固定工具 / 云端领域 Agent"
+                : "自主工具型智能体"}
             </option>
           </select>
         </Field>
@@ -336,7 +345,7 @@ export function AgentForm({
         <p className="note">
           {selectingModelTools
             ? "仅选中的工具进入模型或复合成员的权限范围。"
-            : "固定执行岗位可以本地试用已授权工具。实际任务依照发布的执行流程使用工具。"}
+            : "固定流程执行智能体可以本地试用已授权工具。实际任务依照发布的执行流程使用工具。"}
           发布时锁定版本。已选 {form.tool_refs.length} / 10 项。
         </p>
         <Field label="筛选可授权工具">
@@ -384,7 +393,7 @@ export function AgentForm({
       </fieldset>
       {(selectingModelTools || form.skill_refs.length > 0) && (
         <fieldset className="capability-picker">
-          <legend>授权技能</legend>
+          <legend>授权文档技能包</legend>
           {extensions.skills.map((skill: Item) => (
             <label className="check" key={skill.id}>
               <input
@@ -411,11 +420,11 @@ export function AgentForm({
             </label>
           ))}
           <p className="note">
-            技能所需工具须同时授权；技能包只提供说明和参考资料。
+            文档技能包所需工具须同时授权；文档技能包只提供说明和参考资料。
           </p>
           {!!missingTools.length && (
             <p className="warning" role="status">
-              所选技能仍需工具：{[...new Set(missingTools)].join("、")}
+              所选文档技能包仍需工具：{[...new Set(missingTools)].join("、")}
             </p>
           )}
         </fieldset>
@@ -624,7 +633,15 @@ export function TaskForm({
   return (
     <FormModal
       wide
-      title={schedule ? "创建持久计划任务" : "提交新任务"}
+      title={
+        form.task_type === "case_analysis"
+          ? schedule
+            ? "创建用例计划任务"
+            : "提交用例任务"
+          : schedule
+            ? "创建通用计划任务"
+            : "提交通用任务"
+      }
       onClose={onClose}
       submit={schedule ? "创建计划" : "提交并自动执行"}
       onSubmit={async () => {
@@ -702,7 +719,7 @@ export function TaskForm({
         {capability?.description || "正在读取服务端能力目录…"}
       </p>
       {form.task_type === "case_analysis" && (
-        <Field label="分析用例" hint="使用项目已发布的解析、分析和审核专员。">
+        <Field label="分析用例" hint="使用本项目已发布的用例岗位与流程。">
           <select
             required
             value={form.case_id || ""}
@@ -714,7 +731,7 @@ export function TaskForm({
             {profiles.map((p) => (
               <option key={p.id} value={p.id} disabled={!p.installed}>
                 {p.id} · {p.title}
-                {!p.installed ? "（未安装）" : ""}
+                {!p.installed ? "（未发布到本项目）" : ""}
               </option>
             ))}
           </select>
@@ -842,8 +859,9 @@ export function TaskForm({
       </div>
       {form.mode === "cloud" && (
         <p className="warning">
-          只允许外发已标记公开的数据。执行、自动评审与修订均经过统一网关并计入历史累计
-          300 元上限。
+          {form.task_type === "case_analysis"
+            ? "用例的资料解析、专业分析、独立核查三个节点均调用真实模型并分别计费；仅可外发标记 public 的公开资料，离线部署不可调用。执行、自动评审与修订均经过统一网关并计入历史累计 300 元上限。"
+            : "只允许外发已标记公开的数据。执行、自动评审与修订均经过统一网关并计入历史累计 300 元上限。"}
         </p>
       )}
       {form.mode === "cloud" && (
@@ -855,7 +873,7 @@ export function TaskForm({
               update("use_project_knowledge", event.target.checked)
             }
           />
-          允许工具型 Agent 检索本项目公开知识
+          允许工具型智能体 检索本项目公开知识
         </label>
       )}
       {form.mode === "rehearsal" && (
@@ -897,7 +915,10 @@ export function TaskForm({
             onChange={(e) => update("max_cost_cny", Number(e.target.value))}
           />
         </Field>
-        <Field label="最多质量修订轮次">
+        <Field
+          label="最多修订 / 恢复轮次"
+          hint="质量修订与可安全恢复的节点错误共用此额度；权限、预算和不确定费用不会自动重试。"
+        >
           <input
             type="number"
             min={0}

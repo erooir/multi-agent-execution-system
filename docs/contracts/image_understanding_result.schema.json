@@ -1,0 +1,71 @@
+{
+  "$defs": {
+    "ImageRegionEvidence": {
+      "properties": {
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_version": {
+          "title": "Source Version",
+          "type": "string"
+        },
+        "bbox": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 4,
+              "minItems": 4,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bbox"
+        }
+      },
+      "required": [
+        "source_id",
+        "source_version"
+      ],
+      "title": "ImageRegionEvidence",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "text": {
+      "maxLength": 50000,
+      "minLength": 1,
+      "title": "Text",
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/ImageRegionEvidence"
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "title": "Evidence",
+      "type": "array"
+    },
+    "missing_information": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Missing Information",
+      "type": "array"
+    }
+  },
+  "required": [
+    "text",
+    "evidence"
+  ],
+  "title": "ImageUnderstandingResult",
+  "type": "object"
+}

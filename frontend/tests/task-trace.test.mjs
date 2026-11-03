@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   callContext,
   findFindingCall,
+  isDomainToolAgentNode,
   roundNodes,
 } from "../src/taskTraceModel.ts";
 
@@ -102,4 +103,26 @@ test("流程调整可追溯原轮与复用节点，工具标签取自实际节�
       .node,
     undefined,
   );
+});
+
+test("只有真实领域工具循环方法和模型同时存在才标识云端领域 Agent", () => {
+  const output = {
+    method: "domain_tool_agent",
+    model: "real-model",
+    executor_id: "analyze.t01.research_reading_card",
+    executor_version: 1,
+  };
+  assert.equal(isDomainToolAgentNode({ output }), true);
+  for (const change of [
+    { method: "specialist_analysis" },
+    { method: undefined },
+    { model: "" },
+    { model: "   " },
+    { model: null },
+    { model: undefined },
+  ])
+    assert.equal(
+      isDomainToolAgentNode({ output: { ...output, ...change } }),
+      false,
+    );
 });

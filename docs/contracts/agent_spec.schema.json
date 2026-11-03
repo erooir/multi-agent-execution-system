@@ -1,5 +1,33 @@
 {
   "$defs": {
+    "ExecutorBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "implementation": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Implementation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "implementation"
+      ],
+      "title": "ExecutorBinding",
+      "type": "object"
+    },
     "Member": {
       "additionalProperties": false,
       "properties": {
@@ -107,13 +135,15 @@
           "source_summary",
           "text_analysis",
           "image_inspect",
+          "image_ocr",
+          "image_understand",
           "audio_transcribe",
           "video_analyze",
           "case_analysis"
         ],
         "type": "string"
       },
-      "maxItems": 6,
+      "maxItems": 8,
       "minItems": 1,
       "title": "Capabilities",
       "type": "array"
@@ -192,6 +222,19 @@
       "maxItems": 5,
       "title": "Skill Refs",
       "type": "array"
+    },
+    "executor_bindings": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ExecutorBinding"
+      },
+      "propertyNames": {
+        "enum": [
+          "local",
+          "cloud"
+        ]
+      },
+      "title": "Executor Bindings",
+      "type": "object"
     }
   },
   "required": [

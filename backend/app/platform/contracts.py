@@ -9,6 +9,8 @@ TaskType = Literal[
     "source_summary",
     "text_analysis",
     "image_inspect",
+    "image_ocr",
+    "image_understand",
     "audio_transcribe",
     "video_analyze",
     "case_analysis",
@@ -51,6 +53,7 @@ class ToolParameters(Contract):
     descending: bool = False
     deduplicate: bool = False
     max_chars: int = Field(default=2000, ge=100, le=20000)
+    min_confidence: float = Field(default=0, ge=0, le=1, allow_inf_nan=False)
 
 
 class ToolReference(Contract):
@@ -72,7 +75,7 @@ class ToolCallRecord(Contract):
     kind: Literal["tool", "mcp", "skill"]
     capability_id: str
     version: str
-    status: Literal["running", "completed", "failed"]
+    status: Literal["running", "completed", "failed", "uncertain"]
     started_at: str
     duration_ms: int = 0
     argument_names: list[str] = Field(default_factory=list)
@@ -81,6 +84,10 @@ class ToolCallRecord(Contract):
     result_checksum: str | None = None
     error_code: str | None = None
     summary: dict[str, Any] = Field(default_factory=dict)
+    external: bool = False
+    transport: str | None = None
+    server_id: str | None = None
+    upstream_request_id: str | None = None
 
 
 class ToolResult(Contract):
@@ -124,10 +131,50 @@ class DerivedCitation(Contract):
     result_checksum: str
 
 
+class ExternalCitation(Contract):
+    model_config = ConfigDict(extra="ignore")
+    kind: Literal["external_result"] = Field(validation_alias=AliasChoices("kind", "type"))
+    tool_call_id: str
+    capability_id: str
+    version: str
+    result_checksum: str
+
+
 class AgentTextResult(Contract):
     text: str = Field(min_length=1, max_length=50000)
-    citations: list[SourceCitation | DerivedCitation] = Field(min_length=1, max_length=100)
+    citations: list[SourceCitation | DerivedCitation | ExternalCitation] = Field(min_length=1, max_length=100)
     missing_information: list[str] = Field(default_factory=list, max_length=100)
+
+
+class ImageRegionEvidence(Contract):
+    model_config = ConfigDict(extra="ignore")
+    source_id: str
+    source_version: str
+    bbox: list[float] | None = Field(default=None, min_length=4, max_length=4)
+
+
+class ImageUnderstandingResult(Contract):
+    text: str = Field(min_length=1, max_length=50000)
+    evidence: list[ImageRegionEvidence] = Field(min_length=1, max_length=100)
+    missing_information: list[str] = Field(default_factory=list, max_length=100)
+
+
+class OcrBlock(Contract):
+    text: str
+    confidence: float = Field(ge=0, le=1, allow_inf_nan=False)
+    bbox: list[list[float]]
+
+
+class OcrImageResult(Contract):
+    source_id: str
+    source_version: str
+    text: str
+    blocks: list[OcrBlock]
+    no_text: bool
+
+
+class OcrResult(Contract):
+    images: list[OcrImageResult]
 
 
 class ToolCallDetail(Contract):
@@ -178,11 +225,46 @@ class TableAggregate(Contract):
     where: dict[str, str | int | float | bool | None] | None = None
 
 
+class HttpToolInput(Contract):
+    project_id: str
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(min_length=1, max_length=2000)
+    url: str = Field(min_length=1, max_length=1000)
+    input_schema: dict[str, Any]
+    output_schema: dict[str, Any]
+    secret_ref: str | None = Field(default=None, max_length=100)
+    timeout_seconds: float = Field(default=15, gt=0, le=60, allow_inf_nan=False)
+    max_result_bytes: int = Field(default=80000, ge=1, le=80000)
+
+
+class McpServerInput(Contract):
+    project_id: str
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=2000)
+    transport: Literal["stdio", "streamable_http"]
+    url: str = Field(default="", max_length=1000)
+    launcher_id: str = Field(default="", max_length=100)
+    secret_ref: str | None = Field(default=None, max_length=100)
+
+
+class NativeToolkitInput(Contract):
+    project_id: str
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=2000)
+    provider: Literal["calculator", "duckduckgo"]
+    include_tools: list[str] = Field(default_factory=list, max_length=30)
+
+
+class SkillPublishInput(Contract):
+    tool_bindings: dict[str, str] = Field(default_factory=dict)
+
+
 class CapabilityCatalog(Contract):
     capabilities: list[dict[str, Any]]
     tools: list[dict[str, Any]]
     skills: list[dict[str, Any]]
     mcp_servers: list[dict[str, Any]]
+    definitions: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class TaskPreflight(Contract):
@@ -233,13 +315,19 @@ class QuestionAnswer(Contract):
     content_withheld: bool = False
 
 
+class ExecutorBinding(Contract):
+    id: str = Field(min_length=1, max_length=120)
+    version: int = Field(ge=1)
+    implementation: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class AgentInput(Contract):
     project_id: str
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=2000)
     purpose: Literal["general", "specialized"] = "general"
     structure: Literal["atomic", "composite"] = "atomic"
-    capabilities: list[TaskType] = Field(min_length=1, max_length=6)
+    capabilities: list[TaskType] = Field(min_length=1, max_length=8)
     modalities: list[Literal["text", "structured", "image", "audio", "video"]] = Field(
         default_factory=lambda: ["text"]
     )
@@ -251,6 +339,7 @@ class AgentInput(Contract):
     execution_strategy: Literal["fixed", "tool_agent"] = "fixed"
     tool_refs: list[ToolReference] = Field(default_factory=list, max_length=10)
     skill_refs: list[SkillReference] = Field(default_factory=list, max_length=5)
+    executor_bindings: dict[Literal["local", "cloud"], ExecutorBinding] = Field(default_factory=dict)
 
 
 class WorkflowNode(Contract):

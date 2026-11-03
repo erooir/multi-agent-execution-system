@@ -8,6 +8,15 @@ export function callRound(revision: unknown) {
     : "未记录轮次";
 }
 
+export function isDomainToolAgentNode(node: Item) {
+  const output = node?.output;
+  return (
+    output?.method === "domain_tool_agent" &&
+    typeof output.model === "string" &&
+    output.model.trim().length > 0
+  );
+}
+
 export function findFindingCall(finding: Item, calls: Item[]) {
   if (!finding.tool_call_id) return undefined;
   return calls.find(

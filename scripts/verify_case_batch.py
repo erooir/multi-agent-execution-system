@@ -11,6 +11,7 @@ import hashlib
 import io
 import json
 import os
+import sys
 import time
 import uuid
 import zipfile
@@ -22,6 +23,7 @@ from urllib.parse import urlsplit
 import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 MIME = {
     ".pdf": "application/pdf",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

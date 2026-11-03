@@ -337,7 +337,7 @@ export default function AgentToolPreview({
           ))}
           {!available.length && (
             <p className="muted">
-              没有符合此工具格式和岗位模态的有效资料。可在「数据资料」登记匹配的原件。
+              没有符合此工具格式和用例岗位模态的有效资料。可在「数据资料」登记匹配的原件。
             </p>
           )}
         </div>

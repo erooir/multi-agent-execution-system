@@ -3,13 +3,17 @@ import { api, idPath } from "./api";
 import { reasonNames, time } from "./domain";
 import type { Item } from "./types";
 import { Badge, Empty, ErrorLine, Field, JsonView, Modal } from "./ui";
-import { callContext, callRound } from "./taskTraceModel";
+import {
+  callContext,
+  callRound,
+  isDomainToolAgentNode,
+} from "./taskTraceModel";
 import "./task-trace.css";
 
 const kinds: Record<string, string> = {
   tool: "内置工具",
-  mcp: "MCP 服务",
-  skill: "技能读取",
+  mcp: "Agno MCP 工具",
+  skill: "文档技能包读取",
 };
 export function callError(code: string) {
   return (
@@ -22,6 +26,37 @@ export function callError(code: string) {
     )[code] ||
     reasonNames[code] ||
     code
+  );
+}
+
+export function NodeExecutionFacts({ node }: { node?: Item }) {
+  const output = node?.output;
+  if (!output || typeof output !== "object") return null;
+  const hasModel =
+    typeof output.model === "string" && output.model.trim().length > 0;
+  return (
+    <dl className="trace-facts">
+      <dt>节点执行方式</dt>
+      <dd>
+        {isDomainToolAgentNode(node)
+          ? "云端领域 Agent · domain_tool_agent"
+          : output.method || "未记录"}
+      </dd>
+      <dt>实际执行器</dt>
+      <dd>
+        {output.executor_id ? (
+          <>
+            <code>{output.executor_id}</code>
+            {output.executor_version != null &&
+              ` · v${output.executor_version}`}
+          </>
+        ) : (
+          "未记录"
+        )}
+      </dd>
+      <dt>实际模型</dt>
+      <dd>{hasModel ? output.model : "未记录"}</dd>
+    </dl>
   );
 }
 
@@ -39,7 +74,7 @@ export function ToolCalls({
     return (
       <Empty
         title="暂无工具调用"
-        description="此范围内尚无实际调用记录。岗位授权可在智能体资产中查看。"
+        description="此范围内尚无实际调用记录。智能体授权可在智能体资产中查看。"
       />
     );
   const rows = calls.filter(
@@ -70,7 +105,7 @@ export function ToolCalls({
           <table>
             <thead>
               <tr>
-                <th>工具 / 技能</th>
+                <th>工具 / 技能（Skill）</th>
                 <th>执行节点</th>
                 <th>状态</th>
                 <th>耗时</th>
@@ -88,8 +123,12 @@ export function ToolCalls({
                         <small>{call.capability_id}</small>
                       )}
                       <small>
-                        {kinds[call.kind] || call.kind} · v{call.version}
+                        {call.kind === "tool" && call.external
+                          ? "外部工具"
+                          : kinds[call.kind] || call.kind}{" "}
+                        · v{call.version}
                       </small>
+                      {call.transport && <small>{call.transport}</small>}
                     </td>
                     <td>
                       {node?.label || call.node_id || "未记录节点"}
@@ -172,6 +211,7 @@ export function ToolCallDialog({
           {node?.label || call.node_id || "未记录节点"}
           {agent && " · " + agent.name + " v" + agent.version}
         </p>
+        <NodeExecutionFacts node={node} />
         <dl className="trace-facts">
           <dt>调用 ID</dt>
           <dd>

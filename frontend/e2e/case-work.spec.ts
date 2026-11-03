@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test("用例研判：真实提交、三节点审核、来源证据与智能体监测", async ({
+test("用例任务：真实提交、三节点审核、来源证据与智能体监测", async ({
   page,
 }) => {
   await page.goto("/manage");
@@ -48,12 +48,12 @@ test("用例研判：真实提交、三节点审核、来源证据与智能体�
   await page.getByLabel("当前项目").selectOption(id);
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "用例研判" })
+    .getByRole("button", { name: "用例任务" })
     .click();
-  await page.getByRole("button", { name: "安装项目协作组" }).click();
+  await page.getByRole("button", { name: "发布本项目用例岗位与流程" }).click();
   await page.getByRole("button", { name: "地理与时序", exact: true }).click();
   const card = page.locator(".case-grid .panel").filter({ hasText: "G03" });
-  await card.getByRole("button", { name: "创建分析任务" }).click();
+  await card.getByRole("button", { name: "创建用例任务" }).click();
   const dlg = page.getByRole("dialog");
   await expect(dlg.getByLabel("分析用例")).toHaveValue("G03");
   await dlg.getByLabel("验收范围").selectOption("sample");
@@ -78,7 +78,7 @@ test("用例研判：真实提交、三节点审核、来源证据与智能体�
   expect(detail.quality_verdict.passed).toBe(true);
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "用例研判" })
+    .getByRole("button", { name: "用例任务" })
     .click();
   await page.getByRole("button", { name: "智能体运行监测" }).click();
   const monitored = page

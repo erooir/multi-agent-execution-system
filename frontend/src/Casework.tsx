@@ -5,7 +5,7 @@ import type { Item, Mutation } from "./types";
 import { Panel, SectionTitle, Empty } from "./ui";
 import { TaskForm } from "./Forms";
 import SemanticEvidence from "./SemanticEvidence";
-import { CaseRoleComparison, RoleFacts } from "./CaseRoles";
+import { CaseRoleComparison, caseRoleAgent, RoleFacts } from "./CaseRoles";
 import AgentActivity from "./AgentActivity";
 
 export type CaseTab = "catalog" | "roles" | "monitor" | "semantic";
@@ -21,6 +21,7 @@ export default function Casework({
   canEdit,
   mutate,
   assets,
+  agents,
   workflows,
   tasks,
   offline,
@@ -32,6 +33,7 @@ export default function Casework({
   canEdit: boolean;
   mutate: Mutation;
   assets: Item[];
+  agents: Item[];
   workflows: Item[];
   tasks: Item[];
   offline: boolean;
@@ -102,7 +104,9 @@ export default function Casework({
               "?project_id=" +
               encodeURIComponent(projectId),
           ),
-        upgrade ? "岗位授权已升级，后续任务可使用新版本" : "协作组已安装",
+        upgrade
+          ? "新版用例岗位与流程已发布，后续任务可使用新版本"
+          : "本项目用例岗位与流程已发布",
       );
       refresh((n) => n + 1);
       setError("");
@@ -115,9 +119,9 @@ export default function Casework({
   return (
     <>
       <SectionTitle
-        eyebrow="协作任务"
-        title="用例研判"
-        description="按业务问题选择分析流程。资料、专业计算和独立审核都有版本及运行记录。"
+        eyebrow="用例任务"
+        title="用例任务"
+        description="按业务问题选择分析流程。资料、专业计算和独立审核都有版本及运行记录。发布会将用例岗位与流程绑定到本项目，不会下载外部内容。"
         actions={
           canEdit &&
           (!installed || needsUpgrade) && (
@@ -126,14 +130,16 @@ export default function Casework({
               onClick={() => provision(needsUpgrade)}
             >
               <Users size={16} />
-              {needsUpgrade ? "升级岗位工具授权" : "安装项目协作组"}
+              {needsUpgrade
+                ? "发布新版用例岗位与流程"
+                : "发布本项目用例岗位与流程"}
             </button>
           )
         }
       />
       {needsUpgrade && (
         <p className="warning">
-          本项目已安装旧版流程。升级会发布新版岗位和流程，历史版本与原任务保留；存在未发布的编辑时请先处理冲突。
+          本项目已发布旧版流程。升级会发布新版用例岗位和流程，历史版本与原任务保留；存在未发布的编辑时请先处理冲突。
         </p>
       )}
       <div className="segmented">
@@ -143,7 +149,7 @@ export default function Casework({
           onClick={() => setTab("catalog")}
         >
           <Layers3 size={16} />
-          任务目录
+          用例任务目录
         </button>
         <button
           className={tab === "roles" ? "selected" : ""}
@@ -151,7 +157,7 @@ export default function Casework({
           onClick={() => setTab("roles")}
         >
           <Users size={16} />
-          岗位对照
+          用例岗位对照
         </button>
         <button
           className={tab === "monitor" ? "selected" : ""}
@@ -197,7 +203,7 @@ export default function Casework({
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="编号、岗位名称、工具或所需材料"
+                placeholder="编号、用例岗位名称、工具或所需材料"
               />
             </label>
             {catalogLoaded && (
@@ -231,10 +237,10 @@ export default function Casework({
                     <small>
                       {p.role_contract.shared_cases.length > 1
                         ? p.role_contract.shared_cases.length +
-                          " 个岗位共用实现"
-                        : "此用例专用实现"}
+                          " 个用例共用算法"
+                        : "此用例专用算法"}
                       {" · "}
-                      {p.role_contract.grants.length} 项岗位工具
+                      {p.role_contract.grants.length} 项用例岗位工具
                       {p.project_tools_current ? " · 已绑定" : " · 待发布绑定"}
                     </small>
                   </div>
@@ -249,7 +255,11 @@ export default function Casework({
                 {p.role_contract && (
                   <details>
                     <summary>职责、共用算法与授权清单</summary>
-                    <RoleFacts role={p.role_contract} tools={tools} />
+                    <RoleFacts
+                      role={p.role_contract}
+                      tools={tools}
+                      agent={caseRoleAgent(agents, p.id, "analyze")}
+                    />
                   </details>
                 )}
                 <button
@@ -259,11 +269,11 @@ export default function Casework({
                     setTab("roles");
                   }}
                 >
-                  与其他岗位对照
+                  与其他用例岗位对照
                 </button>
                 {canEdit && (
                   <button disabled={!p.installed} onClick={() => setProfile(p)}>
-                    创建分析任务 <ArrowRight size={14} />
+                    创建用例任务 <ArrowRight size={14} />
                   </button>
                 )}
               </Panel>
@@ -274,6 +284,7 @@ export default function Casework({
         <CaseRoleComparison
           catalog={catalog}
           tools={tools}
+          agents={agents}
           initial={compareId}
         />
       ) : tab === "semantic" ? (

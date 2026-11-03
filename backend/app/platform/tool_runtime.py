@@ -1,119 +1,32 @@
-"""Task-private tools, a real MCP session, and read-only Agno skill loading."""
+"""Govern native Agno Functions, Toolkits, MCPTools and Skills per task."""
 
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
-import os
-import sys
 import tempfile
 import time
 import uuid
-from typing import Literal
 
+from agno.tools.function import Function
+from agno.tools.function import ToolResult as AgnoToolResult
+from jsonschema import ValidationError as SchemaValidationError
+from jsonschema import validate as validate_json
 from pydantic import ValidationError
 
-from .contracts import (
-    Contract,
-    EvidenceLocate,
-    SkillRead,
-    SkillReferenceRead,
-    SourceRead,
-    SourceSearch,
-    TableAggregate,
-    TableOperation,
-    ToolCallRecord,
-    ToolResult,
-)
+from .contracts import ToolCallRecord, ToolResult
 from .db import LeaseLost, now
+from .mcp_runtime import connect_mcp, create_builtin_mcp, create_mcp_tools
+from .native_capabilities import create_native_toolkit, load_native_skills
 from .quality import text_of
-from .tool_registry import ROOT, SKILL_ROOT, digest, validate_frozen
-
-
-class LocalMCP:
-    """One owning coroutine keeps MCP cancel scopes and subprocess cleanup together."""
-
-    def __init__(self):
-        self.queue = asyncio.Queue()
-        self.task = None
-        self.ready = None
-        self.active = None
-
-    async def _serve(self):
-        from mcp import ClientSession, StdioServerParameters
-        from mcp.client.stdio import stdio_client
-
-        env = {
-            key: value
-            for key, value in os.environ.items()
-            if key.upper() in {"SYSTEMROOT", "WINDIR", "PATH", "TEMP", "TMP", "USERPROFILE"}
-        }
-        env.update(PYTHONIOENCODING="utf-8", PYTHONNOUSERSITE="1", AGNO_TELEMETRY="false")
-        params = StdioServerParameters(
-            command=sys.executable, args=["-m", "backend.app.platform.mcp_server"], cwd=str(ROOT), env=env
-        )
-        try:
-            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as errors:
-                async with stdio_client(params, errlog=errors) as (reader, writer):  # noqa: SIM117 - one owning MCP task
-                    async with ClientSession(reader, writer) as session:
-                        await session.initialize()
-                        discovered = await session.list_tools()
-                        names = {tool.name for tool in discovered.tools}
-                        if names != {"table_transform", "table_aggregate"}:
-                            raise ValueError("mcp_catalog_changed")
-                        self.ready.set_result(True)
-                        while True:
-                            name, arguments, future = await self.queue.get()
-                            self.active = future
-                            async with asyncio.timeout(12):
-                                result = await session.call_tool(name, arguments)
-                            if result.isError:
-                                value = {"error_code": "mcp_tool_failed"}
-                            else:
-                                value = result.structuredContent
-                                if value is None:
-                                    value = json.loads(
-                                        "".join(
-                                            block.text for block in result.content if block.type == "text"
-                                        )
-                                    )
-                            if not future.done():
-                                future.set_result(value)
-                            self.active = None
-        except BaseException as exc:
-            error = RuntimeError("mcp_unavailable")
-            if self.ready and not self.ready.done():
-                self.ready.set_exception(error)
-            if self.active and not self.active.done():
-                self.active.set_exception(error)
-            while not self.queue.empty():
-                _, _, future = self.queue.get_nowait()
-                if not future.done():
-                    future.set_exception(error)
-            if isinstance(exc, asyncio.CancelledError):
-                raise
-
-    async def call(self, name, arguments):
-        if self.task is None:
-            self.ready = asyncio.get_running_loop().create_future()
-            self.task = asyncio.create_task(self._serve())
-        await asyncio.wait_for(asyncio.shield(self.ready), timeout=20)
-        if self.task.done():
-            raise RuntimeError("mcp_unavailable")
-        future = asyncio.get_running_loop().create_future()
-        await self.queue.put((name, arguments, future))
-        return await asyncio.wait_for(asyncio.shield(future), timeout=15)
-
-    async def close(self):
-        if self.task:
-            self.task.cancel()
-            await asyncio.gather(self.task, return_exceptions=True)
+from .tool_registry import digest, validate_frozen
 
 
 class ToolSession:
-    def __init__(self, execution, agent, revision, permissions):
+    def __init__(self, execution, agent, revision, permissions, *, instance_id=None):
         self.execution, self.agent, self.revision = execution, agent, revision
-        validate_frozen(agent)
+        validate_frozen(agent, execution.repository)
         self.tools = {
             item["name"]: item
             for item in agent["runtime_bindings"]["tools"]
@@ -125,9 +38,16 @@ class ToolSession:
             if f"skill:{item['id']}@{item['version']}" in permissions
         }
         self.sources_read = set()
-        self.mcp = LocalMCP()
         self.derived = []
-        self.instance_id = next(
+        self.external = []
+        self.native_toolkits = []
+        self.native_functions = {}
+        self.standalone_functions = {}
+        self.skill_functions = {}
+        self.skills_native = None
+        self.temporary = None
+        self.closed = False
+        self.instance_id = instance_id or next(
             (
                 node["instance_id"]
                 for node in execution.repository.list("nodes", task_id=execution.task["id"])
@@ -147,12 +67,28 @@ class ToolSession:
         self.sources_read.add(source_id)
         return source
 
-    async def invoke(self, name, schema, arguments, handler, *, skill_id=None):
+    @staticmethod
+    def _normalize_result(value):
+        if isinstance(value, AgnoToolResult):
+            if value.images or value.audios or value.videos or value.files:
+                raise ValueError("mcp_media_result_unsupported")
+            structured = (value.metadata or {}).get("structured_content")
+            value = structured if structured is not None else value.content
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                return {"text": value}
+        if isinstance(value, dict):
+            return value
+        return {"value": value}
+
+    async def invoke(self, name, schema, arguments, handler, *, skill_id=None, project=None):
         from .runtime import TaskFailure
 
         execution = self.execution
         execution.check()
-        validate_frozen(self.agent)
+        validate_frozen(self.agent, execution.repository)
         spec = self.skills[skill_id] if skill_id else self.tools[name]
         current = execution.current()
         count = sum(
@@ -162,6 +98,7 @@ class ToolSession:
         )
         if count >= 12:
             raise TaskFailure("tool_call_limit", "节点本轮工具调用达到12次上限")
+        external = bool(spec.get("external")) and not skill_id
         record = ToolCallRecord(
             id=uuid.uuid4().hex,
             task_id=execution.task["id"],
@@ -175,23 +112,43 @@ class ToolSession:
             started_at=now(),
             argument_names=sorted(arguments),
             arguments_checksum=digest(arguments),
+            external=external,
+            transport=spec.get("transport"),
+            server_id=spec.get("server_id"),
         ).model_dump()
         self.save(record, "tool.started")
         started = time.monotonic()
+        sources_before = set(self.sources_read)
         data = None
+        checkpoint_result = None
+        raw_result = None
         try:
-            validated = schema.model_validate(arguments).model_dump()
+            if self.closed:
+                raise RuntimeError("mcp_unavailable")
+            if hasattr(schema, "model_validate"):
+                validated = schema.model_validate(arguments).model_dump()
+            else:
+                validate_json(arguments, schema)
+                validated = arguments
             pending_result = handler(**validated)
-            data = await pending_result if hasattr(pending_result, "__await__") else pending_result
+            raw_result = await pending_result if inspect.isawaitable(pending_result) else pending_result
+            data = self._normalize_result(raw_result)
+            checkpoint_result = data
             execution.check()
-            if not isinstance(data, dict) or len(json.dumps(data, ensure_ascii=False).encode()) > 80_000:
+            record.update(
+                status="completed",
+                result_checksum=digest(data),
+                source_refs=sorted(self.sources_read - sources_before),
+            )
+            if project is not None:
+                data = self._normalize_result(project(data, record))
+                if data.get("error_code"):
+                    raise ValueError(data["error_code"])
+            if len(json.dumps(data, ensure_ascii=False).encode()) > 80_000:
                 raise ValueError("tool_result_too_large")
             if data.get("error_code"):
                 raise ValueError(data["error_code"])
-            record.update(
-                status="completed", result_checksum=digest(data), source_refs=sorted(self.sources_read)
-            )
-            if spec.get("kind") == "mcp":
+            if spec.get("kind") == "mcp" and spec.get("adapter") == "builtin":
                 evidence = {
                     "kind": "derived_result",
                     "tool_call_id": record["id"],
@@ -200,6 +157,16 @@ class ToolSession:
                 }
                 self.derived.append(evidence)
                 data = {**data, "derived_evidence": evidence}
+            elif external:
+                evidence = {
+                    "kind": "external_result",
+                    "tool_call_id": record["id"],
+                    "capability_id": spec["id"],
+                    "version": str(spec["version"]),
+                    "result_checksum": digest(data),
+                }
+                self.external.append(evidence)
+                data = {**data, "external_evidence": evidence}
             record["summary"] = {
                 "operation": name,
                 **{
@@ -207,7 +174,11 @@ class ToolSession:
                     for key in ("total_rows", "matched_rows", "metric", "truncated")
                     if key in data
                 },
+                **({"external_result_unverified": True} if external else {}),
+                **({"full_result_in_checkpoint": True} if project is not None else {}),
             }
+            if skill_id:
+                return raw_result
             return ToolResult(
                 data=data,
                 evidence=[{"source_id": ref, "classification": "public"} for ref in record["source_refs"]],
@@ -216,25 +187,60 @@ class ToolSession:
             raise
         except TaskFailure as exc:
             record.update(status="failed", error_code=exc.code)
-            execution.check()  # Cancellation, deadline and revoked permissions stop the next model request too.
+            execution.check()
             return ToolResult(data={"error_code": exc.code, "message": exc.message}).model_dump()
-        except (ValueError, TypeError, KeyError, ValidationError, RuntimeError, TimeoutError) as exc:
+        except (
+            ValueError,
+            TypeError,
+            KeyError,
+            ValidationError,
+            SchemaValidationError,
+            RuntimeError,
+            TimeoutError,
+        ) as exc:
+            safe_codes = {
+                "capability_version_changed",
+                "capability_revoked",
+                "external_target_not_allowed",
+                "external_address_not_allowed",
+                "external_tool_http_error",
+                "external_tool_invalid_response",
+                "secret_unavailable",
+                "mcp_tool_failed",
+                "mcp_unavailable",
+                "mcp_media_result_unsupported",
+                "tool_result_too_large",
+                "case_stage_already_executed",
+                "case_previous_contract",
+                "case_output_contract",
+                "case_output_sources",
+                "case_record_contract",
+                "case_product_contract",
+                "case_review_contract",
+            }
             code = (
-                "mcp_unavailable" if isinstance(exc, (RuntimeError, TimeoutError)) else "tool_input_invalid"
+                str(exc)
+                if str(exc) in safe_codes
+                else "mcp_unavailable"
+                if isinstance(exc, (RuntimeError, TimeoutError))
+                else "tool_input_invalid"
             )
             record.update(status="failed", error_code=code)
             return ToolResult(
-                data={"error_code": code, "message": "工具未完成，请检查参数、字段和资料范围"}
+                data={"error_code": code, "message": "工具未完成，请检查参数、授权和外部服务状态"}
             ).model_dump()
         finally:
             record["duration_ms"] = int((time.monotonic() - started) * 1000)
             if record["status"] == "running":
-                record.update(status="failed", error_code="tool_interrupted")
+                record.update(
+                    status="uncertain" if external else "failed",
+                    error_code="external_call_uncertain" if external else "tool_interrupted",
+                )
             self.save(
                 record,
                 "tool." + record["status"],
                 arguments=arguments,
-                result=data if isinstance(data, dict) else None,
+                result=checkpoint_result if project is not None else data,
             )
 
     def save(self, record, event_type, arguments=None, result=None):
@@ -256,188 +262,220 @@ class ToolSession:
                 task["id"], event_type, record, node_id=record["node_id"], instance_id=record["instance_id"]
             )
 
-    def bindings(self):
-        async def list_sources() -> dict:
-            """查看本任务已授权资料的ID、名称、模态和版本，不读取正文。"""
-            return await self.invoke(
-                "list_sources",
-                Contract,
-                {},
-                lambda: {
-                    "sources": [
+    def _wrap(self, function, spec, transform=None, *, standalone=False):
+        original = function.entrypoint
+
+        async def governed(*args, **kwargs):
+            names = list((spec.get("input_schema") or {}).get("properties", {}))
+            if len(args) > len(names):
+                raise ValueError("tool_input_invalid")
+            arguments = {**dict(zip(names, args, strict=False)), **kwargs}
+            schema = spec.get("input_schema") or {"type": "object"}
+
+            async def call(**validated):
+                native_arguments = transform(validated) if transform else validated
+                result = original(**native_arguments)
+                return await result if inspect.isawaitable(result) else result
+
+            return await self.invoke(spec["name"], schema, arguments, call, project=spec.get("_project"))
+
+        function.entrypoint = governed
+        function.skip_entrypoint_processing = True
+        self.native_functions[function.name] = function
+        if standalone:
+            self.standalone_functions[function.name] = function
+        return function
+
+    def _builtin_handler(self, name):
+        def list_sources():
+            return {
+                "sources": [
+                    {key: item.get(key) for key in ("id", "name", "modality", "media_type", "source_version")}
+                    for item in self.execution.inputs
+                ]
+            }
+
+        def read_source(params):
+            source = self.source(params["source_id"])
+            text = text_of(source)
+            start, length = params["start"], params["length"]
+            return {
+                "source_id": params["source_id"],
+                "source_version": source["source_version"],
+                "start": start,
+                "end": min(len(text), start + length),
+                "source_text": text[start : start + length],
+                "total_chars": len(text),
+            }
+
+        def search_sources(params):
+            hits = []
+            for item in self.execution.inputs:
+                text = text_of(self.source(item["id"]))
+                offset = text.find(params["query"])
+                if offset >= 0:
+                    start, end = max(0, offset - 100), min(len(text), offset + len(params["query"]) + 300)
+                    hits.append(
                         {
-                            key: item.get(key)
-                            for key in ("id", "name", "modality", "media_type", "source_version")
+                            "source_id": item["id"],
+                            "source_version": item["source_version"],
+                            "start": start,
+                            "end": end,
+                            "source_text": text[start:end],
                         }
-                        for item in self.execution.inputs
-                    ]
-                },
-            )
+                    )
+                if len(hits) >= params["limit"]:
+                    break
+            return {"hits": hits}
 
-        async def read_source(source_id: str, start: int = 0, length: int = 2000) -> dict:
-            """读取授权资料片段。start为字符偏移，最多12000字符；可分页阅读。"""
-
-            def read(**params):
-                source = self.source(params["source_id"])
-                text = text_of(source)
-                start, length = params["start"], params["length"]
-                return {
-                    "source_id": source_id,
-                    "source_version": source["source_version"],
-                    "start": start,
-                    "end": min(len(text), start + length),
-                    "source_text": text[start : start + length],
-                    "total_chars": len(text),
-                }
-
-            return await self.invoke(
-                "read_source", SourceRead, {"source_id": source_id, "start": start, "length": length}, read
-            )
-
-        async def search_sources(query: str, limit: int = 10) -> dict:
-            """在冻结授权资料中精确查找关键词，返回原文片段和字符位置。"""
-
-            def search(**params):
-                hits = []
-                for item in self.execution.inputs:
-                    text = text_of(self.source(item["id"]))
-                    offset = text.find(params["query"])
-                    if offset >= 0:
-                        start, end = max(0, offset - 100), min(len(text), offset + len(params["query"]) + 300)
-                        hits.append(
-                            {
-                                "source_id": item["id"],
-                                "source_version": item["source_version"],
-                                "start": start,
-                                "end": end,
-                                "source_text": text[start:end],
-                            }
-                        )
-                    if len(hits) >= params["limit"]:
-                        break
-                return {"hits": hits}
-
-            return await self.invoke("search_sources", SourceSearch, {"query": query, "limit": limit}, search)
-
-        async def locate_evidence(source_id: str, quote: str) -> dict:
-            """核实逐字引文并返回实际字符位置；不存在时明确失败。"""
-
-            def locate(**params):
-                source = self.source(params["source_id"])
-                offset = text_of(source).find(params["quote"])
-                if offset < 0:
-                    raise ValueError("quote_not_found")
-                return {
-                    "source_id": source_id,
-                    "source_version": source["source_version"],
-                    "quote": quote,
-                    "start": offset,
-                    "end": offset + len(quote),
-                }
-
-            return await self.invoke(
-                "locate_evidence", EvidenceLocate, {"source_id": source_id, "quote": quote}, locate
-            )
-
-        async def table_transform(
-            source_id: str,
-            operation: Literal["filter", "sort", "deduplicate"] = "filter",
-            where: dict | None = None,
-            sort_by: str | None = None,
-            descending: bool = False,
-            sort_type: Literal["auto", "numeric", "text"] = "auto",
-            limit: int = 100,
-        ) -> dict:
-            """真实MCP处理JSON/CSV：where先筛选，sort_by再按descending排序。sort_type=auto会识别数字字符串，numeric强制数值排序，text按文本。每次独立读取source_id，需重传where。"""
-            args = {
-                "source_id": source_id,
-                "operation": operation,
-                "where": where,
-                "sort_by": sort_by,
-                "descending": descending,
-                "sort_type": sort_type,
-                "limit": limit,
+        def locate_evidence(params):
+            source = self.source(params["source_id"])
+            offset = text_of(source).find(params["quote"])
+            if offset < 0:
+                raise ValueError("quote_not_found")
+            return {
+                "source_id": params["source_id"],
+                "source_version": source["source_version"],
+                "quote": params["quote"],
+                "start": offset,
+                "end": offset + len(params["quote"]),
             }
-            return await self.invoke(
-                "table_transform", TableOperation, args, lambda **p: self.table_call("table_transform", p)
-            )
 
-        async def table_aggregate(
-            source_id: str,
-            metric: Literal["count", "sum", "average", "min", "max"] = "count",
-            value_field: str | None = None,
-            group_by: str | None = None,
-            where: dict | None = None,
-        ) -> dict:
-            """通过真实MCP对完整JSON/CSV计数count、求和sum、平均average、min/max，可分组和筛选。"""
-            args = {
-                "source_id": source_id,
-                "metric": metric,
-                "value_field": value_field,
-                "group_by": group_by,
-                "where": where,
-            }
-            return await self.invoke(
-                "table_aggregate", TableAggregate, args, lambda **p: self.table_call("table_aggregate", p)
-            )
-
-        async def get_skill_instructions(skill_id: str) -> dict:
-            """按需读取已绑定技能的真实SKILL.md说明，不执行脚本。"""
-            if skill_id not in self.skills:
-                return {"error_code": "skill_not_authorized"}
-            return await self.invoke(
-                "get_skill_instructions",
-                SkillRead,
-                {"skill_id": skill_id},
-                lambda **_: {
-                    "skill_id": skill_id,
-                    "instructions": (SKILL_ROOT / skill_id / "SKILL.md").read_text(encoding="utf-8"),
-                    "references": self.skills[skill_id]["references"],
-                },
-                skill_id=skill_id,
-            )
-
-        async def get_skill_reference(skill_id: str, reference: str) -> dict:
-            """读取已授权技能references中的指定文件，reference须来自技能目录。"""
-            if skill_id not in self.skills or reference not in self.skills[skill_id]["references"]:
-                return {"error_code": "skill_reference_not_authorized"}
-            return await self.invoke(
-                "get_skill_reference",
-                SkillReferenceRead,
-                {"skill_id": skill_id, "reference": reference},
-                lambda **_: {
-                    "skill_id": skill_id,
-                    "reference": reference,
-                    "text": (SKILL_ROOT / skill_id / "references" / reference).read_text(encoding="utf-8"),
-                },
-                skill_id=skill_id,
-            )
-
-        functions = {
-            function.__name__: function
-            for function in (
-                list_sources,
-                read_source,
-                search_sources,
-                locate_evidence,
-                table_transform,
-                table_aggregate,
-            )
+        handlers = {
+            "list_sources": lambda: list_sources(),
+            "read_source": read_source,
+            "search_sources": search_sources,
+            "locate_evidence": locate_evidence,
         }
-        bindings = {name: function for name, function in functions.items() if name in self.tools}
-        if self.skills:
-            bindings.update(
-                get_skill_instructions=get_skill_instructions, get_skill_reference=get_skill_reference
-            )
-        return bindings
+        return handlers[name]
 
-    async def table_call(self, name, params):
+    def _table_arguments(self, params):
         from .runtime import structured_transform
 
         params = dict(params)
         source = self.source(params.pop("source_id"))
-        records = structured_transform([source])["content"]["records"]
-        return await self.mcp.call(name, {"records": records, **params})
+        return {"records": structured_transform([source])["content"]["records"], **params}
+
+    async def initialize(self):
+        builtin_mcp = [
+            spec for spec in self.tools.values() if spec.get("adapter") == "builtin" and spec["kind"] == "mcp"
+        ]
+        if builtin_mcp:
+            toolkit = await connect_mcp(
+                create_builtin_mcp(
+                    [spec["remote_name"] if "remote_name" in spec else spec["name"] for spec in builtin_mcp]
+                )
+            )
+            self.native_toolkits.append(toolkit)
+            by_name = {spec["name"]: spec for spec in builtin_mcp}
+            for name, function in toolkit.functions.items():
+                spec = by_name[name]
+                function.parameters = spec["input_schema"]
+                function.description = spec["label"]
+                self._wrap(function, spec, self._table_arguments)
+        for spec in self.tools.values():
+            if spec.get("adapter") == "builtin" and spec["kind"] == "tool":
+                handler = self._builtin_handler(spec["name"])
+                function = Function(
+                    name=spec["name"],
+                    description=spec["label"],
+                    parameters=spec["input_schema"],
+                    entrypoint=lambda _handler=handler, **kwargs: _handler(kwargs),
+                )
+                self._wrap(function, spec, standalone=True)
+        groups = {}
+        for spec in self.tools.values():
+            if spec.get("adapter") in {"mcp", "agno_toolkit"}:
+                groups.setdefault((spec["adapter"], spec["definition_id"]), []).append(spec)
+        for (adapter, definition_id), specs in groups.items():
+            if adapter == "mcp":
+                first = specs[0]
+                prefix = f"mcp_{definition_id.replace('-', '_')}"
+                toolkit = await connect_mcp(
+                    create_mcp_tools(
+                        first["handler"],
+                        include_tools=[spec["remote_name"] for spec in specs],
+                        tool_name_prefix=prefix,
+                    )
+                )
+                by_name = {f"{prefix}_{spec['remote_name']}": spec for spec in specs}
+            else:
+                first = specs[0]
+                toolkit = create_native_toolkit(
+                    first["handler"]["provider"],
+                    [spec["name"].split(".")[-1] for spec in specs],
+                )
+                by_name = {spec["name"].split(".")[-1]: spec for spec in specs}
+            self.native_toolkits.append(toolkit)
+            for name, function in toolkit.functions.items():
+                spec = by_name.get(name)
+                if spec is None or function.parameters != spec["input_schema"]:
+                    raise ValueError("capability_version_changed")
+                self._wrap(function, spec)
+        for spec in self.tools.values():
+            if spec.get("adapter") != "http_json":
+                continue
+            from .declarative_tools import call_http
+
+            function = Function(
+                name=spec["name"],
+                description=spec["description"],
+                parameters=spec["input_schema"],
+                entrypoint=lambda _spec=spec, **kwargs: call_http(_spec, kwargs),
+                skip_entrypoint_processing=True,
+            )
+            self._wrap(function, spec, standalone=True)
+        if self.skills:
+            self.temporary = tempfile.TemporaryDirectory()
+            self.skills_native = load_native_skills(self.skills.values(), self.temporary.name)
+            if len(self.skills_native.get_all_skills()) != len(self.skills):
+                raise ValueError("skill_name_conflict")
+            by_native_name = {}
+            for spec in self.skills.values():
+                by_native_name[spec["id"]] = spec
+                by_native_name[spec["name"]] = spec
+            for function in self.skills_native.get_tools():
+                original = function.entrypoint
+
+                async def skill_call(*args, _original=original, _schema=function.parameters, **kwargs):
+                    names = ["skill_name", "reference_path"]
+                    arguments = {**dict(zip(names, args, strict=False)), **kwargs}
+                    native_name = arguments.get("skill_name")
+                    spec = by_native_name.get(native_name)
+                    if spec is None:
+                        return json.dumps({"error": "skill_not_authorized"})
+
+                    async def call(**validated):
+                        result = _original(**validated)
+                        return await result if inspect.isawaitable(result) else result
+
+                    return await self.invoke(
+                        spec["id"],
+                        _schema,
+                        arguments,
+                        call,
+                        skill_id=spec["id"],
+                    )
+
+                function.entrypoint = skill_call
+                function.skip_entrypoint_processing = True
+                self.skill_functions[function.name] = function
+        return self
+
+    def agent_tools(self):
+        return [*self.native_toolkits, *self.standalone_functions.values()]
+
+    def bindings(self):
+        return {
+            **{name: function.entrypoint for name, function in self.native_functions.items()},
+            **{name: function.entrypoint for name, function in self.skill_functions.items()},
+        }
 
     async def close(self):
-        await self.mcp.close()
+        self.closed = True
+        for toolkit in self.native_toolkits:
+            result = toolkit.close()
+            if inspect.isawaitable(result):
+                await result
+        if self.temporary:
+            self.temporary.cleanup()

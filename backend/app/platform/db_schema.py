@@ -17,6 +17,8 @@ from sqlalchemy import (
 
 from .dameng import DMDocument
 
+SCHEMA_VERSION = 2
+CAPABILITY_TABLES = frozenset({"capability_definitions", "capability_versions"})
 KINDS = [
     "projects",
     "agents",
@@ -37,6 +39,8 @@ KINDS = [
     "connectors",
     "workers",
     "audits",
+    "capability_definitions",
+    "capability_versions",
 ]
 metadata = MetaData()
 tables = {}
@@ -64,7 +68,7 @@ for kind in KINDS:
             Column("cancel_requested", Boolean, nullable=False, default=False),
             UniqueConstraint("project_id", "idempotency_key"),
         ]
-    if kind in ("agent_versions", "workflow_versions"):
+    if kind in ("agent_versions", "workflow_versions", "capability_versions"):
         columns += [
             Column("definition_id", String(100)),
             Column("version", Integer),

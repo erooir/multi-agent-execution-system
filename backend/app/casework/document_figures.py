@@ -61,7 +61,7 @@ def printed_labels(im):
     ticks = [
         (int(t), x + w / 2, y)
         for t, x, y, w, h, c in words
-        if re.fullmatch(r"(?:19|20)\d{2}", t) and c >= 85 and 0.77 * big.height < y < 0.91 * big.height
+        if re.fullmatch(r"(?:19|20)\d{2}", t) and c >= 0.85 and 0.77 * big.height < y < 0.91 * big.height
     ]
     ticks.sort(key=lambda z: z[1])
     if len(ticks) < 3 or any(a[0] >= b[0] for a, b in pairwise(ticks)):
@@ -88,7 +88,7 @@ def printed_labels(im):
             for yr, xaxis, _ in ticks
             if abs(xaxis - x) < spacing * 0.19 and _point_marker(big, xaxis, y, h)
         ]
-        if len(aligned) != 1 or confidence < 75 or c < 88:
+        if len(aligned) != 1 or confidence < 0.75 or c < 0.88:
             uncertain = True
             continue
         labels.append(
@@ -108,7 +108,7 @@ def printed_labels(im):
             for row in candidates
             if any(
                 number(t) == row[1]
-                and c >= 85
+                and c >= 0.85
                 and abs(x / scale - row[3][0]) < 4
                 and abs(y / scale - row[3][1]) < 5
                 for t, x, y, w, h, c in corroboration

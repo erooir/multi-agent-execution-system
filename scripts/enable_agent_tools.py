@@ -87,6 +87,10 @@ def main():
         raise SystemExit("需要一个有效管理员账号")
     for record in enable(repo, administrator):
         print(f"Published {record['agent_id']} v{record['version']}")
+    projects = repo.list("projects")
+    with repo.transaction() as tx:
+        for project in projects:
+            service.seed_templates(tx, project["id"])
 
 
 if __name__ == "__main__":

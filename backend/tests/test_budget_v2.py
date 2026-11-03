@@ -300,3 +300,40 @@ async def test_worker_exception_during_network_is_retained_for_sdk(tmp_path):
                 )
     assert isinstance(transport.policy_failure, LeaseLost)
     assert ledger.usage("task")["uncertain_count"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status,expected_code,retry_after",
+    [(400, "model_request_invalid", 0), (429, "model_rate_limited", 0), (503, "model_service_failed", 0)],
+)
+async def test_provider_http_errors_keep_charge_and_safe_classification(
+    tmp_path, status, expected_code, retry_after
+):
+    ledger = BudgetLedger(tmp_path / "isolated.sqlite3")
+    transport = MeteredTransport(
+        ledger,
+        "execute",
+        inner=httpx.MockTransport(
+            lambda _: httpx.Response(
+                status,
+                headers={"Retry-After": "0"},
+                json={"error": {"code": "provider_error", "message": "safe provider diagnostic"}},
+            )
+        ),
+    )
+    with request_scope("task", 1, True):
+        async with httpx.AsyncClient(transport=transport) as client:
+            response = await client.post(
+                "https://api.deepseek.com/chat/completions",
+                json={"model": "deepseek-flash", "max_tokens": 100},
+            )
+    assert response.status_code == status
+    error = transport.policy_failure
+    assert error.code == expected_code
+    assert error.provider_status == status
+    assert error.provider_code == "provider_error"
+    assert error.retry_after_seconds == retry_after
+    assert "safe provider diagnostic" not in str(error)
+    assert ledger.usage("task")["uncertain_count"] == 1
+    assert ledger.usage("task")["reserved_cny"] > 0

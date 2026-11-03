@@ -376,10 +376,69 @@ def task_preflight(body: c.TaskInput, user: dict = edit):
 def capability_catalog(project_id: str | None = None, user: dict = read):
     if project_id is None:
         return s.CAPABILITIES
-    s.project_access(project_id, user)
-    from .tool_registry import catalog
+    return s.capability_catalog(project_id, user, repo)
 
-    return {"capabilities": s.CAPABILITIES, **catalog()}
+
+@router.get("/capability-definitions")
+def capability_definitions(project_id: str, user: dict = read):
+    return s.capability_definitions(project_id, user, repo)
+
+
+@router.post("/capability-definitions/skills/import", status_code=201)
+async def import_skill(
+    file: UploadFile = File(...),  # noqa: B008
+    project_id: str = Form(...),
+    user: dict = edit,
+):
+    package = await file.read(5_000_001)
+    if len(package) > 5_000_000:
+        s.fail("skill_package_too_large", "Skill ZIP 不能超过5MB", 413)
+    return s.capability_view(s.import_skill(package, project_id, user, repo))
+
+
+@router.post("/capability-definitions/tools", status_code=201)
+def create_http_tool(body: c.HttpToolInput, user: dict = admin):
+    return s.capability_view(s.create_http_tool(body.model_dump(), user, repo))
+
+
+@router.post("/capability-definitions/toolkits", status_code=201)
+def create_native_toolkit(body: c.NativeToolkitInput, user: dict = admin):
+    return s.capability_view(s.create_native_toolkit(body.model_dump(), user, repo))
+
+
+@router.post("/capability-definitions/mcp", status_code=201)
+def create_mcp_server(body: c.McpServerInput, user: dict = admin):
+    return s.capability_view(s.create_mcp_server(body.model_dump(), user, repo))
+
+
+@router.get("/capability-definitions/{definition_id}/versions")
+def capability_versions(definition_id: str, user: dict = read):
+    return s.capability_versions(definition_id, user, repo)
+
+
+@router.post("/capability-definitions/{definition_id}/discover")
+async def discover_mcp(definition_id: str, user: dict = admin):
+    return s.capability_view(await s.discover_mcp(definition_id, user, repo))
+
+
+@router.post("/capability-definitions/{definition_id}/publish")
+def publish_capability(definition_id: str, body: c.SkillPublishInput | None = None, user: dict = edit):
+    definition = s.required("capability_definitions", definition_id, user)
+    if definition["kind"] != "skill" and user["role"] != "admin":
+        s.fail("permission_denied", "外部网络能力发布要求管理员角色", 403)
+    return s.capability_view(
+        s.publish_capability(definition_id, user, repo, body.tool_bindings if body else None)
+    )
+
+
+@router.post("/capability-definitions/{definition_id}/{action}")
+def capability_action(definition_id: str, action: str, user: dict = edit):
+    if action not in {"disable", "enable", "revoke", "destroy"}:
+        s.fail("invalid_action", "未知能力生命周期操作", 422)
+    definition = s.required("capability_definitions", definition_id, user)
+    if definition["kind"] != "skill" and user["role"] != "admin":
+        s.fail("permission_denied", "外部网络能力管理要求管理员角色", 403)
+    return s.capability_view(s.capability_action(definition_id, action, user, repo))
 
 
 @router.post("/agents/{agent_id}/tools/{tool_id}/preview")

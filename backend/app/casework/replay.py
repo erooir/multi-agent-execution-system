@@ -38,13 +38,19 @@ def validate(sample, agent_id):
 
     if not all(check["passed"] for check in source_checks(profile, snap.get("inputs", []), project)):
         s.fail("unsupported_evaluation_scope", "自我改进只可使用已冻结且来源匹配的可信参考批次", 422)
-    if any(
-        a.get("structure") != "atomic"
-        or a.get("model_policy") != "local"
-        or set(a.get("tool_ids", [])) != {"case_analysis"}
-        for a in versions
-    ):
-        s.fail("unsupported_evaluation_scope", "评测只允许固定本地工具，不接受复合或模型替身", 422)
+    from .executors.registry import binding as executor_binding
+
+    for agent in versions:
+        if agent.get("structure") != "atomic" or set(agent.get("tool_ids", [])) != {"case_analysis"}:
+            s.fail("unsupported_evaluation_scope", "评测只允许原子本地工具，不接受复合或模型替身", 422)
+        stage = agent.get("parameters", {}).get("case_stage")
+        expected = executor_binding(stage, code if stage == "analyze" else None)["local"]
+        bindings = agent.get("executor_bindings")
+        if bindings:
+            if bindings.get("local") != expected:
+                s.fail("unsupported_evaluation_scope", "冻结本地执行器已变化，不能用于确定性重放", 422)
+        elif agent.get("model_policy") != "local" or agent.get("execution_strategy") != "fixed":
+            s.fail("unsupported_evaluation_scope", "旧版重放只接受固定本地执行器", 422)
     team.verify_team(wf, versions, project, code)
     return next(a for a in versions if a["agent_id"] == agent_id)
 

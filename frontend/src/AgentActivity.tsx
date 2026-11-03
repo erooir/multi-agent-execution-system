@@ -5,7 +5,7 @@ import type { Item } from "./types";
 import { Badge, Empty, ErrorLine, Panel } from "./ui";
 
 const filters = {
-  all: "全部岗位",
+  all: "全部智能体",
   active: "运行中",
   issues: "有失败或审核未过",
   used: "有执行记录",
@@ -65,7 +65,7 @@ export default function AgentActivity({
     <Panel title="近7天节点尝试及当前运行节点">
       <p className="muted">
         每 10
-        秒更新。尝试按实际执行的岗位版本计数，平均耗时仅统计有完整起止时间的节点。
+        秒更新。尝试按实际执行的智能体版本计数，平均耗时仅统计有完整起止时间的节点。
       </p>
       {error && <ErrorLine>{error}</ErrorLine>}
       {activity && (
@@ -85,7 +85,7 @@ export default function AgentActivity({
           ))}
         </div>
       )}
-      <div className="toolbar" aria-label="岗位运行筛选">
+      <div className="toolbar" aria-label="智能体运行筛选">
         {Object.entries(filters).map(([id, label]) => (
           <button
             key={id}
@@ -97,11 +97,11 @@ export default function AgentActivity({
           </button>
         ))}
       </div>
-      {!activity && !error && <p role="status">正在读取岗位节点记录…</p>}
+      {!activity && !error && <p role="status">正在读取智能体节点记录…</p>}
       {visible &&
         (visible.length === 0 ? (
           <Empty
-            title="当前筛选没有岗位"
+            title="当前筛选没有智能体"
             description="可以切换筛选条件，或在执行任务后查看节点记录。"
           />
         ) : (

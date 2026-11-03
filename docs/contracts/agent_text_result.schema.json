@@ -29,6 +29,40 @@
       "title": "DerivedCitation",
       "type": "object"
     },
+    "ExternalCitation": {
+      "properties": {
+        "kind": {
+          "const": "external_result",
+          "title": "Kind",
+          "type": "string"
+        },
+        "tool_call_id": {
+          "title": "Tool Call Id",
+          "type": "string"
+        },
+        "capability_id": {
+          "title": "Capability Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        },
+        "result_checksum": {
+          "title": "Result Checksum",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "tool_call_id",
+        "capability_id",
+        "version",
+        "result_checksum"
+      ],
+      "title": "ExternalCitation",
+      "type": "object"
+    },
     "SourceCitation": {
       "properties": {
         "kind": {
@@ -92,6 +126,9 @@
           },
           {
             "$ref": "#/$defs/DerivedCitation"
+          },
+          {
+            "$ref": "#/$defs/ExternalCitation"
           }
         ]
       },

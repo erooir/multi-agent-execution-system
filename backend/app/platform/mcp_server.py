@@ -7,9 +7,9 @@ import math
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
-server = FastMCP("hangzhi-project-tables", instructions="只处理调用方明确传入的授权记录。")
+server = MCPServer("hangzhi-project-tables", instructions="只处理调用方明确传入的授权记录。")
 
 
 def selected_rows(records, where):

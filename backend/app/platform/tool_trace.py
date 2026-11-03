@@ -1,8 +1,7 @@
 """Attach tool calls directly to the node instance just allocated by the leased worker."""
 
 from .domain_session import DomainToolSession
-from .tool_registry import validate_frozen
-from .tool_runtime import LocalMCP, ToolSession
+from .tool_runtime import ToolSession
 
 
 class TaskToolTrace:
@@ -35,23 +34,7 @@ class NodeDomainToolSession(DomainToolSession):
 
     def __init__(self, execution, agent, revision, permissions, instance_id):
         self.trace = TaskToolTrace(execution, revision, instance_id)
-        self.execution, self.agent, self.revision = execution, agent, revision
-        self.instance_id = instance_id
-        validate_frozen(agent)
-        frozen = agent["runtime_bindings"]
-        self.tools = {
-            item["name"]: item
-            for item in frozen["tools"]
-            if f"tool:{item['id']}@{item['version']}" in permissions
-        }
-        self.skills = {
-            item["id"]: item
-            for item in frozen["skills"]
-            if f"skill:{item['id']}@{item['version']}" in permissions
-        }
-        self.sources_read = set()
-        self.derived = []
-        self.mcp = LocalMCP()
+        super().__init__(execution, agent, revision, permissions, instance_id=instance_id)
 
     def save(self, record, event_type, arguments=None, result=None):
         self.trace.check_record(record)

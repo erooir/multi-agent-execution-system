@@ -9,7 +9,7 @@
 1. 单独配置有权使用的 DM8 实例。使用 UTF-8 数据库、独立非管理员账号及与账号同名的专用 schema。开发测试版不能外推为生产授权。初始化用账号须具备建表和建索引权限；不要将 SYSDBA 凭据作为应用连接。
 2. 使用 `pyproject.toml` 的 `dameng` extra：`dmPython==2.6.1` 和 `dmSQLAlchemy==2.0.17`。离线准备必须为目标 OS/CPU/Python 准备 **含该 extra** 的依赖，例如 `uv export --frozen --extra dameng --no-dev --no-emit-project --format requirements-txt --output-file requirements-offline.txt`，在无索引环境安装已经核验的 wheel。容器构建上下文同时包含 `scripts/dm_database.py` 和 `scripts/dm_business_migration.py`。Windows 支持把项目虚拟环境安装在 E 盘并将绝对 Python 路径写入私有 `.local/platform-python.txt`；不要把安装介质、数据、密码文件或运行日志交付到 Git。
 3. 用受限的私有文件或服务环境提供连接，格式为 `dm+dmPython://<app-user>:<percent-encoded-password>@<host>:<port>/<app-schema>`。应用强制客户端 UTF-8（`local_code=1`），防止 Windows 客户端按 GBK 编码中文以外字符、单位和审计记录。生产部署使用 `HANGZHI_REQUIRE_DM=true`，连接错误或无连接时不能回退到 SQLite 或 PostgreSQL。
-4. 停止 API 和 Worker 后，单进程运行 `python -m scripts.dm_database init`。空的专用 schema 会初始化。升级前的完整 v1 schema 若仅缺少 `questions`，则新增问题收件箱表，保留原有任务、资产与身份。再次执行会校验现有结构。存在未知表、其他缺表或版本异常时拒绝修改。DM DDL 可能隐式提交，中断后先检查结构。`python -m scripts.dm_database check` 只读核验表清单、版本标志、身份锁行及问题表预期列，使用应用账号即可完成。
+4. 停止 API 和 Worker 后，单进程运行 `python -m scripts.dm_database init`。空的专用 schema 会初始化为 v2。完整 v1 schema 仅增量新增 `questions`、`capability_definitions` 和 `capability_versions`，保留原有任务、资产与身份；重复执行会校验现有结构。存在未知表、其他缺表或版本异常时拒绝修改。空库先建表再执行运行时校验，避免初始化顺序形成循环。DM DDL 可能隐式提交，中断后先检查结构。`python -m scripts.dm_database check` 只读核验表清单、版本标志、身份锁行及预期列，使用应用账号即可完成。
 5. Linux Compose 的 API 和 Worker 共用外部达梦服务，私有部署环境设置 `HANGZHI_DM_URL`；不再启动 PostgreSQL 容器。Windows 可运行 `scripts/start.ps1 -DmUrlFile <私有DSN文件> -SkipBuild`。也可将该私有文件的**路径**写入忽略的 `.local/dm-url-file.txt`，供以后正常重启使用。启动脚本拒绝复用连接配置不同的 API/Worker。只有明确维护历史归档时使用 `-LegacySQLite`，且不能将该模式结果作为达梦验收。
 
 ## 停服迁移与恢复
@@ -30,3 +30,11 @@
 真实专用达梦 schema 验证了 4 连接并发幂等、4 Worker 无重复领取、过期接管和旧令牌拒绝、有序事件、监测窄投影、大 CLOB 中文/平方符号/希腊文/俄文/emoji 往返、身份读写、迁移校验与拒绝覆盖。执行 `backend/tests/test_dameng.py` 时用 `HANGZHI_TEST_DM_URL` 显式指定用户同名且以 `_TEST` 结尾的独立空闲 schema，不能使用真实业务库；未配置服务时如实跳过真机测试。SQL 方言编译、SQLite 或 PostgreSQL 测试不能代替本项。生产设备的备份恢复、容量、集群故障切换和授权仍需单独验收。
 
 厂商依据：[官方开发测试介质](https://eco.dameng.com/download/)、[安装与许可说明](https://eco.dameng.com/document/dm/zh-cn/pm/install-uninstall.html)、[dmPython](https://eco.dameng.com/document/dm/zh-cn/pm/dmpython-introduction.html)、[dmSQLAlchemy 方言](https://eco.dameng.com/document/dm/zh-cn/pm/dmsqlalchemy-dialect-package.html)、[查询与行锁](https://eco.dameng.com/document/dm/zh-cn/pm/check-phrases.html)。
+
+## 2026-11-02 云端原生能力适配实例
+
+在 `multi-agent-execution-system-cloud-adapt` 的忽略目录中使用官方介质初始化独立 UTF-8 实例，版本同为 `03134284604-20260707-335949-20228`。应用 schema `HANGZHI_ADAPT` 与测试 schema `HANGZHI_ADAPT_TEST` 使用不同的非 SYSDBA 账号和随机密码，私有 DSN 不进入 Git。
+
+真实 DM 专项 6 项全部通过，包含 v1→v2 加表迁移、重复升级、身份、并发领取、旧令牌拒绝和恢复。API/Worker 在 8100 端口以 `HANGZHI_REQUIRE_DM=true` 和离线策略运行，浏览器用例实际写入 DM。停止并重启 API/Worker 后，既有账号、项目和任务链路复验通过；未使用 SQLite 替代验收。
+
+该 Windows DM8 的 socket 仍显示通配地址。当前会话没有管理员防火墙规则，但 DM `INVITED_IP=127.0.0.1` 白名单已实测拒绝其他本机网卡地址的 SQL 登录；不能仅凭 socket 或配置文本宣称网络隔离。生产设备仍需由管理员落实主机防火墙、原生备份恢复、容量与高可用验收。

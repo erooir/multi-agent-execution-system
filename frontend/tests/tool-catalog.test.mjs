@@ -21,7 +21,7 @@ test("目录按部署条目的实际标识分类，检索覆盖中文分组、�
   assert.equal(catalogMatches(tool, "MCP", "统计与空间分析"), false);
 });
 
-test("当前发布、同项目、岗位许可和匹配的冻结摘要缺一不可", () => {
+test("当前发布、同项目、智能体许可和匹配的冻结摘要缺一不可", () => {
   const item = { id: "geo.overlay_area", version: 1, checksum: "current" };
   const base = {
     id: "authorized",
@@ -54,7 +54,7 @@ test("当前发布、同项目、岗位许可和匹配的冻结摘要缺一不�
   );
 });
 
-test("技能持有者按技能版本匹配，技能的依赖不自动成为岗位工具授权", () => {
+test("文档技能包按版本匹配持有智能体，其依赖不自动成为智能体工具授权", () => {
   const skill = {
     id: "evidence-analysis",
     version: "1.0.0",

@@ -122,7 +122,10 @@ export function AgentsPage({
       (structure === "all" || a.structure === structure) &&
       (status === "all" || a.status === status) &&
       (stage === "all" || (a.case_role || "other") === stage) &&
-      (strategy === "all" || (a.execution_strategy || "fixed") === strategy) &&
+      (strategy === "all" ||
+        (strategy === "dual"
+          ? a.executor_bindings?.local && a.executor_bindings?.cloud
+          : (a.execution_strategy || "fixed") === strategy)) &&
       `${a.name} ${a.description} ${a.role_contract?.case_id || ""} ${a.role_contract?.operation || ""}`
         .toLowerCase()
         .includes(search.trim().toLowerCase()),
@@ -139,7 +142,7 @@ export function AgentsPage({
       <SectionTitle
         eyebrow="AGENT REGISTRY"
         title="智能体资产"
-        description="按岗位和执行方式查找智能体，查看冻结的工具授权、发布版本与运行实例。"
+        description="按用例岗位和执行方式查找智能体，查看冻结的工具授权、发布版本与运行实例。"
         actions={
           canEdit && (
             <button className="primary" onClick={() => setEdit(null)}>
@@ -159,11 +162,13 @@ export function AgentsPage({
           <strong>{published.length}</strong>
         </div>
         <div>
-          <span>已发布 · 固定执行</span>
+          <span>已发布 · 固定流程执行</span>
           <strong>
             {
               published.filter(
-                (a) => (a.execution_strategy || "fixed") === "fixed",
+                (a) =>
+                  (a.execution_strategy || "fixed") === "fixed" &&
+                  !(a.executor_bindings?.local && a.executor_bindings?.cloud),
               ).length
             }
           </strong>
@@ -172,8 +177,21 @@ export function AgentsPage({
           <span>已发布 · 自主选工具</span>
           <strong>
             {
-              published.filter((a) => a.execution_strategy === "tool_agent")
-                .length
+              published.filter(
+                (a) =>
+                  a.execution_strategy === "tool_agent" &&
+                  !(a.executor_bindings?.local && a.executor_bindings?.cloud),
+              ).length
+            }
+          </strong>
+        </div>
+        <div>
+          <span>已发布 · 本地 / 云端双模式</span>
+          <strong>
+            {
+              published.filter(
+                (a) => a.executor_bindings?.local && a.executor_bindings?.cloud,
+              ).length
             }
           </strong>
         </div>
@@ -206,14 +224,15 @@ export function AgentsPage({
         >
           <option value="all">全部执行方式</option>
           <option value="fixed">固定流程执行</option>
-          <option value="tool_agent">模型自主选工具</option>
+          <option value="tool_agent">云端工具循环（含双模式）</option>
+          <option value="dual">本地 / 云端双模式用例</option>
         </select>
         <select
-          aria-label="岗位分工"
+          aria-label="用例岗位分工"
           value={stage}
           onChange={(e) => setStage(e.target.value)}
         >
-          <option value="all">全部岗位</option>
+          <option value="all">全部用例岗位</option>
           {Object.entries(stageNames).map(([id, label]) => (
             <option key={id} value={id}>
               {label}
@@ -278,9 +297,11 @@ export function AgentsPage({
                       : ""
                   }
                 >
-                  {a.execution_strategy === "tool_agent"
-                    ? "自主选工具"
-                    : "固定执行"}
+                  {a.executor_bindings?.local && a.executor_bindings?.cloud
+                    ? "本地固定工具 / 云端领域 Agent"
+                    : a.execution_strategy === "tool_agent"
+                      ? "自主选工具"
+                      : "固定流程执行"}
                 </span>
                 <span>
                   {stageNames[a.case_role] ||
@@ -865,6 +886,17 @@ export function DataPage({
             <Badge status={selected.status} />
             <p>{selected.provenance}</p>
             <JsonView value={selected} label="元数据、来源与完整性" />
+            {selected.modality === "image" && selected.status === "active" && (
+              <img
+                src={`/api/v2/data-assets/${encodeURIComponent(selected.id)}/content`}
+                alt={selected.name}
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: 480,
+                  objectFit: "contain",
+                }}
+              />
+            )}
             {content !== undefined && !content?.binary && (
               <>
                 <h3>数据内容</h3>

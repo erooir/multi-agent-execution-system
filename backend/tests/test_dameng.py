@@ -14,9 +14,10 @@ from sqlalchemy.schema import CreateTable
 
 from backend.app.identity_records import DMIdentityStore
 from backend.app.platform import service
-from backend.app.platform.dameng import database_url, json_scalar, prepare_schema
+from backend.app.platform.dameng import database_url, identity_metadata, json_scalar
 from backend.app.platform.db import LeaseLost, Repository
-from backend.app.platform.db_schema import tables
+from backend.app.platform.db_schema import CAPABILITY_TABLES, SCHEMA_VERSION, schema, tables
+from scripts.dm_database import prepare_schema
 
 
 def test_required_dm_never_falls_back_or_uses_system_account(monkeypatch):
@@ -63,6 +64,10 @@ def real_dm():
     admin = create_engine(url, hide_parameters=True)
     try:
         prepare_schema(admin)
+        with admin.begin() as connection:
+            for table in [*tables.values(), *identity_metadata.tables.values()]:
+                if table.name != "hz_identity_guard":
+                    connection.execute(table.delete())
     finally:
         admin.dispose()
     repository = Repository(raw)
@@ -270,3 +275,26 @@ def test_sqlite_filters_hydrate_only_matching_task_and_agent(tmp_path, monkeypat
         _assert_filtered_rows(db, "project-granted", monkeypatch)
     finally:
         db.engine.dispose()
+
+
+def test_real_dm_v1_to_v2_upgrade_is_additive_and_idempotent(real_dm):
+    repository = real_dm
+    actor = {"id": "synthetic-dm-user", "role": "admin"}
+    project = service.create_project(
+        {"name": "DM v2 migration", "description": "synthetic"}, actor, repository
+    )
+    before = (len(repository.list("projects")), len(repository.list("tasks")))
+    with repository.engine.begin() as connection:
+        for name in sorted(CAPABILITY_TABLES):
+            tables[name].drop(connection, checkfirst=True)
+        connection.execute(schema.update().values(version=1))
+    engine = create_engine(repository.engine.url, hide_parameters=True)
+    try:
+        prepare_schema(engine)
+        prepare_schema(engine)
+    finally:
+        engine.dispose()
+    with repository.engine.connect() as connection:
+        assert connection.execute(schema.select()).scalars().all() == [SCHEMA_VERSION]
+    assert (len(repository.list("projects")), len(repository.list("tasks"))) == before
+    assert repository.get("projects", project["id"]) == project

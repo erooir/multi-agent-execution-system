@@ -22,15 +22,13 @@ test("云端浏览器：公开文件上传后无人值守完成证据分析", as
   await page.getByRole("button", { name: "登记 / 上传数据" }).click();
   let dialog = page.getByRole("dialog");
   await dialog.getByRole("button", { name: "上传文件", exact: true }).click();
-  await dialog
-    .getByLabel("选择文件")
-    .setInputFiles({
-      name: `${name}.txt`,
-      mimeType: "text/plain",
-      buffer: Buffer.from(
-        "公开合成记录：星航项目负责人是李华，2026年10月启动，目标是验证无人值守资料分析。交付日期未确定。",
-      ),
-    });
+  await dialog.getByLabel("选择文件").setInputFiles({
+    name: `${name}.txt`,
+    mimeType: "text/plain",
+    buffer: Buffer.from(
+      "公开合成记录：星航项目负责人是李华，2026年10月启动，目标是验证无人值守资料分析。交付日期未确定。",
+    ),
+  });
   await dialog
     .getByLabel("来源标识", { exact: true })
     .fill(`synthetic:browser-cloud:${name}`);
@@ -46,7 +44,7 @@ test("云端浏览器：公开文件上传后无人值守完成证据分析", as
     .getByRole("navigation")
     .getByRole("button", { name: "任务运行", exact: true })
     .click();
-  await page.getByRole("button", { name: "新建任务", exact: true }).click();
+  await page.getByRole("button", { name: "新建通用任务", exact: true }).click();
   dialog = page.getByRole("dialog");
   await dialog.getByLabel("任务名称", { exact: true }).fill(name);
   await dialog

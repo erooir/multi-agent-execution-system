@@ -10,11 +10,13 @@ export const modeName = (mode: string) =>
   mode ||
   "—";
 export const taskTypes: Record<string, string> = {
-  case_analysis: "用例协作分析",
+  case_analysis: "用例任务",
   structured_transform: "结构化数据整理",
   source_summary: "来源文本整理",
   text_analysis: "文本分析",
   image_inspect: "图片元数据检查",
+  image_ocr: "图片 OCR",
+  image_understand: "图像理解",
   audio_transcribe: "音频转写",
   video_analyze: "视频分析",
 };
@@ -44,6 +46,7 @@ export const statusNames: Record<string, string> = {
   abandoned: "异常释放",
   pending: "待执行",
   completed: "已完成",
+  uncertain: "结果不确定",
   passed: "通过",
   rejected: "未通过",
   promoted: "已晋升",

@@ -45,5 +45,17 @@ POST /tasks返回202和TaskRun对象，以其中id作为task_id。GET /tasks/{id
 
 真实内网服务的鉴权、分页、增量、撤回推送与服务等级应由双方提供样例后扩展。当前适配器不能据此宣称已经接通上游。
 
+## 外部 Skill、Tool 与 MCP
+
+能力定义和版本位于 `capability_definitions/capability_versions`，发布时冻结校验和，Agent 只获得显式授权的原生 Function/Toolkit/Skills。外部协议由 Agno 原生驱动执行，不能以目录登记代替真实调用验收。
+
+- Skill：上传不超过5MB的 ZIP，仅含 `SKILL.md` 与 `references/` 的 UTF-8 文本。Agno LocalSkills 负责规范校验；脚本、符号链接、路径穿越和其他资源拒绝。发布可提交 `tool_bindings` 显式映射 allowed-tools。
+- Agno Toolkit：首批 `calculator`、`duckduckgo`，可用 include_tools 限定功能。后续 Toolkit 必须逐项增加工厂、权限与真实验收，不允许任意 import path。
+- HTTP Tool：固定只读 POST JSON，输入/输出均受 JSON Schema 约束。部署设置 `HANGZHI_TOOL_HOSTS` 主机白名单；本机 HTTP fixture 还需显式 `HANGZHI_ALLOW_LOCAL_HTTP=true`。密钥只通过 `secret_ref` 引用 Worker 环境变量。
+- MCP：stdio 使用 `HANGZHI_MCP_LAUNCHERS` JSON 中管理员预装的固定命令/参数/cwd；Streamable HTTP 使用 `HANGZHI_MCP_HOSTS` 白名单。发布前必须经 Agno MCPTools 原生发现，Schema 漂移拒绝执行。HTTP 客户端不继承系统代理或重定向。
+- 本期外部服务只接受 unmetered、只读能力，不开放任意写操作、动态 OAuth、运行时 `npx/uvx` 下载或未知按次收费。撤销阻止后续派发；未确认调用返回 execution_uncertain，不盲重放。
+
+`image_ocr` 在本地处理图片，输出文字块、坐标和真实置信度；`image_understand` 只接受 public 图片，原图经统一模型网关发送，独立评审也读取原图。图片 base64 不进入事件、日志、工具 checkpoint 或产物。
+
 ## 契约发布
 docs/contracts中的JSON Schema由 scripts/export_contracts.py 从Pydantic生成。CI检查漂移。这里只包含公开工程契约，不复制私有方案全文。

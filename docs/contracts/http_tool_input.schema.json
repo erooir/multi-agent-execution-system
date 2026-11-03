@@ -1,0 +1,74 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Description",
+      "type": "string"
+    },
+    "url": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Url",
+      "type": "string"
+    },
+    "input_schema": {
+      "additionalProperties": true,
+      "title": "Input Schema",
+      "type": "object"
+    },
+    "output_schema": {
+      "additionalProperties": true,
+      "title": "Output Schema",
+      "type": "object"
+    },
+    "secret_ref": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Secret Ref"
+    },
+    "timeout_seconds": {
+      "default": 15,
+      "exclusiveMinimum": 0,
+      "maximum": 60,
+      "title": "Timeout Seconds",
+      "type": "number"
+    },
+    "max_result_bytes": {
+      "default": 80000,
+      "maximum": 80000,
+      "minimum": 1,
+      "title": "Max Result Bytes",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "project_id",
+    "name",
+    "description",
+    "url",
+    "input_schema",
+    "output_schema"
+  ],
+  "title": "HttpToolInput",
+  "type": "object"
+}

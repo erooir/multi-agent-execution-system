@@ -20,17 +20,21 @@
 
 岗位合同、主算法和工具许可一起发布。32 个用例岗位由共享解析、30 项分析及独立审核组成，岗位主算法标识取自实际调度的函数。固定用例从其授权中按资料类型和产品范围选择有依据的页内核读或领域复算。日常任务和改进评测使用相同的工具检查；复用上一轮检查点时不增加调用次数。云端 Agno 工具循环、本地专员和授权试用共用工具参数契约与处理函数，各自检查项目权限、资产版本、来源范围及撤回状态。工具目录、单个岗位的授权、一次运行实际调用的清单分别展示。
 
+同一岗位当前版本的 `executor_bindings.local/cloud` 冻结两种真实执行器。local 保持固定 `role_tools`；cloud 按 `casework/executors/registry.py` 的静态 stage/case 映射进入 26 个分析族及共享 prepare/review 领域执行器，由 `model_gateway.run_agent()` 创建 Agno Agent 并执行原生 Loop。主处理函数作为本节点版本化 Agno Function，完整输出写入工具检查点，模型只接收紧凑投影、计数和 artifact/checksum 引用。执行器确认引用属于当前节点实例后才物化完整节点输出；伪造引用、证据、版本或位置会进入 `model_output_invalid` 的有界恢复。节点 config 仍为空，action/targets 仍只来自冻结 case_plan，三节点输入输出合同不随 mode 改变。用例 cloud 跳过通用 `v2_independent_review`，避免在独立核查岗位之外重复计费。
+
+技术恢复与账务状态解耦。超时、连接失败、限流、服务端故障、截断和输出合同错误在冻结修订、预算、请求数及截止时间内自动重试；不确定费用始终保留并展示，但不否决恢复。HTTP 400 等请求错误以安全供应商诊断支持工程修复，不盲目重放相同请求。
+
 ## 审核如何改变后续执行
 
 每次受理冻结用例算法签名和修复策略版本。用例审核失败后，Worker 依据失败检查、实际解析记录和已经尝试过的操作选择路径。任务自带的文本不具有授予新工具或指定执行代码的权限。修复决定和修订号在同一租约事务保存；成功的上游输出按原节点 ID、专员版本与有效来源复用，独立审核保留。任务详情返回 `repair_history`，记录原因、动作、修复对象、复用节点、重新执行的节点和复核结果。撤回资料时屏蔽派生详情。跨任务候选沿用相同执行和核查规则，用独立开发与留出资料验证改进，达标才改变后续任务的发布版本。
 
 ## 系统边界
-智能体定义、不可变版本、运行实例分离。任务自动规划、执行、确定性校验、评审与有界修订，没有人工审核等待状态。通用任务支持结构化数据、来源文本与图片检查。用例任务还支持本地 OCR、带时间码的 ASR、辅助翻译、受限视觉匹配与空间计算。具体输入与覆盖边界见[用例手册](CASEWORK.md)。local 使用本机工具或已配置的本地模型，cloud 通过统一网关调用授权模型，rehearsal 显式标记为演练。
+智能体定义、不可变版本、运行实例分离。任务自动规划、执行、确定性校验、评审与有界修订，没有人工审核等待状态。通用任务支持结构化数据、来源文本、图片检查、本地 RapidOCR 和云视觉理解；用例任务还支持本地 OCR、带时间码的 ASR、辅助翻译、受限视觉匹配与空间计算。具体输入与覆盖边界见[用例手册](CASEWORK.md)。local 使用本机工具或已配置的本地模型，cloud 通过统一网关调用授权模型，rehearsal 显式标记为演练。外部能力优先由 Agno 原生 Toolkit、MCPTools、LocalSkills/Skills 和 Function 执行，平台补充项目权限、不可变版本、预算、审计与撤销。
 
 ## 部署与数据
-Python/FastAPI + Agno 3.0.10 私有运行时，React/TypeScript 管理台。API 和独立 Worker 共享 SQLAlchemy 数据库；正式启动必须设置达梦连接和 HANGZHI_REQUIRE_DM=true。SQLite 用于隔离测试或显式历史维护。schema_version 显式管理，迁移工具从已停服、通过校验的旧库导入原有任务、版本和有序事件。
-实体表：projects, agents, agent_versions, workflows, workflow_versions, data_assets, tasks, nodes, instances, artifacts, events, schedules, evaluations, improvements, memories, connectors, workers, audits。每表独立主键、项目、状态、时间与配置；任务有幂等键、租约持有者、递增 token、过期时间、取消标记。状态与事件事务提交，事件表作为可重放通知源。冷启动建表和schema标记串行化：SQLite写事务、PostgreSQL事务级advisory lock；业务更新使用行锁及updated_at冲突检查。
-身份密码/会话复用已验证组件，正式身份、权限与设置由达梦保存，既有密码散列随停服迁移保留。历史 SQLite 身份源库只用于维护。新部署不生成固定默认密码。admin 全局管理；operator 操作所属项目；reviewer 只读。所有实体读取和写入均验证项目成员。
+Python/FastAPI + Agno 3.0.10 私有运行时，React/TypeScript 管理台。API 和独立 Worker 共享 SQLAlchemy 数据库；正式启动必须设置达梦连接和 HANGZHI_REQUIRE_DM=true。SQLite 仅用于隔离单元测试或显式历史维护，不替代达梦验收。schema_version 显式管理，迁移工具从已停服、通过校验的旧库导入原有任务、版本和有序事件。
+实体表：projects, agents, agent_versions, workflows, workflow_versions, data_assets, tasks, questions, nodes, instances, artifacts, events, schedules, evaluations, improvements, memories, connectors, workers, audits, capability_definitions, capability_versions。每表独立主键、项目、状态、时间与配置；任务有幂等键、租约持有者、递增 token、过期时间、取消标记。能力版本保存不可变 Skill 文档、Toolkit/HTTP 定义或原生 MCP 发现快照及校验和。状态与事件事务提交，事件表作为可重放通知源。冷启动建表和schema标记串行化；schema v1→v2 仅做显式加表迁移，不重置业务或预算数据；业务更新使用行锁及updated_at冲突检查。
+身份密码/会话复用已验证组件，正式身份、权限与设置由达梦保存，既有密码散列随停服迁移保留。历史 SQLite 身份源库只用于维护。新部署不生成固定默认密码。admin 全局管理；operator 操作所属项目；reviewer 只读；requester 使用本人项目问答。所有实体读取和写入均验证项目成员。
 预算固定历史 .local/budget.sqlite3，不随新库目录迁移。所有模型调用只经过 backend/app/model_gateway.py，保留最坏预留、不确定费用、8000输出上限与300元历史累计上限。AgentOS原生执行API不公开。禁遥测、CDN、自动下载。
 
 ## API
@@ -44,14 +48,15 @@ Python/FastAPI + Agno 3.0.10 私有运行时，React/TypeScript 管理台。API 
 - GET /artifacts/{id} 索引及内容；GET /artifacts/{id}/download 下载。
 - GET/POST /schedules；POST /schedules/{id}/disable|enable。持久 interval_seconds,next_run_at,timezone,task_template；计划ID和触发时间构成幂等键。
 - GET /capabilities|budget|workers|audits；GET/POST /connectors；POST /knowledge/search；GET/POST /memories。
+- GET /capability-definitions；POST /capability-definitions/skills/import|toolkits|tools|mcp；POST /capability-definitions/{id}/discover|publish|disable|enable|revoke|destroy；GET /capability-definitions/{id}/versions。网络目标、launcher 与 secret_ref 仅 admin 管理，普通 operator 可导入纯文档 Skill。
 - GET/POST /improvements；POST /improvements/{id}/evaluate|promote|rollback；GET /evaluations。候选仅改变授权配置，保存真实样本和输出，硬回归禁止晋升。
 
 ## 字段
 AgentSpec: id,project_id,name,description,purpose(general|specialized),structure(atomic|composite),capabilities[],modalities[],tool_ids[],instructions,model_policy(local|cloud),members[{agent_id,version}],parameters,status(draft|published|disabled|retired|destroyed),current_version。发布冻结配置和成员版本，检查循环及深度；复合上层local策略不允许cloud子节点。禁用阻止新任务，存量按快照执行；销毁保留tombstone并检查引用。
 WorkflowSpec: id,project_id,name,description,task_type,nodes[{id,label,agent_id,depends_on:[],config:{}}],status,current_version。发布验证DAG和已发布成员，冻结agent版本。未选流程则按能力匹配或白名单模板组装任务级配置，不生成代码。
 DataAsset: id,project_id,name,modality(text|structured|image|audio|video),media_type,content,source_id,source_version,provenance,classification(local|public),retention_days,expires_at,checksum,bytes,status(active|revoked)。文本/JSON内联受大小限制；文件content_ref只指向受控存储，不返回浏览器。只有public+cloud任务可外发。撤回/过期阻止读取并失效派生记忆，同时在任务/产物/评测的详情和集合查询中屏蔽派生内容，保留审计与来源标识。
-TaskRequest: project_id,name,goal,task_type(structured_transform|source_summary|text_analysis|image_inspect|audio_transcribe|video_analyze),input_refs[],workflow_id?,mode(local|cloud|rehearsal),service_class(batch|interactive，默认batch),idempotency_key,deadline_seconds(1..86400),max_cost_cny(0..10),max_revisions(0..2),allow_partial(false),quality{min_records?,required_fields?:[],min_length?}。项目内幂等，同键异内容409。旧请求按契约默认值归一化比较，新增默认字段不破坏幂等。
-TaskRun: id,project_id,status(accepted|planning|queued|running|evaluating|revising|succeeded|partial|failed|cancelled),reason_code,request,snapshot,attempt,revision,cancel_requested,lease_owner,lease_token,lease_until,result,created_at,updated_at。
+TaskRequest: project_id,name,goal,task_type(structured_transform|source_summary|text_analysis|image_inspect|image_ocr|image_understand|case_analysis|audio_transcribe|video_analyze),input_refs[],workflow_id?,mode(local|cloud|rehearsal),service_class(batch|interactive，默认batch),idempotency_key,deadline_seconds(1..86400),max_cost_cny(0..10),max_revisions(0..2),allow_partial(false),quality{min_records?,required_fields?:[],min_length?}。image_ocr 仅 local/rehearsal，image_understand 仅 cloud 且要求 public 图片。项目内幂等，同键异内容409。旧请求按契约默认值归一化比较，新增默认字段不破坏幂等。
+TaskRun: id,project_id,status(accepted|planning|queued|running|evaluating|revising|succeeded|partial|failed|cancelled),reason_code,request,snapshot,attempt,revision,cancel_requested,lease_owner,lease_token,lease_until,result,created_at,updated_at。max_revisions 同时约束质量修订、通用技术恢复与用例技术恢复；普通超时、连接失败、限流、服务端故障和输出合同错误可在额度内恢复，费用是否完整不影响恢复，全部不确定预留继续保留。权限、预算、取消、截止、非法请求和进程接管时仍在途的调用直接终止，避免重复执行未知状态的外部操作。case_analysis 的技术错误以 entry_kind=technical_recovery 写入 repair_history，保持原业务 action/targets 并按阶段复用检查点；业务审核失败仍由冻结 repair_plan 选择替代操作，技术条目不作为已尝试的业务动作。技术恢复发生在业务修复轮时，最终业务 outcome 回写 base_business_revision 对应条目。评审协议错误最多只重试评审一次，不重新执行产物节点。
 ResultBundle: task_id,status,mode,reason_code,artifacts[],quality_verdict,warnings[],lineage[],usage,version_refs[]；来源不可用时增加content_withheld,withheld_reason,unavailable_source_refs并清除派生内容。
 Node: id,task_id,project_id,node_id,label,agent_id,agent_version,instance_id,status,attempt,output,error,started_at,finished_at。
 Instance: id,project_id,task_id,agent_id,agent_version,status(running|released|abandoned),context_id。不同任务从不共享context。
@@ -61,7 +66,7 @@ Event: id,sequence,project_id,task_id,node_id?,instance_id?,type,time,trace_id,p
 ## 模块协作接口
 backend/app/platform/db.py: Repository(url=None), repo。transaction() 产生绑定事务的Repository；get(kind,id),list(kind,project_id=None,**filters),put(kind,record),delete(kind,id)；event(task_id,type,payload=None,**refs)；claim(worker_id,lease_seconds=30) 原子领取accepted/queued或过期任务并递增token；fenced(task_id,worker_id,token) 检查租约；heartbeat(task_id,worker_id,token,lease_seconds=30)；finish_claim(task_id,worker_id,token)释放。执行结果必须在transaction内先fenced，再put。
 platform/service.py 负责定义/数据/任务受理；platform/contracts.py 是输入Schema；platform/api.py 是路由。
-platform/runtime.py 提供 async process_claim(repository,task,worker_id) 以及 runtime_workflow()；platform/worker.py 独立CLI调度、心跳及计划。领域对象只依赖新Repository；模型和身份是显式保留边界。
+platform/runtime.py 提供 async process_claim(repository,task,worker_id) 以及 runtime_workflow()；platform/worker.py 独立CLI调度、心跳及计划。tool_registry.py 合并内置与项目能力；capability_service.py 管理导入和版本；native_capabilities.py 构造原生 Toolkit/只读 Skills；mcp_runtime.py 只配置并检查 Agno MCPTools；tool_runtime.py 在原生 Function 外层执行权限、审计、证据和租约治理。OCR 由 ocr.py 调用 RapidOCR；视觉图片字节经 model_gateway.py 的原生 Agno Image 输入发送。领域对象只依赖新Repository；模型和身份是显式保留边界。
 
 ## 恢复与质量
 达梦按调度顺序选择候选任务，对候选行逐一加锁并重验。PostgreSQL兼容分支使用FOR UPDATE SKIP LOCKED；SQLite BEGIN IMMEDIATE。所有结果经过租约令牌验证；旧worker不能写入。完成节点复用。外部调用前记录in_flight，接管未确认调用返回execution_uncertain，禁止盲重放付费请求。取消在途调用不能提前宣称释放。

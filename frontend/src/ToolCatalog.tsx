@@ -129,14 +129,14 @@ export default function ToolCatalog({
             onChange={(id) => chooseKind(id as CatalogKind)}
             items={[
               { id: "tools", label: "工具 · " + tools.length },
-              { id: "skills", label: "技能包 · " + skills.length },
+              { id: "skills", label: "文档技能包 · " + skills.length },
             ]}
           />
           <div className="toolbar catalog-controls">
             <label className="search">
               <Search size={17} aria-hidden="true" />
               <input
-                aria-label="搜索工具或技能"
+                aria-label="搜索工具或技能（Skill）"
                 placeholder="搜索名称、分类或标识"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -195,7 +195,7 @@ export default function ToolCatalog({
                       <small>
                         {kind === "tools"
                           ? toolGroups[toolGroup(item)]
-                          : "技能包"}
+                          : "文档技能包"}
                       </small>
                       <strong>{item.label || item.name}</strong>
                       <code>{item.id}</code>
@@ -217,7 +217,7 @@ export default function ToolCatalog({
                   )}
                   {kind === "tools"
                     ? toolGroups[toolGroup(selected)]
-                    : "技能说明包"}
+                    : "文档技能包"}
                 </span>
                 <h2>{selected.label || selected.name}</h2>
                 <p className="catalog-identifier">
@@ -298,7 +298,7 @@ export default function ToolCatalog({
                 ) : (
                   <>
                     <p>{selected.description}</p>
-                    <h3>技能依赖的工具</h3>
+                    <h3>文档技能包依赖的工具</h3>
                     <div className="catalog-dependencies">
                       {selected.required_tools?.map((name: string) => {
                         const tool = tools.find((item) => item.name === name);
@@ -318,7 +318,9 @@ export default function ToolCatalog({
                         );
                       })}
                       {!selected.required_tools?.length && (
-                        <span className="muted">此技能未声明依赖工具。</span>
+                        <span className="muted">
+                          此文档技能包未声明依赖工具。
+                        </span>
                       )}
                     </div>
                     {selected.references?.length > 0 && (
@@ -330,11 +332,11 @@ export default function ToolCatalog({
                 )}
                 <section
                   className="catalog-holders"
-                  aria-label="本项目授权岗位"
+                  aria-label="本项目授权智能体"
                 >
                   <h3>
                     <ShieldCheck size={17} />
-                    本项目授权岗位 <span>{holders.length}</span>
+                    本项目授权智能体 <span>{holders.length}</span>
                   </h3>
                   <p className="muted">
                     按当前启用的发布版本核对授权。每次任务实际调用的工具可在任务详情查看。
@@ -345,14 +347,14 @@ export default function ToolCatalog({
                         <li key={agent.id}>
                           <span>
                             <strong>{agent.name}</strong>
-                            <small>岗位 v{agent.current_version}</small>
+                            <small>智能体 v{agent.current_version}</small>
                           </span>
                           <div>
                             <button
-                              aria-label={"查看" + agent.name + "岗位"}
+                              aria-label={"查看" + agent.name + "智能体"}
                               onClick={() => onAgent(agent.id)}
                             >
-                              查看岗位
+                              查看智能体
                               <ArrowUpRight size={13} />
                             </button>
                             {canEdit &&
@@ -372,7 +374,7 @@ export default function ToolCatalog({
                     </ul>
                   ) : (
                     <p className="catalog-note">
-                      本项目暂无启用的岗位获授这个版本。
+                      本项目暂无启用的智能体获授这个版本。
                     </p>
                   )}
                 </section>

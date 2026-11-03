@@ -70,9 +70,57 @@ class InvalidModelUsage(RuntimeError):
 
 
 class ModelCallError(RuntimeError):
-    def __init__(self, code: str, message: str):
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        provider_status: int | None = None,
+        provider_code: str | None = None,
+        retry_after_seconds: float = 0,
+    ):
         self.code = code
+        self.provider_status = provider_status
+        self.provider_code = provider_code
+        self.retry_after_seconds = retry_after_seconds
         super().__init__(message)
+
+
+def _provider_failure(status: int, headers: httpx.Headers, content: bytes) -> ModelCallError:
+    try:
+        payload = json.loads(content)
+        error = payload.get("error", {}) if isinstance(payload, dict) else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        error = {}
+    if not isinstance(error, dict):
+        error = {}
+    provider_code = error.get("code") or error.get("type")
+    provider_code = str(provider_code)[:100] if provider_code else None
+    transient = status == 429 or status >= 500
+    code, message = {
+        401: ("model_auth_failed", "模型密钥无效，请检查密钥配置"),
+        403: ("model_auth_failed", "模型账户未获授权"),
+        402: ("model_balance_insufficient", "模型服务账户余额不足"),
+        429: ("model_rate_limited", "模型服务限流，将在任务修订额度内有限重试"),
+    }.get(
+        status,
+        ("model_service_failed", "模型服务暂时失败，将在任务修订额度内有限重试")
+        if transient
+        else ("model_request_invalid", "模型请求未被服务接受，需修正请求或模型配置"),
+    )
+    if provider_code:
+        message += f"；服务错误码：{provider_code}"
+    try:
+        retry_after = min(30.0, max(0.0, float(headers.get("retry-after", "0"))))
+    except ValueError:
+        retry_after = 0
+    return ModelCallError(
+        code,
+        message,
+        provider_status=status,
+        provider_code=provider_code,
+        retry_after_seconds=retry_after if transient else 0,
+    )
 
 
 def model_proxy():
@@ -494,8 +542,18 @@ class MeteredTransport(httpx.AsyncBaseTransport):
             raise RuntimeError("模型请求输出上限字段不一致")
         if self.ledger.budget()["accounting_violation"]:
             raise BudgetExceeded("计量异常，已停止所有模型调用")
-        # UTF-8 bytes bound text BPE tokens; media conservatively reserves full context.
-        input_cap = 1_000_000 if b'"image_url"' in body else len(body) + 4096
+
+        # Image bytes are not text tokens; reserve the verified per-image bound separately.
+        def without_image_data(value):
+            if isinstance(value, dict):
+                return {key: without_image_data(child) for key, child in value.items() if key != "image_url"}
+            if isinstance(value, list):
+                return [without_image_data(child) for child in value]
+            return value
+
+        image_count = body.count(b'"image_url"')
+        text_bytes = len(json.dumps(without_image_data(payload), ensure_ascii=False).encode())
+        input_cap = text_bytes + 4096 + image_count * 1024
         if input_cap > 1_000_000:
             raise ValueError("输入超出模型上下文限制")
         reserved = (input_cap * INPUT_RATE + output_cap * OUTPUT_RATE) / 1_000_000
@@ -545,13 +603,7 @@ class MeteredTransport(httpx.AsyncBaseTransport):
                     self.ledger.uncertain(request_id)
             else:
                 self.ledger.uncertain(request_id)
-                code, message = {
-                    401: ("model_auth_failed", "模型密钥无效，请检查密钥配置"),
-                    403: ("model_auth_failed", "模型账户未获授权"),
-                    402: ("model_balance_insufficient", "模型服务账户余额不足"),
-                    429: ("model_rate_limited", "模型服务限流，请稍后新建任务重试"),
-                }.get(response.status_code, ("model_service_failed", "模型服务返回失败响应，请稍后重试"))
-                self.policy_failure = ModelCallError(code, message)
+                self.policy_failure = _provider_failure(response.status_code, response.headers, content)
             # aread() returns decoded bytes. Do not advertise compression twice.
             headers = httpx.Headers(response.headers)
             headers.pop("content-encoding", None)
@@ -640,7 +692,8 @@ class ModelGateway:
         api_key = get_api_key()
         if not api_key:
             raise ModelCallError(
-                "model_not_configured", "未配置模型密钥，请在Windows用户环境变量中设置后重试"
+                "model_not_configured",
+                "未配置模型密钥，请在Windows用户环境变量中设置DEEPSEEK_API_KEY_ZX后重试",
             )
         if len(str(prompt).encode("utf-8")) + len(system.encode("utf-8")) > 200_000:
             raise ModelCallError(
@@ -681,12 +734,16 @@ class ModelGateway:
                 output_schema=output_schema,
                 use_json_mode=bool(output_schema),
             )
-            if json_mode:
+            if json_mode or output_schema:
                 prompt = str(prompt) + "\n请仅输出一个合法JSON对象。"
             try:
-                output = await agent.arun(
-                    str(prompt), images=[Image(url=value) for value in (images or [])] or None
-                )
+                media = [
+                    Image(content=value["content"], mime_type=value["mime_type"])
+                    if isinstance(value, dict)
+                    else Image(url=value)
+                    for value in (images or [])
+                ]
+                output = await agent.arun(str(prompt), images=media or None)
             except (BudgetExceeded, ModelRequestCancelled, PermissionError):
                 raise
             except Exception as exc:  # noqa: BLE001 - SDK errors must not expose credentials or request contents.
@@ -760,11 +817,16 @@ class ModelGateway:
         self,
         agent_spec: dict,
         messages,
-        tool_bindings: dict,
+        tool_bindings: dict | None = None,
         context=None,
         max_rounds: int = 4,
         timeout_seconds: float = 180,
         output_schema=None,
+        native_tools=None,
+        skills=None,
+        purpose="v2_tool_agent",
+        max_tokens=MAX_OUTPUT_TOKENS,
+        images=None,
     ):
         """带真实 tools= 的受控模型执行；所有请求仍经由计量传输与预算账本。"""
         run_id = context.get("run_id") if isinstance(context, dict) else getattr(context, "run_id", None)
@@ -772,9 +834,11 @@ class ModelGateway:
         api_key = get_api_key()
         if not api_key:
             raise ModelCallError(
-                "model_not_configured", "未配置模型密钥，请在Windows用户环境变量中设置后重试"
+                "model_not_configured",
+                "未配置模型密钥，请在Windows用户环境变量中设置DEEPSEEK_API_KEY_ZX后重试",
             )
         from agno.agent import Agent
+        from agno.media import Image
         from agno.models.deepseek import DeepSeek
         from openai import AsyncOpenAI
 
@@ -783,6 +847,7 @@ class ModelGateway:
         tools = [
             self._bind_tool(name, binding, tool_calls) for name, binding in (tool_bindings or {}).items()
         ]
+        tools.extend(native_tools or [])
         async with (
             self.semaphore,
             httpx.AsyncClient(transport=transport, timeout=90, follow_redirects=False) as http_client,
@@ -794,7 +859,7 @@ class ModelGateway:
                 id=MODEL_ID,
                 api_key=api_key,
                 async_client=client,
-                max_tokens=min(get_settings()["max_output_tokens"], MAX_OUTPUT_TOKENS),
+                max_tokens=min(max(1, max_tokens), get_settings()["max_output_tokens"], MAX_OUTPUT_TOKENS),
                 use_thinking=False,
                 retries=0,
                 max_retries=0,
@@ -805,6 +870,7 @@ class ModelGateway:
                 model=model,
                 system_message=str(agent_spec.get("instructions") or "你是严谨的研究助手。"),
                 tools=tools or None,
+                skills=skills,
                 tool_call_limit=max(1, int(max_rounds)),
                 telemetry=False,
                 markdown=False,
@@ -813,9 +879,16 @@ class ModelGateway:
                 output_schema=output_schema,
                 use_json_mode=bool(output_schema),
             )
+            media = [
+                Image(content=value["content"], mime_type=value["mime_type"])
+                if isinstance(value, dict)
+                else Image(url=value)
+                for value in (images or [])
+            ]
             try:
                 output = await asyncio.wait_for(
-                    agent.arun(str(messages)), timeout=max(1.0, float(timeout_seconds))
+                    agent.arun(str(messages), images=media or None),
+                    timeout=max(1.0, float(timeout_seconds)),
                 )
             except (BudgetExceeded, ModelRequestCancelled, PermissionError):
                 raise
@@ -842,6 +915,7 @@ class ModelGateway:
                 "request_id": transport.result.get("request_id"),
                 "finish_reason": (transport.result.get("finish_reasons") or [None])[0],
                 "tool_calls": tool_calls,
+                "purpose": purpose,
             }
 
 

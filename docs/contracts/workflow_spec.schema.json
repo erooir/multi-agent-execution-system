@@ -66,6 +66,8 @@
         "source_summary",
         "text_analysis",
         "image_inspect",
+        "image_ocr",
+        "image_understand",
         "audio_transcribe",
         "video_analyze",
         "case_analysis"
