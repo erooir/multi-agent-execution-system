@@ -94,6 +94,7 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
   await expect(page.locator(".task-strip .badge")).toHaveText("成功", {
     timeout: 20000,
   });
+  await page.getByRole("button", { name: "执行图与实例", exact: true }).click();
   await expect(page.locator(".react-flow__node")).toHaveCount(1);
   await page
     .getByRole("button", { name: "结构化数据整理", exact: true })

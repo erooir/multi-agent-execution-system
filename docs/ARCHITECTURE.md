@@ -38,6 +38,8 @@ Python/FastAPI + Agno 3.0.10 私有运行时，React/TypeScript 管理台。API 
 预算固定历史 .local/budget.sqlite3，不随新库目录迁移。所有模型调用只经过 backend/app/model_gateway.py，保留最坏预留、不确定费用、8000输出上限与300元历史累计上限。AgentOS原生执行API不公开。禁遥测、CDN、自动下载。
 
 ## API
+
+`DELETE /api/v2/tasks/{id}` 仅允许有项目写权限的管理员/操作员删除终态且已释放执行器的任务。事务内锁定任务并写入 `deleted_at/deleted_by`，保留状态、幂等键、冻结快照、子记录、问答/评测引用和独立预算账本，追加删除事件与审计。重复删除返回 204。管理任务集合及 bootstrap 排除已删除任务，任务详情/结果/事件/调用接口返回 404；历史统计和既有引用保留。原幂等键不能重新创建或复活已删除任务，复制需使用新键。不新增数据库表或列。
 业务前缀 /api/v2；身份 /api/auth/login|register|me|logout，账号管理 /api/users。集合为数组。领域错误 {detail:{code,message}}；身份保留detail字符串，Pydantic校验错误使用FastAPI标准detail数组。写入校验同源和后端角色。领域输入拒绝未知字段；内联资料限2MB，普通文件限10MB，音频与视频上传限128MB，请求体在解析前按路由限制。并发陈旧写入返回409。
 - GET /health；GET /bootstrap 返回 {user,projects,agents,workflows,tasks,data_assets,schedules,improvements,connectors,memories,evaluations,capabilities,workers,budget,stats,system}，管理员另有users。
 - GET/POST /projects；PUT /projects/{id}/members（admin）。

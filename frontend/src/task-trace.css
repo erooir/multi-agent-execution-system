@@ -28,6 +28,18 @@
   margin: 0;
   overflow-wrap: anywhere;
 }
+.task-summary > .panel {
+  margin-top: 1rem;
+}
+.task-summary .trace-facts {
+  row-gap: 0.8rem;
+}
+.task-summary table {
+  min-width: 560px;
+}
+.task-goal {
+  white-space: pre-wrap;
+}
 .trace-call pre {
   max-height: 23rem;
   overflow: auto;

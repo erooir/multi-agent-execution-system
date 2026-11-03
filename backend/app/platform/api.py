@@ -188,7 +188,11 @@ def derived_view(kind, record):
 
 
 def visible_records(kind, user):
-    return [derived_view(kind, record) for record in s.visible(kind, user)]
+    return [
+        derived_view(kind, record)
+        for record in s.visible(kind, user)
+        if kind != "tasks" or not record.get("deleted_at")
+    ]
 
 
 @router.get("/bootstrap")
@@ -226,7 +230,15 @@ def bootstrap(user: dict = read, scope: Literal["all", "current"] = "all", proje
         "evaluations",
     ):
         if scoped:
-            result[kind] = [derived_view(kind, row) for row in repo.list(kind, selected)] if selected else []
+            result[kind] = (
+                [
+                    derived_view(kind, row)
+                    for row in repo.list(kind, selected)
+                    if kind != "tasks" or not row.get("deleted_at")
+                ]
+                if selected
+                else []
+            )
         else:
             result[kind] = visible_records(kind, user)
     result["data_assets"] = [s.safe_asset(a) for a in result["data_assets"]]
@@ -760,6 +772,12 @@ def task(task_id: str, user: dict = read):
 @router.post("/tasks/{task_id}/cancel")
 def cancel(task_id: str, user: dict = edit):
     return task_view(s.cancel_task(task_id, user))
+
+
+@router.delete("/tasks/{task_id}", status_code=204)
+def delete_task(task_id: str, user: dict = edit):
+    s.delete_task(task_id, user)
+    return Response(status_code=204)
 
 
 @router.get("/tasks/{task_id}/result")

@@ -152,6 +152,8 @@ def required(kind, record_id, user, write=False, repository=None):
     if not record:
         fail("not_found", "记录不存在", 404)
     project_access(record["project_id"], user, write, repository)
+    if kind == "tasks" and record.get("deleted_at"):
+        fail("not_found", "任务已删除", 404)
     if write and repository.connection is not None:
         record = repository.get(kind, record_id, for_update=True)
     return record
@@ -869,6 +871,8 @@ def create_task(body, user, repository=None, *, preflight=False):
         project_access(body["project_id"], user, True, tx)
         previous = tx.list("tasks", body["project_id"], idempotency_key=body["idempotency_key"])
         if previous:
+            if previous[0].get("deleted_at"):
+                fail("task_deleted", "原任务已删除，请使用新的提交标识创建任务", 409)
             if TaskInput.model_validate(previous[0]["request"]).model_dump() != body:
                 fail("idempotency_conflict", "同一幂等键已有不同任务请求", 409)
             return {"ready": True, "existing_task_id": previous[0]["id"]} if preflight else previous[0]
@@ -1107,6 +1111,28 @@ def cancel_task(task_id, user, repository=None):
         task = tx.put("tasks", task)
         tx.event(task_id, "task.cancel_requested", {})
         return task
+
+
+def delete_task(task_id, user, repository=None):
+    """Remove a terminal run from the workbench, preserving references and lifetime billing."""
+    repository = repository or repo
+    with repository.transaction() as tx:
+        task = tx.get("tasks", task_id)
+        if not task:
+            fail("not_found", "任务不存在", 404)
+        project_access(task["project_id"], user, True, tx)
+        task = tx.get("tasks", task_id, for_update=True)
+        if task.get("deleted_at"):
+            return
+        if task["status"] not in TERMINAL:
+            fail("task_not_terminal", "只能删除已结束的任务，请先取消并等待执行结束", 409)
+        if task.get("lease_owner") or any(
+            item["status"] == "running" for item in tx.list("instances", task["project_id"], task_id=task_id)
+        ):
+            fail("task_cleanup_pending", "执行器尚未释放任务，请等待清理完成后再删除", 409)
+        tx.put("tasks", {**task, "deleted_at": now(), "deleted_by": user["id"]})
+        tx.event(task_id, "task.deleted", {"actor_id": user["id"]})
+        audit(tx, task["project_id"], "task.deleted", task_id, user)
 
 
 def safe_asset(record):
