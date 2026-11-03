@@ -1266,6 +1266,53 @@
         }
       }
     },
+    "/api/v2/projects/{project_id}/name": {
+      "put": {
+        "summary": "Rename Project",
+        "operationId": "rename_project_api_v2_projects__project_id__name_put",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectRenameInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/agents": {
       "get": {
         "summary": "Agents",
@@ -3965,6 +4012,22 @@
           "name"
         ],
         "title": "ProjectInput"
+      },
+      "ProjectRenameInput": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ProjectRenameInput"
       },
       "PublicEvidenceRequest": {
         "properties": {

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ComponentType } from "react";
 import { LogOut, Network, Settings2 } from "lucide-react";
 import { api, ApiError, post } from "./api";
+import { projectLabel } from "./projects";
 import type { User } from "./types";
 import { Confirm, Empty, ErrorLine } from "./ui";
 import QuestionDesk from "./QuestionDesk";
@@ -121,7 +122,7 @@ export default function QuestionPortal({ Login }: { Login: LoginComponent }) {
             >
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name}
+                  {projectLabel(p, projects)}
                 </option>
               ))}
             </select>

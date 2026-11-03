@@ -66,6 +66,9 @@ Artifact: id,project_id,task_id,type,media_type,content,checksum,source_refs[],q
 Event: id,sequence,project_id,task_id,node_id?,instance_id?,type,time,trace_id,payload。事件不复制私有全文。
 
 ## 模块协作接口
+
+项目名称通过 `PUT /api/v2/projects/{project_id}/name` 修改，只接收 1–100 字的去首尾空白名称。后端事务内检查项目写权限并锁定记录，实际改名追加 `project.renamed` 审计；ID、成员、内容和版本不变。默认项目初始化由 `service.bootstrap_projects()` 在事务内获取 `Repository.lock_project_initialization()` 后重新检查可访问项目；DM/PostgreSQL 锁定既有 schema_version 单行，SQLite 沿用 BEGIN IMMEDIATE，不修改版本标记、不新增表。显式创建项目仍允许同名，前端仅在重名时附加可区分的项目 ID 前缀。
+
 backend/app/platform/db.py: Repository(url=None), repo。transaction() 产生绑定事务的Repository；get(kind,id),list(kind,project_id=None,**filters),put(kind,record),delete(kind,id)；event(task_id,type,payload=None,**refs)；claim(worker_id,lease_seconds=30) 原子领取accepted/queued或过期任务并递增token；fenced(task_id,worker_id,token) 检查租约；heartbeat(task_id,worker_id,token,lease_seconds=30)；finish_claim(task_id,worker_id,token)释放。执行结果必须在transaction内先fenced，再put。
 platform/service.py 负责定义/数据/任务受理；platform/contracts.py 是输入Schema；platform/api.py 是路由。
 platform/runtime.py 提供 async process_claim(repository,task,worker_id) 以及 runtime_workflow()；platform/worker.py 独立CLI调度、心跳及计划。tool_registry.py 合并内置与项目能力；capability_service.py 管理导入和版本；native_capabilities.py 构造原生 Toolkit/只读 Skills；mcp_runtime.py 只配置并检查 Agno MCPTools；tool_runtime.py 在原生 Function 外层执行权限、审计、证据和租约治理。OCR 由 ocr.py 调用 RapidOCR；视觉图片字节经 model_gateway.py 的原生 Agno Image 输入发送。领域对象只依赖新Repository；模型和身份是显式保留边界。

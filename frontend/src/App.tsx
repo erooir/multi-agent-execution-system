@@ -28,6 +28,7 @@ import {
   X,
 } from "lucide-react";
 import { api, ApiError, post } from "./api";
+import { projectLabel } from "./projects";
 import { money, projectItems, taskSummary, taskTypes, time } from "./domain";
 import type { Bootstrap, Item, Mutation, Page, User } from "./types";
 import { Badge, Confirm, Empty, ErrorLine, Panel, SectionTitle } from "./ui";
@@ -342,7 +343,7 @@ function ManagementApp() {
             {data?.projects.length ? (
               data.projects.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name}
+                  {projectLabel(p, data.projects)}
                 </option>
               ))
             ) : (
@@ -402,7 +403,9 @@ function ManagementApp() {
             >
               <Menu size={21} />
             </button>
-            <span>{project?.name || "平台"}</span>
+            <span title={project?.id}>
+              {project && data ? projectLabel(project, data.projects) : "平台"}
+            </span>
             <ChevronRight size={15} />
             <strong>{nav.find((n) => n.id === page)?.name}</strong>
           </div>

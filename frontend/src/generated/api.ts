@@ -573,6 +573,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/projects/{project_id}/name": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Rename Project */
+        put: operations["rename_project_api_v2_projects__project_id__name_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/agents": {
         parameters: {
             query?: never;
@@ -1640,6 +1657,11 @@ export interface components {
              * @default
              */
             description: string;
+        };
+        /** ProjectRenameInput */
+        ProjectRenameInput: {
+            /** Name */
+            name: string;
         };
         /** PublicEvidenceRequest */
         PublicEvidenceRequest: {
@@ -3084,6 +3106,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["MemberInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_project_api_v2_projects__project_id__name_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectRenameInput"];
             };
         };
         responses: {

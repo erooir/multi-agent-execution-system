@@ -26,6 +26,10 @@ class ProjectInput(Contract):
     description: str = Field(default="", max_length=2000)
 
 
+class ProjectRenameInput(Contract):
+    name: str = Field(min_length=1, max_length=100)
+
+
 class MemberInput(Contract):
     members: list[str] = Field(max_length=100)
 

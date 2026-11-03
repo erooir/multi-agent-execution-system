@@ -399,6 +399,44 @@ def capability_action(definition_id, action_name, user, repository=None):
     return capability_service.action(definition_id, action_name, user, repository)
 
 
+def bootstrap_projects(user, repository=None):
+    repository = repository or repo
+
+    def accessible(tx):
+        return [p for p in tx.list("projects") if user["role"] == "admin" or user["id"] in p["members"]]
+
+    projects = accessible(repository)
+    if projects or user["role"] not in ("admin", "operator"):
+        return projects
+    with repository.transaction() as tx:
+        tx.lock_project_initialization()
+        projects = accessible(tx)
+        if not projects:
+            # Only executable templates are initialized, never runs or input data.
+            projects = [
+                create_project({"name": "我的工作空间", "description": "独立项目权限和任务数据"}, user, tx)
+            ]
+        return projects
+
+
+def rename_project(project_id, name, user, repository=None):
+    repository = repository or repo
+    with repository.transaction() as tx:
+        project = project_access(project_id, user, True, tx)
+        if project["name"] != name:
+            previous_name = project["name"]
+            project = tx.put("projects", {**project, "name": name})
+            audit(
+                tx,
+                project_id,
+                "project.renamed",
+                project_id,
+                user,
+                {"previous_name": previous_name, "name": name},
+            )
+        return project
+
+
 def create_project(body, user, repository=None):
     repository = repository or repo
     if user["role"] not in ("admin", "operator"):

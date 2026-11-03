@@ -685,6 +685,8 @@ export function OperationsPage({
   const [tab, setTab] = useState("services"),
     [createProject, setCreateProject] = useState(false),
     [projectForm, setProjectForm] = useState({ name: "", description: "" }),
+    [renaming, setRenaming] = useState<Item | null>(null),
+    [projectName, setProjectName] = useState(""),
     [members, setMembers] = useState<Item | null>(null),
     [memberText, setMemberText] = useState(""),
     [audits, setAudits] = useState<Item[]>([]);
@@ -974,6 +976,16 @@ export function OperationsPage({
                         >
                           {p.id === projectId ? "当前项目" : "切换"}
                         </button>
+                        {user.role !== "reviewer" && (
+                          <button
+                            onClick={() => {
+                              setRenaming(p);
+                              setProjectName(p.name);
+                            }}
+                          >
+                            改名
+                          </button>
+                        )}
                         {user.role === "admin" && (
                           <button
                             onClick={() => {
@@ -1041,6 +1053,31 @@ export function OperationsPage({
               onChange={(e) =>
                 setProjectForm({ ...projectForm, description: e.target.value })
               }
+            />
+          </Field>
+        </FormModal>
+      )}
+      {renaming && (
+        <FormModal
+          title="修改项目名称"
+          onClose={() => setRenaming(null)}
+          onSubmit={() =>
+            mutate(
+              () =>
+                put(idPath("projects", renaming.id) + "/name", {
+                  name: projectName,
+                }),
+              "项目名称已更新",
+            )
+          }
+        >
+          <Field label="项目名称">
+            <input
+              autoFocus
+              required
+              maxLength={100}
+              value={projectName}
+              onChange={(e) => setProjectName(e.target.value)}
             />
           </Field>
         </FormModal>
