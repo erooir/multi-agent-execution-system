@@ -19,11 +19,11 @@ test("接入能力：Calculator登记、发布与不可变版本", async ({ page
   await page.getByLabel("当前项目").selectOption(project.id);
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "接入能力", exact: true })
+    .getByRole("button", { name: "扩展接入", exact: true })
     .click();
   await page
     .getByRole("main")
-    .getByRole("button", { name: "接入能力", exact: true })
+    .getByRole("button", { name: "扩展接入", exact: true })
     .click();
   let dialog = page.getByRole("dialog");
   await dialog.getByLabel("名称").fill("原生计算器");

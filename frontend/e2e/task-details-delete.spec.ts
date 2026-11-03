@@ -55,7 +55,7 @@ test("任务详情、步骤弹窗与终态任务删除", async ({ page }) => {
   await page.getByLabel("当前项目").selectOption(project.id);
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "任务运行", exact: true })
+    .getByRole("button", { name: "任务中心", exact: true })
     .click();
   await page.getByRole("button", { name, exact: true }).click();
   await expect(page.locator(".task-summary")).toContainText(
@@ -99,7 +99,7 @@ test("任务详情、步骤弹窗与终态任务删除", async ({ page }) => {
     .getByRole("button", { name: "确认删除", exact: true })
     .click();
   await expect(
-    page.getByRole("heading", { name: "任务运行", exact: true }),
+    page.getByRole("heading", { name: "任务中心", exact: true }),
   ).toBeVisible();
   await expect(page.getByRole("button", { name, exact: true })).toHaveCount(0);
   expect((await page.request.get(`/api/v2/tasks/${task.id}`)).status()).toBe(

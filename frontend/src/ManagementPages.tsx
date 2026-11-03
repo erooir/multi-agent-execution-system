@@ -78,7 +78,7 @@ export function KnowledgePage({
     <>
       <SectionTitle
         eyebrow="KNOWLEDGE & MEMORY"
-        title="知识与记忆"
+        title="知识库"
         description="通过授权连接器检索来源，保存有依据且有保留期限的核心信息。"
         actions={
           canEdit && (
@@ -378,7 +378,7 @@ export function ImprovementsPage({
     <>
       <SectionTitle
         eyebrow="CONTINUOUS IMPROVEMENT"
-        title="评测与改进"
+        title="效果评测"
         description="把跨任务改进与任务内修订分开。用冻结样本、基线对比和回归门槛管理版本。"
         actions={
           canEdit && (
@@ -707,7 +707,7 @@ export function OperationsPage({
     <>
       <SectionTitle
         eyebrow="PLATFORM OPERATIONS"
-        title="平台运维"
+        title="设置"
         description="核对实际预算、工作进程心跳、能力目录、项目权限和操作审计。"
       />
       <Tabs

@@ -1,3 +1,4 @@
+import { HelpNote } from "./ui";
 import { useEffect, useRef, useState } from "react";
 import { api, post, put, idPath } from "./api";
 import { parseObject, splitList, taskTypes } from "./domain";
@@ -286,7 +287,7 @@ export function AgentForm({
       </div>
       <fieldset className="capability-picker">
         <legend>授权固定工具</legend>
-        <p className="note">从服务端能力目录选择，任务仅能调用已授权工具。</p>
+        <HelpNote>从服务端能力目录选择，任务仅能调用已授权工具。</HelpNote>
         <div className="check-grid">
           {capabilities
             .filter((capability) => capability.tool_id)
@@ -342,12 +343,12 @@ export function AgentForm({
       )}
       <fieldset className="capability-picker agent-form-tools">
         <legend>授权工具及 MCP</legend>
-        <p className="note">
+        <HelpNote>
           {selectingModelTools
             ? "仅选中的工具进入模型或复合成员的权限范围。"
             : "固定流程执行智能体可以本地试用已授权工具。实际任务依照发布的执行流程使用工具。"}
           发布时锁定版本。已选 {form.tool_refs.length} / 10 项。
-        </p>
+        </HelpNote>
         <Field label="筛选可授权工具">
           <input
             type="search"
@@ -419,9 +420,9 @@ export function AgentForm({
               <span className="muted">{skill.description}</span>
             </label>
           ))}
-          <p className="note">
+          <HelpNote>
             文档技能包所需工具须同时授权；文档技能包只提供说明和参考资料。
-          </p>
+          </HelpNote>
           {!!missingTools.length && (
             <p className="warning" role="status">
               所选文档技能包仍需工具：{[...new Set(missingTools)].join("、")}
@@ -514,9 +515,9 @@ export function AgentForm({
           </small>
         </div>
       )}
-      <p className="note">
+      <HelpNote>
         保存修改只更新定义。发布生成新的不可变版本，已经运行的任务继续使用原有快照。
-      </p>
+      </HelpNote>
     </FormModal>
   );
 }
@@ -715,9 +716,9 @@ export function TaskForm({
           </select>
         </Field>
       </div>
-      <p className="note">
+      <HelpNote>
         {capability?.description || "正在读取服务端能力目录…"}
-      </p>
+      </HelpNote>
       {form.task_type === "case_analysis" && (
         <Field label="分析用例" hint="使用本项目已发布的用例岗位与流程。">
           <select
@@ -1347,9 +1348,9 @@ export function WorkflowForm({
           setConfigTexts((current) => ({ ...current, [id]: value }))
         }
       />
-      <p className="note">
+      <HelpNote>
         发布时检查循环依赖与智能体可用性，并冻结各节点的智能体版本。任务自动评审由执行协调器负责。
-      </p>
+      </HelpNote>
     </FormModal>
   );
 }

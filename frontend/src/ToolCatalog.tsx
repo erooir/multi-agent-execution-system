@@ -110,7 +110,7 @@ export default function ToolCatalog({
     <div className="tool-catalog">
       <SectionTitle
         eyebrow="项目能力"
-        title="工具目录"
+        title="工具箱"
         description="查找工具，查看参数和当前项目中有权调用该版本的智能体。"
       />
       {current?.error ? (

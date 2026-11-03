@@ -101,7 +101,7 @@ export default function TasksPage({
     <>
       <SectionTitle
         eyebrow="TASK OPERATIONS"
-        title="任务运行"
+        title="任务中心"
         description="从受理到自动评审、有限修订与交付，所有状态来自持久执行记录。"
         actions={
           <>
@@ -119,7 +119,7 @@ export default function TasksPage({
                   }}
                 >
                   <Plus size={18} />
-                  新建通用任务
+                  新建任务
                 </button>
               </>
             )}
@@ -481,6 +481,7 @@ function TaskDetail({
         eyebrow="TASK TRACE"
         title={task.name || task.request?.name || "任务详情"}
         description={task.request?.goal}
+        descriptionVisible
         actions={
           canEdit && (
             <>

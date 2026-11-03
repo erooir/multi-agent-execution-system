@@ -17,7 +17,7 @@ test("云端浏览器：公开文件上传后无人值守完成证据分析", as
   await page.getByLabel("当前项目").selectOption({ label: "本轮真实验收" });
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "数据资产", exact: true })
+    .getByRole("button", { name: "我的资料", exact: true })
     .click();
   await page.getByRole("button", { name: "登记 / 上传数据" }).click();
   let dialog = page.getByRole("dialog");
@@ -42,9 +42,9 @@ test("云端浏览器：公开文件上传后无人值守完成证据分析", as
   await expect(dialog).not.toBeVisible();
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "任务运行", exact: true })
+    .getByRole("button", { name: "任务中心", exact: true })
     .click();
-  await page.getByRole("button", { name: "新建通用任务", exact: true }).click();
+  await page.getByRole("button", { name: "新建任务", exact: true }).click();
   dialog = page.getByRole("dialog");
   await dialog.getByLabel("任务名称", { exact: true }).fill(name);
   await dialog

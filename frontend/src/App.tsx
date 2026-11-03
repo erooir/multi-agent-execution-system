@@ -48,22 +48,22 @@ import {
   OperationsPage,
 } from "./ManagementPages";
 const nav: { id: Page; name: string; icon: any; group: string }[] = [
-  { id: "overview", name: "工作台总览", icon: Gauge, group: "工作空间" },
-  { id: "casework", name: "用例任务", icon: Layers3, group: "工作空间" },
-  { id: "agents", name: "智能体资产", icon: Bot, group: "工作空间" },
-  { id: "tasks", name: "任务运行", icon: Activity, group: "工作空间" },
-  { id: "workflows", name: "协作流程", icon: Workflow, group: "资产与知识" },
-  { id: "tools", name: "工具目录", icon: Wrench, group: "资产与知识" },
-  { id: "capabilities", name: "接入能力", icon: Sparkles, group: "资产与知识" },
-  { id: "data", name: "数据资产", icon: Database, group: "资产与知识" },
-  { id: "knowledge", name: "知识与记忆", icon: Layers3, group: "资产与知识" },
+  { id: "overview", name: "工作台", icon: Gauge, group: "工作空间" },
+  { id: "casework", name: "场景分析", icon: Layers3, group: "工作空间" },
+  { id: "agents", name: "AI 助手", icon: Bot, group: "工作空间" },
+  { id: "tasks", name: "任务中心", icon: Activity, group: "工作空间" },
+  { id: "workflows", name: "工作流", icon: Workflow, group: "资产与知识" },
+  { id: "tools", name: "工具箱", icon: Wrench, group: "资产与知识" },
+  { id: "capabilities", name: "扩展接入", icon: Sparkles, group: "资产与知识" },
+  { id: "data", name: "我的资料", icon: Database, group: "资产与知识" },
+  { id: "knowledge", name: "知识库", icon: Layers3, group: "资产与知识" },
   {
     id: "improvements",
-    name: "评测与改进",
+    name: "效果评测",
     icon: FlaskConical,
     group: "治理与运维",
   },
-  { id: "operations", name: "平台运维", icon: Settings2, group: "治理与运维" },
+  { id: "operations", name: "设置", icon: Settings2, group: "治理与运维" },
 ];
 const roles: Record<string, string> = {
   requester: "提问用户",
@@ -329,7 +329,7 @@ function ManagementApp() {
           </span>
           <div>
             <strong>航智</strong>
-            <span>智能体管理平台</span>
+            <span>AI 工作空间</span>
           </div>
           <span className="version">v2</span>
         </div>
@@ -380,8 +380,7 @@ function ManagementApp() {
           <div className="local-state">
             <span className={`status-dot ${error ? "bad" : ""}`} />
             <div>
-              <strong>{error ? "连接异常" : "本地持久工作空间"}</strong>
-              <small>AgentOS · 权限与预算受控</small>
+              <strong>{error ? "连接异常" : "服务已连接"}</strong>
             </div>
           </div>
           <button className="account" onClick={() => setLogout(true)}>
@@ -440,8 +439,8 @@ function ManagementApp() {
             <span className="environment">
               {data
                 ? data.system.offline
-                  ? "离线部署"
-                  : "允许受控云调用"
+                  ? "本地模式"
+                  : "允许云端"
                 : "读取部署策略中"}
             </span>
           </div>
@@ -599,7 +598,7 @@ function ManagementApp() {
           )}
         </main>
         <footer className="app-footer">
-          <span>航智智能体管理平台</span>
+          <span>航智 · AI 工作空间</span>
           <span>持久任务 · 独立版本 · 可追溯交付</span>
         </footer>
       </div>
@@ -675,9 +674,13 @@ function Login({
           <span>智能体管理平台</span>
         </div>
         <div className="login-message">
-          <span className="eyebrow">HANGZHI AGENT PLATFORM</span>
-          <h1>航智问答工作台</h1>
-          <p>写下问题，平台将根据项目已经提供的材料分析并核查答案。</p>
+          <span className="eyebrow">HANGZHI · AI WORKSPACE</span>
+          <h1>
+            从资料到洞见，
+            <br />
+            让工作更简单。
+          </h1>
+          <p>整理资料、协作分析，让每一步都有据可循。</p>
           <div className="login-diagram" aria-hidden="true">
             <div>
               <Database size={21} />
@@ -704,11 +707,11 @@ function Login({
       </section>
       <section className="login-form-side">
         <form className="login-form" onSubmit={submit}>
-          <h2>{register ? "创建本地账户" : "登录工作空间"}</h2>
+          <h2>{register ? "创建账户" : "欢迎回来"}</h2>
           <p>
             {register
               ? "创建提问账户。管理员分配项目后，即可使用项目资料提问。"
-              : "使用本地账户访问获授权的项目。"}
+              : "登录航智，开始今天的工作。"}
           </p>
           <fieldset disabled={busy}>
             <label className="field">
@@ -800,12 +803,12 @@ function Overview({
     <>
       <SectionTitle
         eyebrow="WORKSPACE OVERVIEW"
-        title="工作台总览"
+        title="工作台"
         description={`${project?.name || "当前项目"} · 查看智能体与用例岗位、工具授权及实际执行情况。`}
         actions={
           <button className="primary" onClick={() => go("tasks")}>
             <Plus size={18} />
-            进入任务工作台
+            查看任务
           </button>
         }
       />
@@ -817,7 +820,6 @@ function Overview({
           openCasework={openCasework}
         />
       )}
-      {project?.id && <MetricsPanel key={project.id} projectId={project.id} />}
       <div className="metric-grid four">
         <button className="metric" onClick={() => go("agents")}>
           <span>
@@ -834,7 +836,7 @@ function Overview({
         </button>
         <button className="metric" onClick={() => go("tasks")}>
           <span>
-            进行中的真实任务
+            进行中任务
             <Activity size={17} />
           </span>
           <strong>{summary.active}</strong>
@@ -842,7 +844,7 @@ function Overview({
         </button>
         <button className="metric" onClick={() => go("tasks")}>
           <span>
-            成功终态 / 终态样本
+            成功 / 已结束
             <ShieldCheck size={17} />
           </span>
           <strong>
@@ -850,11 +852,13 @@ function Overview({
               ? `${summary.succeeded} / ${summary.terminal}`
               : "尚无样本"}
           </strong>
-          <small>当前项目全部真实任务 · 部分 / 失败 / 取消计入终态</small>
+          <small title="部分交付、失败和取消均计入已结束任务">
+            不含配置演练
+          </small>
         </button>
         <button className="metric" onClick={() => go("operations")}>
           <span>
-            本机历史账本余额
+            可用预算
             <WalletIcon />
           </span>
           <strong>¥ {money(data.budget?.remaining_cny)}</strong>
@@ -936,34 +940,40 @@ function Overview({
               />
             </button>
           </Panel>
-          <Panel title="任务类型与执行模式">
-            <div className="capability-list">
-              {capabilities.map((c) => (
-                <div key={c.id}>
-                  <span>{c.name || taskTypes[c.id]}</span>
-                  <Badge
-                    status={
-                      c.available &&
-                      (!data.system.offline || c.modes?.includes("local"))
-                        ? "ready"
-                        : "unsupported"
-                    }
-                  >
-                    {!c.available
-                      ? "待接入"
-                      : data.system.offline && !c.modes?.includes("local")
-                        ? "离线不可用"
-                        : "已接入"}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-            <p className="muted small">
-              能力由实际工具与模型提供；未验证的模态不会被当作成功处理。
-            </p>
+          <Panel title="可用分析方式">
+            <details className="available-methods">
+              <summary>查看 {capabilities.length} 种分析方式</summary>
+              <div className="capability-list">
+                {capabilities.map((c) => (
+                  <div key={c.id}>
+                    <span>{c.name || taskTypes[c.id]}</span>
+                    <Badge
+                      status={
+                        c.available &&
+                        (!data.system.offline || c.modes?.includes("local"))
+                          ? "ready"
+                          : "unsupported"
+                      }
+                    >
+                      {!c.available
+                        ? "待接入"
+                        : data.system.offline && !c.modes?.includes("local")
+                          ? "离线不可用"
+                          : "已接入"}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </details>
           </Panel>
         </div>
       </div>
+      {project?.id && (
+        <details className="overview-analytics">
+          <summary>运行统计</summary>
+          <MetricsPanel key={project.id} projectId={project.id} />
+        </details>
+      )}
     </>
   );
 }

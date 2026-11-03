@@ -141,7 +141,7 @@ export function AgentsPage({
     <>
       <SectionTitle
         eyebrow="AGENT REGISTRY"
-        title="智能体资产"
+        title="AI 助手"
         description="按用例岗位和执行方式查找智能体，查看冻结的工具授权、发布版本与运行实例。"
         actions={
           canEdit && (
@@ -556,7 +556,7 @@ export function WorkflowsPage({
     <>
       <SectionTitle
         eyebrow="WORKFLOW LIBRARY"
-        title="协作流程"
+        title="工作流"
         description="用明确的依赖关系组合能力，发布后冻结图结构及智能体版本。"
         actions={
           canEdit && (
@@ -780,7 +780,7 @@ export function DataPage({
     <>
       <SectionTitle
         eyebrow="DATA CATALOG"
-        title="数据资产"
+        title="我的资料"
         description="按原始模态接入数据，保留来源、版本、访问范围与有效期。"
         actions={
           canEdit && (
@@ -809,7 +809,7 @@ export function DataPage({
             <table>
               <thead>
                 <tr>
-                  <th>数据资产</th>
+                  <th>我的资料</th>
                   <th>模态 / 大小</th>
                   <th>来源版本</th>
                   <th>访问范围</th>

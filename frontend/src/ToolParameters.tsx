@@ -1,3 +1,4 @@
+import { HelpNote } from "./ui";
 import { useEffect, useState } from "react";
 import { Field } from "./ui";
 import { parseObject, splitList } from "./domain";
@@ -70,11 +71,11 @@ export default function ToolParameters({
   };
   return (
     <div className="parameter-editor">
-      <p className="note">
+      <HelpNote>
         {inherited
           ? "留空时继承智能体参数；只填写本节点需要覆盖的选项。"
           : "设置复用时的默认处理规则，具体任务会按权限与能力目录校验。"}
-      </p>
+      </HelpNote>
       {error ? (
         <p className="error-line" role="alert">
           {error}

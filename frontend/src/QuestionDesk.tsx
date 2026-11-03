@@ -252,8 +252,8 @@ function ProjectQuestions({
           <MessageSquareText size={24} aria-hidden="true" />
         </span>
         <div>
-          <h1>问题工作台</h1>
-          <p>写下你的问题，系统会结合当前项目已有的资料作答。</p>
+          <h1>有什么想了解的？</h1>
+          <p>围绕项目资料提问，让答案有据可查。</p>
         </div>
       </header>
       {canSubmit && projectId ? (
@@ -269,14 +269,14 @@ function ProjectQuestions({
               setSendError("");
             }}
             disabled={sending}
-            placeholder="请说明想了解的对象、时间范围，以及希望得到什么答案。"
+            placeholder="想了解什么？写下问题，也可以说明时间和范围…"
             required
           />
           <div className="question-submit">
             <small>
               {text.length >= 7500
                 ? `已输入 ${text.length} / 8000 字。`
-                : "提交后可在下方查看进展和答案。"}
+                : "基于当前项目资料回答"}
             </small>
             <button
               className="primary"

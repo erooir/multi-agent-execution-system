@@ -1,28 +1,28 @@
 @import "@xyflow/react/dist/style.css";
 :root {
-  font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
-  font-size: 16px;
-  line-height: 1.55;
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
   font-synthesis: none;
-  color: #ececf2;
-  background: #151619;
+  color: #24283d;
+  background: #f6f7fb;
   font-weight: 400;
-  --bg: #151619;
-  --sidebar: #121316;
-  --surface: #1d1f24;
-  --surface2: #24262d;
-  --line: #33353f;
-  --text: #ececf2;
-  --muted: #a3a7b5;
-  --secondary: #c1c4ce;
-  --accent: #b3a6f7;
-  --accent-hover: #c7baff;
-  --accent-bg: #2d2941;
-  --good: #86d8b1;
-  --warn: #e2c284;
-  --bad: #f1a0a3;
-  --blue: #91b9ed;
-  color-scheme: dark;
+  --bg: #f6f7fb;
+  --sidebar: #ffffff;
+  --surface: #ffffff;
+  --surface2: #f5f6fa;
+  --line: #e5e7ef;
+  --text: #24283d;
+  --muted: #72788d;
+  --secondary: #515a72;
+  --accent: #5956d6;
+  --accent-hover: #4541bd;
+  --accent-bg: #eeedff;
+  --good: #20815e;
+  --warn: #996213;
+  --bad: #c23e52;
+  --blue: #3f6cab;
+  color-scheme: light;
 }
 * {
   box-sizing: border-box;
@@ -82,8 +82,8 @@ button,
 }
 button:hover,
 .button:hover {
-  background: #30323b;
-  border-color: #505260;
+  background: var(--surface2);
+  border-color: var(--line);
 }
 button:disabled {
   opacity: 0.45;
@@ -93,7 +93,7 @@ button.primary,
 .button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #211c34;
+  color: var(--secondary);
   font-weight: 650;
 }
 button.primary:hover {
@@ -180,13 +180,13 @@ pre {
   font-size: 13px;
 }
 code {
-  color: #c8bff4;
+  color: var(--secondary);
 }
 pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   margin: 12px 0;
-  background: #16171c;
+  background: var(--surface2);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 16px;
@@ -224,7 +224,7 @@ pre.prose {
   z-index: 300;
   padding: 12px;
   background: var(--accent);
-  color: #151619;
+  color: var(--secondary);
 }
 .skip-link:focus {
   top: 10px;
@@ -238,7 +238,7 @@ pre.prose {
   position: fixed;
   inset: 0 auto 0 0;
   background: var(--sidebar);
-  border-right: 1px solid #292b33;
+  border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   z-index: 30;
@@ -257,7 +257,7 @@ pre.prose {
   width: 40px;
   height: 40px;
   background: var(--accent-bg);
-  border: 1px solid #49415f;
+  border: 1px solid var(--line);
   border-radius: 10px;
   flex-shrink: 0;
 }
@@ -275,7 +275,7 @@ pre.prose {
   align-self: flex-start;
   color: var(--accent);
   font-size: 13px;
-  border: 1px solid #4b435e;
+  border: 1px solid var(--line);
   padding: 0 5px;
   border-radius: 4px;
   margin-left: auto;
@@ -292,7 +292,7 @@ pre.prose {
 .project-picker select {
   width: 100%;
   font-size: 14px;
-  background: #1c1d23;
+  background: var(--surface2);
   padding: 10px;
 }
 .sidebar nav {
@@ -301,7 +301,7 @@ pre.prose {
 }
 .nav-label {
   font-size: 13px;
-  color: #858a99;
+  color: var(--secondary);
   letter-spacing: 1px;
   margin: 18px 13px 9px;
 }
@@ -321,17 +321,17 @@ pre.prose {
 .nav-item.active {
   color: var(--accent);
   background: var(--accent-bg);
-  border-color: #403953;
+  border-color: var(--line);
 }
 .nav-item:hover {
-  background: #202127;
+  background: var(--surface2);
   border-color: transparent;
 }
 .nav-count {
   margin-left: auto;
   min-width: 22px;
   text-align: center;
-  background: #43395f;
+  background: var(--surface2);
   font-size: 13px;
   border-radius: 4px;
 }
@@ -344,7 +344,7 @@ pre.prose {
   align-items: flex-start;
   gap: 8px;
   padding: 13px 7px;
-  border-bottom: 1px solid #2d2f37;
+  border-bottom: 1px solid var(--line);
   margin-bottom: 10px;
 }
 .local-state strong {
@@ -382,8 +382,8 @@ pre.prose {
 .avatar {
   width: 34px;
   height: 34px;
-  border: 1px solid #454151;
-  background: #2d2937;
+  border: 1px solid var(--line);
+  background: var(--surface2);
   border-radius: 8px;
   display: grid;
   place-items: center;
@@ -416,8 +416,8 @@ pre.prose {
   justify-content: space-between;
   gap: 16px;
   padding: 0 36px;
-  border-bottom: 1px solid #292b33;
-  background: #18191d;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface2);
   position: sticky;
   top: 0;
   z-index: 20;
@@ -495,18 +495,18 @@ main {
 .app-footer {
   display: flex;
   justify-content: space-between;
-  color: #828695;
+  color: var(--secondary);
   font-size: 13px;
   padding: 16px 36px;
-  border-top: 1px solid #25272e;
+  border-top: 1px solid var(--line);
 }
 .overview-hero {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  border: 1px solid #393442;
-  background: #1e1e26;
+  border: 1px solid var(--line);
+  background: var(--surface2);
   border-radius: 10px;
   padding: 30px 32px;
   margin-bottom: 24px;
@@ -539,21 +539,21 @@ main {
   width: 110px;
   min-height: 104px;
   gap: 12px;
-  border: 1px solid #393a47;
+  border: 1px solid var(--line);
   border-radius: 9px;
-  background: #23232e;
+  background: var(--surface2);
   color: var(--secondary);
   font-size: 13px;
 }
 .hero-nodes > div.hero-primary {
   min-height: 132px;
   width: 140px;
-  background: #302a41;
-  border-color: #645881;
+  background: var(--surface2);
+  border-color: var(--line);
   color: var(--accent);
 }
 .hero-primary small {
-  color: #a99fc4;
+  color: var(--secondary);
   font-size: 13px;
 }
 .node-connector {
@@ -561,7 +561,7 @@ main {
   min-width: 28px;
   flex: 1;
   max-width: 48px;
-  background: #575065;
+  background: var(--surface2);
 }
 .metric-grid {
   display: grid;
@@ -596,7 +596,7 @@ main {
 }
 .metric > span svg,
 .metric > svg {
-  color: #9f95ba;
+  color: var(--secondary);
 }
 .metric > strong {
   font-size: 29px;
@@ -654,7 +654,7 @@ main {
   gap: 14px;
   width: 100%;
   border: 0;
-  border-bottom: 1px solid #30313b;
+  border-bottom: 1px solid var(--line);
   border-radius: 0;
   background: none;
   padding: 17px 0;
@@ -685,9 +685,9 @@ main {
   height: 35px;
   display: grid;
   place-items: center;
-  background: #292832;
+  background: var(--surface2);
   border-radius: 7px;
-  color: #b5a7d9;
+  color: var(--secondary);
 }
 .recent-row > svg {
   color: var(--muted);
@@ -695,7 +695,7 @@ main {
 .resource-row {
   background: none;
   border: 0;
-  border-bottom: 1px solid #30313a;
+  border-bottom: 1px solid var(--line);
   padding: 13px 0;
   border-radius: 0;
   width: 100%;
@@ -736,8 +736,8 @@ main {
   padding: 3px 8px;
   font-size: 13px;
   white-space: nowrap;
-  background: #2c3039;
-  color: #b9c7de;
+  background: #edf2fb;
+  color: #3f6cab;
   line-height: 1.5;
   font-weight: 500;
 }
@@ -748,20 +748,20 @@ main {
   background: currentColor;
 }
 .badge.good {
-  background: #243a32;
+  background: #e9f6ef;
   color: var(--good);
 }
 .badge.bad {
-  background: #41292e;
+  background: #fceef0;
   color: var(--bad);
 }
 .badge.warn {
-  background: #3b3324;
+  background: #fff6e6;
   color: var(--warn);
 }
 .badge.neutral {
-  background: #2b2d39;
-  color: #b7bfd8;
+  background: #eef0f6;
+  color: #59647b;
 }
 .toolbar {
   display: flex;
@@ -782,7 +782,7 @@ main {
   display: flex;
   align-items: center;
   gap: 9px;
-  background: #1c1e23;
+  background: var(--surface2);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0 12px;
@@ -816,8 +816,8 @@ main {
   min-width: 0;
 }
 .asset-card:hover {
-  border-color: #6b5c89;
-  background: #24232d;
+  border-color: var(--line);
+  background: var(--surface2);
 }
 .asset-icon {
   display: flex;
@@ -826,8 +826,8 @@ main {
   color: var(--accent);
   width: 44px;
   height: 44px;
-  background: #2c2839;
-  border: 1px solid #41394e;
+  background: var(--surface2);
+  border: 1px solid var(--line);
   border-radius: 9px;
 }
 .asset-card h3 {
@@ -851,17 +851,17 @@ main {
 .tags > code {
   font-size: 13px;
   padding: 3px 7px;
-  border: 1px solid #3b3a46;
+  border: 1px solid var(--line);
   border-radius: 4px;
   color: var(--secondary);
-  background: #26252d;
+  background: var(--surface2);
 }
 .card-footer {
   margin-top: auto;
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  border-top: 1px solid #33323d;
+  border-top: 1px solid var(--line);
   padding-top: 15px;
   color: var(--muted);
   font-size: 13px;
@@ -890,12 +890,12 @@ th {
   font-weight: 500;
   color: var(--muted);
   padding: 0 14px 14px;
-  border-bottom: 1px solid #3a3b45;
+  border-bottom: 1px solid var(--line);
   white-space: nowrap;
 }
 td {
   padding: 17px 14px;
-  border-bottom: 1px solid #30323a;
+  border-bottom: 1px solid var(--line);
   vertical-align: middle;
 }
 td:first-child,
@@ -934,7 +934,7 @@ td .reason {
   width: 100%;
 }
 .empty > svg {
-  color: #80778e;
+  color: var(--secondary);
   margin-bottom: 16px;
 }
 .empty h3 {
@@ -951,7 +951,7 @@ td .reason {
 .tabs {
   display: flex;
   gap: 22px;
-  border-bottom: 1px solid #34353e;
+  border-bottom: 1px solid var(--line);
   margin-bottom: 24px;
   overflow: auto;
 }
@@ -1001,7 +1001,7 @@ td .reason {
 .json summary,
 details > summary {
   cursor: pointer;
-  color: #b8aace;
+  color: var(--secondary);
   outline-offset: 3px;
 }
 .json pre {
@@ -1012,8 +1012,8 @@ details > summary {
   display: flex;
   align-items: flex-start;
   gap: 15px;
-  border: 1px solid #443b57;
-  background: #252230;
+  border: 1px solid var(--line);
+  background: var(--surface2);
   border-radius: 8px;
   padding: 22px;
   margin-bottom: 24px;
@@ -1038,22 +1038,22 @@ details > summary {
 .error-line {
   padding: 13px 16px;
   border-radius: 6px;
-  border: 1px solid #3e3c4a;
-  background: #25232e;
+  border: 1px solid var(--line);
+  background: var(--surface2);
   font-size: 13px;
   line-height: 1.7;
   color: var(--secondary);
   margin: 15px 0;
 }
 .warning {
-  border-color: #54452e;
-  background: #30291f;
-  color: #e0c695;
+  border-color: var(--line);
+  background: #fff8ec;
+  color: #96600f;
 }
 .error-line {
-  border-color: #663b43;
-  background: #38242a;
-  color: #f0b0b4;
+  border-color: var(--line);
+  background: #fff0f2;
+  color: #b63448;
 }
 .danger-text {
   color: var(--bad);
@@ -1125,7 +1125,7 @@ details > summary {
   padding-left: 24px;
 }
 .timeline > li {
-  border-left: 1px solid #48434f;
+  border-left: 1px solid var(--line);
   padding: 0 0 23px 25px;
   position: relative;
 }
@@ -1138,7 +1138,7 @@ details > summary {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: #9784bd;
+  background: var(--accent);
   left: -5px;
   top: 7px;
 }
@@ -1152,8 +1152,8 @@ details > summary {
 .graph {
   height: 470px;
   position: relative;
-  background: #16171b;
-  border: 1px solid #30323c;
+  background: var(--surface2);
+  border: 1px solid var(--line);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -1173,11 +1173,11 @@ details > summary {
   width: 268px;
   min-height: 156px;
   padding: 17px 17px 13px;
-  border: 1px solid #575160;
+  border: 1px solid var(--line);
   border-left: 3px solid var(--accent);
   border-radius: 8px;
-  background: #24242c;
-  box-shadow: 0 4px 14px #0003;
+  background: var(--surface2);
+  box-shadow: 0 4px 14px #202b4712;
 }
 .node-head {
   display: flex;
@@ -1189,7 +1189,7 @@ details > summary {
   place-items: center;
   width: 34px;
   height: 34px;
-  background: #343044;
+  background: var(--surface2);
   color: var(--accent);
   border-radius: 7px;
 }
@@ -1198,7 +1198,7 @@ details > summary {
 }
 .node-head small {
   display: block;
-  color: #aaa0be;
+  color: var(--secondary);
   font-size: 13px;
   max-width: 185px;
   overflow: hidden;
@@ -1225,7 +1225,7 @@ details > summary {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border-top: 1px solid #3d3a45;
+  border-top: 1px solid var(--line);
   padding-top: 10px;
 }
 .node-foot > span:last-child {
@@ -1234,14 +1234,14 @@ details > summary {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
-  color: #a49aae;
+  color: var(--secondary);
 }
 .node-foot .badge {
   font-size: 13px;
 }
 .react-flow__handle {
-  background: #b3a6f7 !important;
-  border-color: #2b2639 !important;
+  background: var(--accent) !important;
+  border-color: var(--line) !important;
   width: 8px !important;
   height: 8px !important;
 }
@@ -1250,15 +1250,15 @@ details > summary {
   padding: 5px;
 }
 .react-flow__attribution {
-  background: #1c1e24 !important;
+  background: var(--surface2) !important;
   font-size: 13px !important;
 }
 .react-flow__attribution a {
-  color: #b6b6c2 !important;
+  color: var(--secondary) !important;
 }
 .node-edit {
   border: 1px solid var(--line);
-  background: #191a20;
+  background: var(--surface2);
   border-radius: 8px;
   padding: 16px;
   margin: 15px 0;
@@ -1269,8 +1269,8 @@ details > summary {
 input,
 textarea,
 select {
-  background: #17181e;
-  border: 1px solid #3f414c;
+  background: var(--surface2);
+  border: 1px solid var(--line);
   border-radius: 6px;
   color: var(--text);
   padding: 10px 12px;
@@ -1279,7 +1279,7 @@ select {
 }
 input::placeholder,
 textarea::placeholder {
-  color: #858997;
+  color: var(--secondary);
 }
 textarea {
   resize: vertical;
@@ -1357,7 +1357,7 @@ fieldset {
 }
 .selection-list > .check {
   padding: 8px 0;
-  border-bottom: 1px solid #2e3038;
+  border-bottom: 1px solid var(--line);
 }
 .selection-list > .check:last-child {
   border-bottom: 0;
@@ -1384,21 +1384,21 @@ fieldset {
   background: var(--accent-bg);
 }
 .modal {
-  border: 1px solid #494450;
+  border: 1px solid var(--line);
   border-radius: 10px;
-  background: #1d1f24;
+  background: var(--surface2);
   color: var(--text);
   width: min(560px, calc(100vw - 32px));
   max-height: 90dvh;
   padding: 0;
-  box-shadow: 0 20px 100px #0008;
+  box-shadow: 0 20px 100px #202b4726;
   overflow: auto;
 }
 .modal.wide {
   width: min(960px, calc(100vw - 32px));
 }
 .modal::backdrop {
-  background: #06070bcc;
+  background: #1d254866;
   backdrop-filter: blur(3px);
 }
 .modal-head {
@@ -1409,7 +1409,7 @@ fieldset {
   border-bottom: 1px solid var(--line);
   position: sticky;
   top: 0;
-  background: #1d1f24;
+  background: var(--surface2);
   z-index: 3;
 }
 .modal-head h2 {
@@ -1432,7 +1432,7 @@ fieldset {
   gap: 12px;
   border-top: 1px solid var(--line);
   padding: 18px 24px;
-  background: #1b1d22;
+  background: var(--surface2);
   position: sticky;
   bottom: 0;
   z-index: 2;
@@ -1448,16 +1448,16 @@ fieldset {
   z-index: 200;
   max-width: 560px;
   padding: 13px 16px;
-  border: 1px solid #5d516f;
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: #302b3c;
-  box-shadow: 0 8px 40px #0005;
+  background: var(--surface2);
+  box-shadow: 0 8px 40px #202b471a;
   font-size: 14px;
 }
 .toast.error {
-  background: #3c282d;
-  border-color: #74434d;
-  color: #f5bdc3;
+  background: #fff0f2;
+  border-color: var(--line);
+  color: #b63448;
 }
 .loading,
 .full-loading {
@@ -1489,11 +1489,11 @@ fieldset {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 1.15fr 1fr;
-  background: #151619;
+  background: var(--surface2);
 }
 .login-story {
-  background: #18181f;
-  border-right: 1px solid #34313d;
+  background: var(--surface2);
+  border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   min-height: 100vh;
@@ -1545,19 +1545,19 @@ fieldset {
   gap: 13px;
   min-height: 100px;
   width: 120px;
-  background: #22212b;
-  border: 1px solid #3a3747;
+  background: var(--surface2);
+  border: 1px solid var(--line);
   border-radius: 8px;
   font-size: 13px;
   color: var(--secondary);
 }
 .login-diagram > div.accent {
-  background: #302a41;
+  background: var(--surface2);
   color: var(--accent);
-  border-color: #62527f;
+  border-color: var(--line);
 }
 .login-diagram > svg {
-  color: #5a526b;
+  color: var(--secondary);
   flex-shrink: 0;
   width: 18px;
 }
@@ -1565,7 +1565,7 @@ fieldset {
   display: flex;
   flex-wrap: wrap;
   gap: 10px 18px;
-  color: #8f899e;
+  color: var(--secondary);
   font-size: 13px;
 }
 .login-principles > span::before {
@@ -1575,7 +1575,7 @@ fieldset {
 }
 .login-footnote {
   padding: 30px 34px;
-  color: #7d7c8a;
+  color: var(--secondary);
   font-size: 13px;
 }
 .login-form-side {
@@ -1630,11 +1630,11 @@ fieldset {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  color: #85838f;
+  color: var(--secondary);
   font-size: 13px;
   padding-top: 28px;
   margin-top: 20px;
-  border-top: 1px solid #2e2c36;
+  border-top: 1px solid var(--line);
 }
 .sidebar-backdrop {
   display: none;
@@ -1774,7 +1774,7 @@ fieldset {
     display: block;
     position: fixed;
     inset: 0;
-    background: #07080bbf;
+    background: #1d254866;
     border: 0;
     border-radius: 0;
     z-index: 25;
@@ -2081,7 +2081,7 @@ fieldset {
   position: relative;
   min-width: 0;
   min-height: 570px;
-  background: #151619;
+  background: var(--surface2);
 }
 .builder-canvas .react-flow {
   position: absolute;
@@ -2111,17 +2111,17 @@ fieldset {
 .builder-node {
   width: 268px;
   min-height: 150px;
-  border: 1px solid #525767;
+  border: 1px solid var(--line);
   border-left: 4px solid var(--accent);
   border-radius: 9px;
   background: var(--surface);
-  box-shadow: 0 7px 15px #0003;
+  box-shadow: 0 7px 15px #202b4712;
   padding: 15px;
 }
 .builder-node.selected {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
-  background: #272435;
+  background: var(--surface2);
 }
 .builder-node.invalid {
   border-left-color: var(--warn);
@@ -2212,7 +2212,7 @@ fieldset {
   align-items: center;
   gap: 9px;
   color: var(--good);
-  background: #19312844;
+  background: #edf8f2;
 }
 .builder-validation.needs-attention {
   color: var(--warn);

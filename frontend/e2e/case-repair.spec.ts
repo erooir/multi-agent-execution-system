@@ -56,7 +56,7 @@ test("任务详情展示条款匹配改道、复用的解析节点和独立复�
   await page.getByLabel("当前项目").selectOption(p.id);
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "任务运行" })
+    .getByRole("button", { name: "任务中心" })
     .click();
   await page.getByRole("button", { name: "核对两版条款", exact: true }).click();
   await expect(page.locator(".task-strip .badge")).toHaveText("成功", {

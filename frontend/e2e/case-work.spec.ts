@@ -48,7 +48,7 @@ test("用例任务：真实提交、三节点审核、来源证据与智能体�
   await page.getByLabel("当前项目").selectOption(id);
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "用例任务" })
+    .getByRole("button", { name: "场景分析" })
     .click();
   await page.getByRole("button", { name: "发布本项目用例岗位与流程" }).click();
   await page.getByRole("button", { name: "地理与时序", exact: true }).click();
@@ -69,6 +69,7 @@ test("用例任务：真实提交、三节点审核、来源证据与智能体�
   await expect(page.locator(".task-strip .badge")).toHaveText("成功", {
     timeout: 35000,
   });
+  await page.getByRole("button", { name: "执行图与实例", exact: true }).click();
   await expect(page.locator(".react-flow__node")).toHaveCount(3);
   const detail = await (
     await page.request.get("/api/v2/tasks/" + task.id)
@@ -78,7 +79,7 @@ test("用例任务：真实提交、三节点审核、来源证据与智能体�
   expect(detail.quality_verdict.passed).toBe(true);
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "用例任务" })
+    .getByRole("button", { name: "场景分析" })
     .click();
   await page.getByRole("button", { name: "智能体运行监测" }).click();
   const monitored = page

@@ -24,7 +24,7 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
   await page.getByLabel("当前项目").selectOption(project.id);
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "数据资产", exact: true })
+    .getByRole("button", { name: "我的资料", exact: true })
     .click();
   await page.getByRole("button", { name: "登记 / 上传数据" }).click();
   let dialog = page.getByRole("dialog");
@@ -44,9 +44,9 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
   await expect(dialog).not.toBeVisible();
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "任务运行", exact: true })
+    .getByRole("button", { name: "任务中心", exact: true })
     .click();
-  await page.getByRole("button", { name: "新建通用任务", exact: true }).focus();
+  await page.getByRole("button", { name: "新建任务", exact: true }).focus();
   await page.keyboard.press("Enter");
   dialog = page.getByRole("dialog");
   await dialog.getByLabel("任务名称", { exact: true }).fill(name);
@@ -151,8 +151,9 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
   ).toHaveText("成功");
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "工作台总览", exact: true })
+    .getByRole("button", { name: "工作台", exact: true })
     .click();
+  await page.locator(".overview-analytics > summary").click();
   await expect(page.locator(".operations-summary")).toContainText(
     "1 个终态样本",
   );
@@ -190,7 +191,7 @@ test("浏览器查看已完成真实云任务的MCP参数、结果和证据", as
     await page.getByLabel("当前项目").selectOption(task.project_id);
     await page
       .getByRole("navigation")
-      .getByRole("button", { name: "任务运行", exact: true })
+      .getByRole("button", { name: "任务中心", exact: true })
       .click();
     await page
       .locator("tr")

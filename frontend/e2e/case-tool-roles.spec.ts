@@ -33,7 +33,7 @@ test("用例岗位对照显示共享算法和不同权限，当前专员可执�
   await page.getByLabel("当前项目").selectOption(p.id);
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "用例任务" })
+    .getByRole("button", { name: "场景分析" })
     .click();
   const installed = page.waitForResponse(
     (r) =>
@@ -81,7 +81,7 @@ test("用例岗位对照显示共享算法和不同权限，当前专员可执�
   expect(specialist).toBeTruthy();
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "智能体资产" })
+    .getByRole("button", { name: "AI 助手" })
     .click();
   await page.getByLabel("执行方式筛选").selectOption("dual");
   await page.getByLabel("用例岗位分工").selectOption("analyze");

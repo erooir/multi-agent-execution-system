@@ -5,10 +5,10 @@ async function openTools(page: Page, projectId: string) {
   await page.getByLabel("当前项目").selectOption(projectId);
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "工具目录", exact: true })
+    .getByRole("button", { name: "工具箱", exact: true })
     .click();
   await expect(
-    page.getByRole("heading", { name: "工具目录", exact: true }),
+    page.getByRole("heading", { name: "工具箱", exact: true }),
   ).toBeVisible();
 }
 

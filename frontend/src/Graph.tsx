@@ -96,7 +96,7 @@ export default function Graph({
         nodes={prepared.nodes}
         edges={prepared.edges}
         nodeTypes={nodeTypes}
-        colorMode="dark"
+        colorMode="light"
         fitView
         fitViewOptions={{ padding: 0.15 }}
         nodesDraggable={false}
@@ -108,7 +108,7 @@ export default function Graph({
       >
         <Background gap={24} size={1} />
         <Controls showInteractive={false} />
-        <MiniMap pannable zoomable nodeColor="#74669d" maskColor="#151619b8" />
+        <MiniMap pannable zoomable nodeColor="#aaa7ef" maskColor="#f6f7fbc9" />
       </ReactFlow>
     </div>
   );

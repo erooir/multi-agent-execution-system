@@ -92,7 +92,7 @@ export default function CapabilityPages({
     <>
       <SectionTitle
         eyebrow="NATIVE CAPABILITIES"
-        title="接入能力"
+        title="扩展接入"
         description="优先使用文档技能包、Agno 工具包与 MCP 服务；项目负责版本、权限、审计和撤销。"
         actions={
           <>
@@ -104,7 +104,7 @@ export default function CapabilityPages({
             )}
             {isAdmin && (
               <button className="primary" onClick={() => open("agno_toolkit")}>
-                <Plus size={17} /> 接入能力
+                <Plus size={17} /> 扩展接入
               </button>
             )}
           </>

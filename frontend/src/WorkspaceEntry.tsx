@@ -54,50 +54,51 @@ export default function WorkspaceEntry({
   return (
     <section className="workspace-entry" aria-label="项目工作入口">
       <div className="workspace-intro">
-        <span className="eyebrow">项目工作入口</span>
-        <h2>智能体、工具与任务</h2>
-        <p>
-          当前项目已发布 <strong>{fixed}</strong> 个固定流程执行智能体、{" "}
-          <strong>{autonomous}</strong> 个自主工具型智能体和{" "}
-          <strong>{dual}</strong> 个本地 / 云端双模式用例智能体。
-        </p>
+        <span className="workspace-kicker">YOUR AI WORKSPACE</span>
+        <h2>从资料出发，找到答案。</h2>
+        <p>选择资料和分析方式，让助手协作完成。</p>
+        <div className="workspace-stats">
+          <span>{fixed} 个流程助手</span>
+          <span>{autonomous} 个工具助手</span>
+          <span>{dual} 个场景助手</span>
+        </div>
         <button className="text-button" onClick={() => go("agents")}>
-          查看智能体资产 <ArrowUpRight size={15} />
+          查看全部助手 <ArrowUpRight size={15} />
         </button>
       </div>
       <div className="workspace-actions">
         <button onClick={() => openCasework("catalog")}>
           <Layers3 />
           <span>
-            <strong>用例任务</strong>
-            <small>查看所需材料，提交分析</small>
+            <strong>开始场景分析</strong>
+            <small>选择场景，创建任务</small>
           </span>
         </button>
         <button onClick={() => openCasework("roles")}>
           <GitCompareArrows />
           <span>
-            <strong>用例岗位对照</strong>
-            <small>比较算法、验收条件与许可</small>
+            <strong>比较分析助手</strong>
+            <small>找到适合的分工</small>
           </span>
         </button>
         <button onClick={() => go("tools")}>
           <Wrench />
           <span>
-            <strong>工具目录</strong>
+            <strong>工具箱</strong>
             <small>
               {toolCount !== null
-                ? `${toolCount} 项登记工具 · 查看智能体授权`
+                ? `${toolCount} 项可查工具`
                 : error
                   ? "目录数量暂不可用"
-                  : "正在读取目录数量…"}
+                  : "探索可用工具"}
             </small>
           </span>
         </button>
         <button onClick={() => openCasework("monitor")}>
           <Activity />
           <span>
-            <strong>智能体运行监测</strong>
-            <small>查看节点尝试、修订与审核</small>
+            <strong>查看运行状态</strong>
+            <small>了解每一步进展</small>
           </span>
         </button>
       </div>
