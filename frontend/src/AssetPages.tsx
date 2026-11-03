@@ -141,7 +141,7 @@ export function AgentsPage({
     <>
       <SectionTitle
         eyebrow="AGENT REGISTRY"
-        title="AI 助手"
+        title="智能体资产"
         description="按用例岗位和执行方式查找智能体，查看冻结的工具授权、发布版本与运行实例。"
         actions={
           canEdit && (

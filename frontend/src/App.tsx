@@ -18,7 +18,6 @@ import {
   LogOut,
   Menu,
   Network,
-  Plus,
   RefreshCw,
   Search,
   Settings2,
@@ -50,7 +49,7 @@ import {
 const nav: { id: Page; name: string; icon: any; group: string }[] = [
   { id: "overview", name: "工作台", icon: Gauge, group: "工作空间" },
   { id: "casework", name: "场景分析", icon: Layers3, group: "工作空间" },
-  { id: "agents", name: "AI 助手", icon: Bot, group: "工作空间" },
+  { id: "agents", name: "智能体资产", icon: Bot, group: "工作空间" },
   { id: "tasks", name: "任务中心", icon: Activity, group: "工作空间" },
   { id: "workflows", name: "工作流", icon: Workflow, group: "资产与知识" },
   { id: "tools", name: "工具箱", icon: Wrench, group: "资产与知识" },
@@ -480,9 +479,6 @@ function ManagementApp() {
                   tasks={tasks}
                   assets={assets}
                   workflows={workflows}
-                  go={go}
-                  openCasework={openCasework}
-                  openTask={openTask}
                 />
               )}
               {page === "casework" && (
@@ -779,9 +775,6 @@ function Overview({
   tasks,
   assets,
   workflows,
-  go,
-  openCasework,
-  openTask,
 }: {
   data: Bootstrap;
   project?: Item;
@@ -789,9 +782,6 @@ function Overview({
   tasks: Item[];
   assets: Item[];
   workflows: Item[];
-  go: (page: Page) => void;
-  openCasework: (tab: CaseTab) => void;
-  openTask: (id: string) => void;
 }) {
   const realTasks = tasks.filter((t) => t.request?.mode !== "rehearsal"),
     summary = taskSummary(realTasks),
@@ -805,23 +795,10 @@ function Overview({
         eyebrow="WORKSPACE OVERVIEW"
         title="工作台"
         description={`${project?.name || "当前项目"} · 查看智能体与用例岗位、工具授权及实际执行情况。`}
-        actions={
-          <button className="primary" onClick={() => go("tasks")}>
-            <Plus size={18} />
-            查看任务
-          </button>
-        }
       />
-      {project && (
-        <WorkspaceEntry
-          projectId={project.id}
-          agents={agents}
-          go={go}
-          openCasework={openCasework}
-        />
-      )}
+      {project && <WorkspaceEntry projectId={project.id} agents={agents} />}
       <div className="metric-grid four">
-        <button className="metric" onClick={() => go("agents")}>
+        <div className="metric">
           <span>
             已发布智能体
             <Bot size={17} />
@@ -833,16 +810,16 @@ function Overview({
             项目内 {agents.filter((a) => a.status !== "destroyed").length}{" "}
             个定义
           </small>
-        </button>
-        <button className="metric" onClick={() => go("tasks")}>
+        </div>
+        <div className="metric">
           <span>
             进行中任务
             <Activity size={17} />
           </span>
           <strong>{summary.active}</strong>
           <small>不包含配置演练</small>
-        </button>
-        <button className="metric" onClick={() => go("tasks")}>
+        </div>
+        <div className="metric">
           <span>
             成功 / 已结束
             <ShieldCheck size={17} />
@@ -855,8 +832,8 @@ function Overview({
           <small title="部分交付、失败和取消均计入已结束任务">
             不含配置演练
           </small>
-        </button>
-        <button className="metric" onClick={() => go("operations")}>
+        </div>
+        <div className="metric">
           <span>
             可用预算
             <WalletIcon />
@@ -866,26 +843,14 @@ function Overview({
             项目累计上限 ¥ {data.budget?.project_cap_cny ?? "—"} · 本机领取上限
             ¥ {data.budget?.limit_cny ?? "—"}
           </small>
-        </button>
+        </div>
       </div>
       <div className="overview-columns">
-        <Panel
-          title="最近任务"
-          actions={
-            <button className="text-button" onClick={() => go("tasks")}>
-              查看全部
-              <ArrowRight size={15} />
-            </button>
-          }
-        >
+        <Panel title="最近任务">
           {recent.length ? (
             <div className="recent-tasks">
               {recent.map((t) => (
-                <button
-                  key={t.id}
-                  className="recent-row"
-                  onClick={() => openTask(t.id)}
-                >
+                <div key={t.id} className="recent-row">
                   <span className="recent-icon">
                     <Activity size={18} />
                   </span>
@@ -897,48 +862,39 @@ function Overview({
                     </small>
                   </div>
                   <Badge status={t.status} />
-                  <ChevronRight size={16} />
-                </button>
+                </div>
               ))}
             </div>
           ) : (
             <Empty
               title="任务记录从这里开始"
               description="先登记数据，再提交带质量约束的任务。执行记录将自动保存在当前项目。"
-              action={
-                <button onClick={() => go("data")}>
-                  接入第一份数据
-                  <ArrowRight size={16} />
-                </button>
-              }
             />
           )}
         </Panel>
         <div className="overview-side">
           <Panel title="工作空间资源">
-            <button className="resource-row" onClick={() => go("data")}>
+            <div className="resource-row">
               <Database size={18} />
               <span>有效数据资产</span>
               <strong>
                 {assets.filter((a) => a.status === "active").length}
               </strong>
-              <ChevronRight size={15} />
-            </button>
-            <button className="resource-row" onClick={() => go("workflows")}>
+            </div>
+            <div className="resource-row">
               <Workflow size={18} />
               <span>已发布流程</span>
               <strong>
                 {workflows.filter((w) => w.status === "published").length}
               </strong>
-              <ChevronRight size={15} />
-            </button>
-            <button className="resource-row" onClick={() => go("operations")}>
+            </div>
+            <div className="resource-row">
               <Activity size={18} />
               <span>执行服务</span>
               <Badge
                 status={data.system.worker_online ? "online" : "offline"}
               />
-            </button>
+            </div>
           </Panel>
           <Panel title="可用分析方式">
             <details className="available-methods">

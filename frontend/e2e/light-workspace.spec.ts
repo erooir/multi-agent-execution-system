@@ -62,7 +62,7 @@ test("Light 工作空间：导航、说明展开、表单及移动布局", async
   const pages = [
     "工作台",
     "场景分析",
-    "AI 助手",
+    "智能体资产",
     "任务中心",
     "工作流",
     "工具箱",
@@ -81,6 +81,17 @@ test("Light 工作空间：导航、说明展开、表单及移动布局", async
       page.getByRole("heading", { name, exact: true }),
     ).toBeVisible();
     await expect(page.locator("main .error-line")).toHaveCount(0);
+    if (name === "工作台") {
+      await expect(page.getByLabel("当前项目")).toHaveValue(project.id);
+      await expect(
+        page.getByRole("region", { name: "项目资源汇总" }),
+      ).toBeVisible();
+      await expect(page.locator(".workspace-summary-stats dd")).toHaveCount(4);
+      await expect(
+        page.locator(".workspace-summary-stats dd").last(),
+      ).toHaveText(/^\d+$/);
+      await expect(page.locator("main button, main a")).toHaveCount(0);
+    }
     await page.screenshot({
       path: `${folder}/page-${index}.png`,
       fullPage: true,
@@ -127,6 +138,9 @@ test("Light 工作空间：导航、说明展开、表单及移动布局", async
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBeTruthy();
+  await expect(page.locator(".workspace-summary-stats dd").last()).toHaveText(
+    /^\d+$/,
+  );
   await page.screenshot({ path: `${folder}/mobile.png`, fullPage: true });
   await page.goto("/");
   await expect(

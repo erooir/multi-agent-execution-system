@@ -352,6 +352,21 @@ main {
   border-color: #c9c5ee;
   transform: translateY(-2px);
 }
+.metric:not(button):hover {
+  transform: none;
+  border-color: var(--line);
+}
+.recent-row:not(button) {
+  cursor: default;
+}
+.recent-row:not(button):hover {
+  background: white;
+}
+.resource-row:not(button) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .overview-analytics {
   margin-top: 22px;
 }
