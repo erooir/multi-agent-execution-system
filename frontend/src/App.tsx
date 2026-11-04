@@ -35,7 +35,6 @@ import { Badge, Confirm, Empty, ErrorLine, Panel, SectionTitle } from "./ui";
 import { AgentsPage, DataPage, WorkflowsPage } from "./AssetPages";
 import TasksPage from "./TaskPages";
 import CapabilityPages from "./CapabilityPages";
-import { modeName } from "./domain";
 import MetricsPanel from "./MetricsPanel";
 import Casework, { type CaseTab } from "./Casework";
 import ToolCatalog from "./ToolCatalog";
@@ -329,7 +328,6 @@ function ManagementApp() {
           </span>
           <div>
             <strong>航智</strong>
-            <span>AI 工作空间</span>
           </div>
           <span className="version">v2</span>
         </div>
@@ -793,7 +791,7 @@ function Overview({
       .slice(0, 6),
     capabilities = Array.isArray(data.capabilities) ? data.capabilities : [];
   return (
-    <>
+    <div className="overview-page">
       <SectionTitle
         eyebrow="WORKSPACE OVERVIEW"
         title="工作台"
@@ -809,10 +807,6 @@ function Overview({
           <strong>
             {agents.filter((a) => a.status === "published").length}
           </strong>
-          <small>
-            项目内 {agents.filter((a) => a.status !== "destroyed").length}{" "}
-            个定义
-          </small>
         </div>
         <div className="metric">
           <span>
@@ -820,7 +814,6 @@ function Overview({
             <Activity size={17} />
           </span>
           <strong>{summary.active}</strong>
-          <small>不包含配置演练</small>
         </div>
         <div className="metric">
           <span>
@@ -832,9 +825,6 @@ function Overview({
               ? `${summary.succeeded} / ${summary.terminal}`
               : "尚无样本"}
           </strong>
-          <small title="部分交付、失败和取消均计入已结束任务">
-            不含配置演练
-          </small>
         </div>
         <div className="metric">
           <span>
@@ -842,10 +832,6 @@ function Overview({
             <WalletIcon />
           </span>
           <strong>¥ {money(data.budget?.remaining_cny)}</strong>
-          <small>
-            项目累计上限 ¥ {data.budget?.project_cap_cny ?? "—"} · 本机领取上限
-            ¥ {data.budget?.limit_cny ?? "—"}
-          </small>
         </div>
       </div>
       <div className="overview-columns">
@@ -859,11 +845,10 @@ function Overview({
                   </span>
                   <div>
                     <strong>{t.name || t.request?.name || t.id}</strong>
-                    <small>
-                      {taskTypes[t.request?.task_type]} ·{" "}
-                      {modeName(t.request?.mode)} · {time(t.created_at)}
-                    </small>
                   </div>
+                  {t.request?.mode === "rehearsal" && (
+                    <Badge status="rehearsal">演练</Badge>
+                  )}
                   <Badge status={t.status} />
                 </div>
               ))}
@@ -933,7 +918,7 @@ function Overview({
           <MetricsPanel key={project.id} projectId={project.id} />
         </details>
       )}
-    </>
+    </div>
   );
 }
 function WalletIcon() {

@@ -96,10 +96,11 @@ code {
   font-size: 12px;
 }
 .project-picker label {
-  font-size: 12px;
+  font-size: 14px;
   margin-bottom: 8px;
 }
 .project-picker select {
+  font-size: 16px;
   background: #f8f9fc;
   border-color: var(--line);
   padding: 11px;
@@ -114,11 +115,11 @@ code {
   border: 0;
   border-radius: 9px;
   padding: 11px 14px;
-  font-size: 14px;
+  font-size: 16px;
   color: #636a80;
 }
 .nav-item svg {
-  width: 18px;
+  width: 20px;
   stroke-width: 1.7;
 }
 .sidebar .brand {
@@ -147,7 +148,7 @@ code {
 .nav-item {
   margin-block: 2px;
   padding-block: 7px;
-  min-height: 34px;
+  min-height: 40px;
 }
 .available-methods > summary {
   cursor: pointer;
@@ -185,6 +186,9 @@ code {
   border-top: 1px solid var(--line);
   padding-top: 15px;
   border-radius: 0;
+}
+.account strong {
+  font-size: 15px;
 }
 .avatar {
   background: #f0effc;
@@ -399,6 +403,42 @@ main {
 }
 .recent-row small {
   font-size: 12px;
+}
+.overview-page .panel-title h2,
+.overview-page .workspace-entry h2 {
+  font-size: 20px;
+}
+.overview-page .workspace-summary-stats dt,
+.overview-page .metric > span {
+  font-size: 16px;
+  color: var(--secondary);
+}
+.overview-page .workspace-summary-stats dd,
+.overview-page .metric > strong {
+  font-size: 34px;
+  font-variant-numeric: tabular-nums;
+}
+.overview-page .metric {
+  justify-content: center;
+  min-height: 136px;
+  gap: 16px;
+}
+.overview-page .recent-row strong {
+  font-size: 17px;
+  font-weight: 550;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.overview-page .resource-row,
+.overview-page .capability-list > div,
+.overview-page .available-methods > summary,
+.overview-page .overview-analytics > summary {
+  font-size: 16px;
+}
+.overview-page .badge {
+  font-size: 14px;
+  flex-shrink: 0;
 }
 .badge {
   font-size: 12px;
@@ -818,6 +858,11 @@ tbody tr:hover {
     gap: 10px;
   }
 }
+@media (min-width: 801px) and (max-width: 1250px) {
+  .overview-page .metric-grid.four {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 @media (max-width: 800px) {
   main {
     padding: 24px 18px 38px;
@@ -861,6 +906,26 @@ tbody tr:hover {
   }
   .metric > strong {
     font-size: 26px;
+  }
+  .overview-page .metric > strong {
+    font-size: 27px;
+  }
+  .overview-page .metric-grid.four {
+    grid-template-columns: 1fr;
+  }
+  .overview-page .recent-row {
+    flex-wrap: wrap;
+    column-gap: 10px;
+    row-gap: 8px;
+  }
+  .overview-page .recent-row > div {
+    flex-basis: calc(100% - 45px);
+  }
+  .overview-page .recent-row > .badge {
+    margin-left: 45px;
+  }
+  .overview-page .recent-row > .badge + .badge {
+    margin-left: 0;
   }
   .modal-body {
     padding: 20px;
