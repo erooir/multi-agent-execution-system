@@ -18,7 +18,6 @@ import {
   LogOut,
   Menu,
   Network,
-  Plus,
   RefreshCw,
   Search,
   Settings2,
@@ -29,13 +28,13 @@ import {
   X,
 } from "lucide-react";
 import { api, ApiError, post } from "./api";
+import { projectLabel } from "./projects";
 import { money, projectItems, taskSummary, taskTypes, time } from "./domain";
 import type { Bootstrap, Item, Mutation, Page, User } from "./types";
 import { Badge, Confirm, Empty, ErrorLine, Panel, SectionTitle } from "./ui";
 import { AgentsPage, DataPage, WorkflowsPage } from "./AssetPages";
 import TasksPage from "./TaskPages";
 import CapabilityPages from "./CapabilityPages";
-import { modeName } from "./domain";
 import MetricsPanel from "./MetricsPanel";
 import Casework, { type CaseTab } from "./Casework";
 import ToolCatalog from "./ToolCatalog";
@@ -48,22 +47,22 @@ import {
   OperationsPage,
 } from "./ManagementPages";
 const nav: { id: Page; name: string; icon: any; group: string }[] = [
-  { id: "overview", name: "工作台总览", icon: Gauge, group: "工作空间" },
-  { id: "casework", name: "用例任务", icon: Layers3, group: "工作空间" },
+  { id: "overview", name: "工作台", icon: Gauge, group: "工作空间" },
+  { id: "casework", name: "场景分析", icon: Layers3, group: "工作空间" },
   { id: "agents", name: "智能体资产", icon: Bot, group: "工作空间" },
-  { id: "tasks", name: "任务运行", icon: Activity, group: "工作空间" },
-  { id: "workflows", name: "协作流程", icon: Workflow, group: "资产与知识" },
-  { id: "tools", name: "工具目录", icon: Wrench, group: "资产与知识" },
-  { id: "capabilities", name: "接入能力", icon: Sparkles, group: "资产与知识" },
-  { id: "data", name: "数据资产", icon: Database, group: "资产与知识" },
-  { id: "knowledge", name: "知识与记忆", icon: Layers3, group: "资产与知识" },
+  { id: "tasks", name: "任务中心", icon: Activity, group: "工作空间" },
+  { id: "workflows", name: "工作流", icon: Workflow, group: "资产与知识" },
+  { id: "tools", name: "工具箱", icon: Wrench, group: "资产与知识" },
+  { id: "capabilities", name: "扩展接入", icon: Sparkles, group: "资产与知识" },
+  { id: "data", name: "我的资料", icon: Database, group: "资产与知识" },
+  { id: "knowledge", name: "知识库", icon: Layers3, group: "资产与知识" },
   {
     id: "improvements",
-    name: "评测与改进",
+    name: "效果评测",
     icon: FlaskConical,
     group: "治理与运维",
   },
-  { id: "operations", name: "平台运维", icon: Settings2, group: "治理与运维" },
+  { id: "operations", name: "设置", icon: Settings2, group: "治理与运维" },
 ];
 const roles: Record<string, string> = {
   requester: "提问用户",
@@ -329,7 +328,6 @@ function ManagementApp() {
           </span>
           <div>
             <strong>航智</strong>
-            <span>智能体管理平台</span>
           </div>
           <span className="version">v2</span>
         </div>
@@ -343,7 +341,7 @@ function ManagementApp() {
             {data?.projects.length ? (
               data.projects.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name}
+                  {projectLabel(p, data.projects)}
                 </option>
               ))
             ) : (
@@ -380,8 +378,7 @@ function ManagementApp() {
           <div className="local-state">
             <span className={`status-dot ${error ? "bad" : ""}`} />
             <div>
-              <strong>{error ? "连接异常" : "本地持久工作空间"}</strong>
-              <small>AgentOS · 权限与预算受控</small>
+              <strong>{error ? "连接异常" : "服务已连接"}</strong>
             </div>
           </div>
           <button className="account" onClick={() => setLogout(true)}>
@@ -404,7 +401,9 @@ function ManagementApp() {
             >
               <Menu size={21} />
             </button>
-            <span>{project?.name || "平台"}</span>
+            <span title={project?.id}>
+              {project && data ? projectLabel(project, data.projects) : "平台"}
+            </span>
             <ChevronRight size={15} />
             <strong>{nav.find((n) => n.id === page)?.name}</strong>
           </div>
@@ -440,8 +439,8 @@ function ManagementApp() {
             <span className="environment">
               {data
                 ? data.system.offline
-                  ? "离线部署"
-                  : "允许受控云调用"
+                  ? "本地模式"
+                  : "允许云端"
                 : "读取部署策略中"}
             </span>
           </div>
@@ -481,9 +480,6 @@ function ManagementApp() {
                   tasks={tasks}
                   assets={assets}
                   workflows={workflows}
-                  go={go}
-                  openCasework={openCasework}
-                  openTask={openTask}
                 />
               )}
               {page === "casework" && (
@@ -599,7 +595,7 @@ function ManagementApp() {
           )}
         </main>
         <footer className="app-footer">
-          <span>航智智能体管理平台</span>
+          <span>航智 · AI 工作空间</span>
           <span>持久任务 · 独立版本 · 可追溯交付</span>
         </footer>
       </div>
@@ -675,9 +671,13 @@ function Login({
           <span>智能体管理平台</span>
         </div>
         <div className="login-message">
-          <span className="eyebrow">HANGZHI AGENT PLATFORM</span>
-          <h1>航智问答工作台</h1>
-          <p>写下问题，平台将根据项目已经提供的材料分析并核查答案。</p>
+          <span className="eyebrow">HANGZHI · AI WORKSPACE</span>
+          <h1>
+            从资料到洞见，
+            <br />
+            让工作更简单。
+          </h1>
+          <p>整理资料、协作分析，让每一步都有据可循。</p>
           <div className="login-diagram" aria-hidden="true">
             <div>
               <Database size={21} />
@@ -704,11 +704,11 @@ function Login({
       </section>
       <section className="login-form-side">
         <form className="login-form" onSubmit={submit}>
-          <h2>{register ? "创建本地账户" : "登录工作空间"}</h2>
+          <h2>{register ? "创建账户" : "欢迎回来"}</h2>
           <p>
             {register
               ? "创建提问账户。管理员分配项目后，即可使用项目资料提问。"
-              : "使用本地账户访问获授权的项目。"}
+              : "登录航智，开始今天的工作。"}
           </p>
           <fieldset disabled={busy}>
             <label className="field">
@@ -776,9 +776,6 @@ function Overview({
   tasks,
   assets,
   workflows,
-  go,
-  openCasework,
-  openTask,
 }: {
   data: Bootstrap;
   project?: Item;
@@ -786,9 +783,6 @@ function Overview({
   tasks: Item[];
   assets: Item[];
   workflows: Item[];
-  go: (page: Page) => void;
-  openCasework: (tab: CaseTab) => void;
-  openTask: (id: string) => void;
 }) {
   const realTasks = tasks.filter((t) => t.request?.mode !== "rehearsal"),
     summary = taskSummary(realTasks),
@@ -797,29 +791,15 @@ function Overview({
       .slice(0, 6),
     capabilities = Array.isArray(data.capabilities) ? data.capabilities : [];
   return (
-    <>
+    <div className="overview-page">
       <SectionTitle
         eyebrow="WORKSPACE OVERVIEW"
-        title="工作台总览"
+        title="工作台"
         description={`${project?.name || "当前项目"} · 查看智能体与用例岗位、工具授权及实际执行情况。`}
-        actions={
-          <button className="primary" onClick={() => go("tasks")}>
-            <Plus size={18} />
-            进入任务工作台
-          </button>
-        }
       />
-      {project && (
-        <WorkspaceEntry
-          projectId={project.id}
-          agents={agents}
-          go={go}
-          openCasework={openCasework}
-        />
-      )}
-      {project?.id && <MetricsPanel key={project.id} projectId={project.id} />}
+      {project && <WorkspaceEntry projectId={project.id} agents={agents} />}
       <div className="metric-grid four">
-        <button className="metric" onClick={() => go("agents")}>
+        <div className="metric">
           <span>
             已发布智能体
             <Bot size={17} />
@@ -827,22 +807,17 @@ function Overview({
           <strong>
             {agents.filter((a) => a.status === "published").length}
           </strong>
-          <small>
-            项目内 {agents.filter((a) => a.status !== "destroyed").length}{" "}
-            个定义
-          </small>
-        </button>
-        <button className="metric" onClick={() => go("tasks")}>
+        </div>
+        <div className="metric">
           <span>
-            进行中的真实任务
+            进行中任务
             <Activity size={17} />
           </span>
           <strong>{summary.active}</strong>
-          <small>不包含配置演练</small>
-        </button>
-        <button className="metric" onClick={() => go("tasks")}>
+        </div>
+        <div className="metric">
           <span>
-            成功终态 / 终态样本
+            成功 / 已结束
             <ShieldCheck size={17} />
           </span>
           <strong>
@@ -850,121 +825,92 @@ function Overview({
               ? `${summary.succeeded} / ${summary.terminal}`
               : "尚无样本"}
           </strong>
-          <small>当前项目全部真实任务 · 部分 / 失败 / 取消计入终态</small>
-        </button>
-        <button className="metric" onClick={() => go("operations")}>
+        </div>
+        <div className="metric">
           <span>
-            本机历史账本余额
+            可用预算
             <WalletIcon />
           </span>
           <strong>¥ {money(data.budget?.remaining_cny)}</strong>
-          <small>
-            项目累计上限 ¥ {data.budget?.project_cap_cny ?? "—"} · 本机领取上限
-            ¥ {data.budget?.limit_cny ?? "—"}
-          </small>
-        </button>
+        </div>
       </div>
       <div className="overview-columns">
-        <Panel
-          title="最近任务"
-          actions={
-            <button className="text-button" onClick={() => go("tasks")}>
-              查看全部
-              <ArrowRight size={15} />
-            </button>
-          }
-        >
+        <Panel title="最近任务">
           {recent.length ? (
             <div className="recent-tasks">
               {recent.map((t) => (
-                <button
-                  key={t.id}
-                  className="recent-row"
-                  onClick={() => openTask(t.id)}
-                >
+                <div key={t.id} className="recent-row">
                   <span className="recent-icon">
                     <Activity size={18} />
                   </span>
                   <div>
                     <strong>{t.name || t.request?.name || t.id}</strong>
-                    <small>
-                      {taskTypes[t.request?.task_type]} ·{" "}
-                      {modeName(t.request?.mode)} · {time(t.created_at)}
-                    </small>
                   </div>
+                  {t.request?.mode === "rehearsal" && (
+                    <Badge status="rehearsal">演练</Badge>
+                  )}
                   <Badge status={t.status} />
-                  <ChevronRight size={16} />
-                </button>
+                </div>
               ))}
             </div>
           ) : (
             <Empty
               title="任务记录从这里开始"
               description="先登记数据，再提交带质量约束的任务。执行记录将自动保存在当前项目。"
-              action={
-                <button onClick={() => go("data")}>
-                  接入第一份数据
-                  <ArrowRight size={16} />
-                </button>
-              }
             />
           )}
         </Panel>
-        <div className="overview-side">
-          <Panel title="工作空间资源">
-            <button className="resource-row" onClick={() => go("data")}>
-              <Database size={18} />
-              <span>有效数据资产</span>
-              <strong>
-                {assets.filter((a) => a.status === "active").length}
-              </strong>
-              <ChevronRight size={15} />
-            </button>
-            <button className="resource-row" onClick={() => go("workflows")}>
-              <Workflow size={18} />
-              <span>已发布流程</span>
-              <strong>
-                {workflows.filter((w) => w.status === "published").length}
-              </strong>
-              <ChevronRight size={15} />
-            </button>
-            <button className="resource-row" onClick={() => go("operations")}>
-              <Activity size={18} />
-              <span>执行服务</span>
-              <Badge
-                status={data.system.worker_online ? "online" : "offline"}
-              />
-            </button>
-          </Panel>
-          <Panel title="任务类型与执行模式">
-            <div className="capability-list">
-              {capabilities.map((c) => (
-                <div key={c.id}>
-                  <span>{c.name || taskTypes[c.id]}</span>
-                  <Badge
-                    status={
-                      c.available &&
-                      (!data.system.offline || c.modes?.includes("local"))
-                        ? "ready"
-                        : "unsupported"
-                    }
-                  >
-                    {!c.available
-                      ? "待接入"
-                      : data.system.offline && !c.modes?.includes("local")
-                        ? "离线不可用"
-                        : "已接入"}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-            <p className="muted small">
-              能力由实际工具与模型提供；未验证的模态不会被当作成功处理。
-            </p>
-          </Panel>
-        </div>
+        <Panel title="工作空间资源">
+          <div className="resource-row">
+            <Database size={18} />
+            <span>有效数据资产</span>
+            <strong>
+              {assets.filter((a) => a.status === "active").length}
+            </strong>
+          </div>
+          <div className="resource-row">
+            <Workflow size={18} />
+            <span>已发布流程</span>
+            <strong>
+              {workflows.filter((w) => w.status === "published").length}
+            </strong>
+          </div>
+          <div className="resource-row">
+            <Activity size={18} />
+            <span>执行服务</span>
+            <Badge status={data.system.worker_online ? "online" : "offline"} />
+          </div>
+        </Panel>
       </div>
-    </>
+      <Panel title="可用分析方式" className="analysis-methods">
+        <div className="capability-list">
+          {capabilities.map((c) => (
+            <div key={c.id}>
+              <span>{c.name || taskTypes[c.id]}</span>
+              <Badge
+                status={
+                  c.available &&
+                  (!data.system.offline || c.modes?.includes("local"))
+                    ? "ready"
+                    : "unsupported"
+                }
+              >
+                {!c.available
+                  ? "待接入"
+                  : data.system.offline && !c.modes?.includes("local")
+                    ? "离线不可用"
+                    : "已接入"}
+              </Badge>
+            </div>
+          ))}
+        </div>
+      </Panel>
+      {project?.id && (
+        <div className="overview-analytics">
+          <MetricsPanel key={project.id} projectId={project.id} />
+        </div>
+      )}
+    </div>
   );
 }
 function WalletIcon() {

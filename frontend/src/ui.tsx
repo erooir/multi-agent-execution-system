@@ -5,7 +5,7 @@ import {
   type ReactNode,
   type FormEvent,
 } from "react";
-import { X, LoaderCircle, Inbox, ArrowUpRight } from "lucide-react";
+import { X, LoaderCircle, Inbox, ArrowUpRight, CircleHelp } from "lucide-react";
 import { statusNames, statusTone } from "./domain";
 export function Badge({
   status,
@@ -51,11 +51,21 @@ export function Field({
   className?: string;
 }) {
   return (
-    <label className={`field ${className}`}>
-      <span>{label}</span>
-      {children}
-      {hint && <small>{hint}</small>}
-    </label>
+    <div className={`field ${className}`}>
+      <label className="field-label">
+        <span>{label}</span>
+        {children}
+      </label>
+      {hint && (
+        <details className="field-help">
+          <summary title="填写提示">
+            <CircleHelp size={14} />
+            <span className="sr-only">填写提示</span>
+          </summary>
+          <small>{hint}</small>
+        </details>
+      )}
+    </div>
   );
 }
 export function JsonView({
@@ -72,6 +82,23 @@ export function JsonView({
     </details>
   );
 }
+export function HelpNote({
+  children,
+  label = "处理说明",
+}: {
+  children: ReactNode;
+  label?: string;
+}) {
+  return (
+    <details className="help-note">
+      <summary>
+        <CircleHelp size={14} />
+        {label}
+      </summary>
+      <div>{children}</div>
+    </details>
+  );
+}
 export function ErrorLine({ children }: { children: ReactNode }) {
   return (
     <div className="error-line" role="alert">
@@ -84,18 +111,30 @@ export function SectionTitle({
   title,
   description,
   actions,
+  descriptionVisible = false,
 }: {
   eyebrow?: string;
   title: string;
   description?: string;
   actions?: ReactNode;
+  descriptionVisible?: boolean;
 }) {
   return (
-    <div className="section-title">
+    <div className="section-title" data-section={eyebrow}>
       <div>
-        {eyebrow && <span className="eyebrow">{eyebrow}</span>}
         <h1>{title}</h1>
-        {description && <p>{description}</p>}
+        {description &&
+          (descriptionVisible ? (
+            <p>{description}</p>
+          ) : (
+            <details className="page-help">
+              <summary>
+                <CircleHelp size={14} />
+                使用说明
+              </summary>
+              <p>{description}</p>
+            </details>
+          ))}
       </div>
       <div className="actions">{actions}</div>
     </div>

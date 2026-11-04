@@ -1,26 +1,14 @@
 import { useEffect, useState } from "react";
-import {
-  Activity,
-  ArrowUpRight,
-  GitCompareArrows,
-  Layers3,
-  Wrench,
-} from "lucide-react";
 import { api } from "./api";
-import type { CaseTab } from "./Casework";
-import type { Item, Page } from "./types";
+import type { Item } from "./types";
 import "./workspace.css";
 
 export default function WorkspaceEntry({
   projectId,
   agents,
-  go,
-  openCasework,
 }: {
   projectId: string;
   agents: Item[];
-  go: (page: Page) => void;
-  openCasework: (tab: CaseTab) => void;
 }) {
   const [toolCount, setToolCount] = useState<number | null>(null);
   const [error, setError] = useState(false);
@@ -52,55 +40,27 @@ export default function WorkspaceEntry({
       !(a.executor_bindings?.local && a.executor_bindings?.cloud),
   ).length;
   return (
-    <section className="workspace-entry" aria-label="项目工作入口">
-      <div className="workspace-intro">
-        <span className="eyebrow">项目工作入口</span>
-        <h2>智能体、工具与任务</h2>
-        <p>
-          当前项目已发布 <strong>{fixed}</strong> 个固定流程执行智能体、{" "}
-          <strong>{autonomous}</strong> 个自主工具型智能体和{" "}
-          <strong>{dual}</strong> 个本地 / 云端双模式用例智能体。
-        </p>
-        <button className="text-button" onClick={() => go("agents")}>
-          查看智能体资产 <ArrowUpRight size={15} />
-        </button>
-      </div>
-      <div className="workspace-actions">
-        <button onClick={() => openCasework("catalog")}>
-          <Layers3 />
-          <span>
-            <strong>用例任务</strong>
-            <small>查看所需材料，提交分析</small>
-          </span>
-        </button>
-        <button onClick={() => openCasework("roles")}>
-          <GitCompareArrows />
-          <span>
-            <strong>用例岗位对照</strong>
-            <small>比较算法、验收条件与许可</small>
-          </span>
-        </button>
-        <button onClick={() => go("tools")}>
-          <Wrench />
-          <span>
-            <strong>工具目录</strong>
-            <small>
-              {toolCount !== null
-                ? `${toolCount} 项登记工具 · 查看智能体授权`
-                : error
-                  ? "目录数量暂不可用"
-                  : "正在读取目录数量…"}
-            </small>
-          </span>
-        </button>
-        <button onClick={() => openCasework("monitor")}>
-          <Activity />
-          <span>
-            <strong>智能体运行监测</strong>
-            <small>查看节点尝试、修订与审核</small>
-          </span>
-        </button>
-      </div>
+    <section className="workspace-entry" aria-label="项目资源汇总">
+      <h2>智能体与工具概况</h2>
+      <dl className="workspace-summary-stats">
+        <div>
+          <dt>固定流程智能体</dt>
+          <dd>{fixed}</dd>
+        </div>
+        <div>
+          <dt>工具型智能体</dt>
+          <dd>{autonomous}</dd>
+        </div>
+        <div>
+          <dt>场景智能体</dt>
+          <dd>{dual}</dd>
+        </div>
+        <div>
+          <dt>已登记工具</dt>
+          <dd>{toolCount ?? "—"}</dd>
+        </div>
+      </dl>
+      {error && <p role="status">工具数量暂不可用</p>}
     </section>
   );
 }

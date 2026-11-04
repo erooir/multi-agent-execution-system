@@ -119,8 +119,8 @@ export default function Casework({
   return (
     <>
       <SectionTitle
-        eyebrow="用例任务"
-        title="用例任务"
+        eyebrow="场景分析"
+        title="场景分析"
         description="按业务问题选择分析流程。资料、专业计算和独立审核都有版本及运行记录。发布会将用例岗位与流程绑定到本项目，不会下载外部内容。"
         actions={
           canEdit &&

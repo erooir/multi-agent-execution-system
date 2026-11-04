@@ -151,6 +151,18 @@ class Repository:
                 conn.rollback()
                 raise
 
+    def lock_project_initialization(self):
+        """Serialize first-project creation across API processes, including an empty projects table."""
+        if self.connection is None:
+            raise RuntimeError("Project initialization requires a transaction")
+        # SQLite transaction() already holds BEGIN IMMEDIATE. DM/PostgreSQL
+        # lock the existing singleton marker; locking a missing project cannot
+        # protect the initial check. The marker itself is never modified here.
+        query = select(schema.c.version).where(schema.c.version == SCHEMA_VERSION)
+        if supports_row_lock(self.engine):
+            query = query.with_for_update()
+        self.connection.execute(query).scalar_one()
+
     @staticmethod
     def _record(row):
         if row is None:

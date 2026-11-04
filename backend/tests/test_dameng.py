@@ -35,6 +35,21 @@ def test_required_dm_never_falls_back_or_uses_system_account(monkeypatch):
             database_url(url, Path("."))
 
 
+def test_dm8_terminal_task_deletion_retains_history(real_dm):
+    from backend.tests.test_v2_platform import ADMIN, asset, task_body
+
+    project = service.create_project({"name": "Synthetic deletion integration"}, ADMIN, real_dm)
+    data = asset(real_dm, project)
+    task = service.create_task(task_body(project, data), ADMIN, real_dm)
+    service.cancel_task(task["id"], ADMIN, real_dm)
+    service.delete_task(task["id"], ADMIN, real_dm)
+    service.delete_task(task["id"], ADMIN, real_dm)
+    stored = real_dm.get("tasks", task["id"])
+    assert stored["status"] == "cancelled" and stored["deleted_at"]
+    assert stored["snapshot"] == task["snapshot"]
+    assert len(real_dm.list("events", task_id=task["id"], type="task.deleted")) == 1
+
+
 def test_real_dm_dialect_compiles_clob_scalar_paths_and_fenced_locks():
     pytest.importorskip("dmSQLAlchemy")
     dialect = make_url("dm+dmPython://").get_dialect()()

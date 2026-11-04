@@ -38,6 +38,8 @@ Python/FastAPI + Agno 3.0.10 私有运行时，React/TypeScript 管理台。API 
 预算固定历史 .local/budget.sqlite3，不随新库目录迁移。所有模型调用只经过 backend/app/model_gateway.py，保留最坏预留、不确定费用、8000输出上限与300元历史累计上限。AgentOS原生执行API不公开。禁遥测、CDN、自动下载。
 
 ## API
+
+`DELETE /api/v2/tasks/{id}` 仅允许有项目写权限的管理员/操作员删除终态且已释放执行器的任务。事务内锁定任务并写入 `deleted_at/deleted_by`，保留状态、幂等键、冻结快照、子记录、问答/评测引用和独立预算账本，追加删除事件与审计。重复删除返回 204。管理任务集合及 bootstrap 排除已删除任务，任务详情/结果/事件/调用接口返回 404；历史统计和既有引用保留。原幂等键不能重新创建或复活已删除任务，复制需使用新键。不新增数据库表或列。
 业务前缀 /api/v2；身份 /api/auth/login|register|me|logout，账号管理 /api/users。集合为数组。领域错误 {detail:{code,message}}；身份保留detail字符串，Pydantic校验错误使用FastAPI标准detail数组。写入校验同源和后端角色。领域输入拒绝未知字段；内联资料限2MB，普通文件限10MB，音频与视频上传限128MB，请求体在解析前按路由限制。并发陈旧写入返回409。
 - GET /health；GET /bootstrap 返回 {user,projects,agents,workflows,tasks,data_assets,schedules,improvements,connectors,memories,evaluations,capabilities,workers,budget,stats,system}，管理员另有users。
 - GET/POST /projects；PUT /projects/{id}/members（admin）。
@@ -64,6 +66,9 @@ Artifact: id,project_id,task_id,type,media_type,content,checksum,source_refs[],q
 Event: id,sequence,project_id,task_id,node_id?,instance_id?,type,time,trace_id,payload。事件不复制私有全文。
 
 ## 模块协作接口
+
+项目名称通过 `PUT /api/v2/projects/{project_id}/name` 修改，只接收 1–100 字的去首尾空白名称。后端事务内检查项目写权限并锁定记录，实际改名追加 `project.renamed` 审计；ID、成员、内容和版本不变。默认项目初始化由 `service.bootstrap_projects()` 在事务内获取 `Repository.lock_project_initialization()` 后重新检查可访问项目；DM/PostgreSQL 锁定既有 schema_version 单行，SQLite 沿用 BEGIN IMMEDIATE，不修改版本标记、不新增表。显式创建项目仍允许同名，前端仅在重名时附加可区分的项目 ID 前缀。
+
 backend/app/platform/db.py: Repository(url=None), repo。transaction() 产生绑定事务的Repository；get(kind,id),list(kind,project_id=None,**filters),put(kind,record),delete(kind,id)；event(task_id,type,payload=None,**refs)；claim(worker_id,lease_seconds=30) 原子领取accepted/queued或过期任务并递增token；fenced(task_id,worker_id,token) 检查租约；heartbeat(task_id,worker_id,token,lease_seconds=30)；finish_claim(task_id,worker_id,token)释放。执行结果必须在transaction内先fenced，再put。
 platform/service.py 负责定义/数据/任务受理；platform/contracts.py 是输入Schema；platform/api.py 是路由。
 platform/runtime.py 提供 async process_claim(repository,task,worker_id) 以及 runtime_workflow()；platform/worker.py 独立CLI调度、心跳及计划。tool_registry.py 合并内置与项目能力；capability_service.py 管理导入和版本；native_capabilities.py 构造原生 Toolkit/只读 Skills；mcp_runtime.py 只配置并检查 Agno MCPTools；tool_runtime.py 在原生 Function 外层执行权限、审计、证据和租约治理。OCR 由 ocr.py 调用 RapidOCR；视觉图片字节经 model_gateway.py 的原生 Agno Image 输入发送。领域对象只依赖新Repository；模型和身份是显式保留边界。

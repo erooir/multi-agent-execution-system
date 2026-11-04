@@ -276,7 +276,7 @@ export default function WorkflowBuilder({
             nodes={canvasNodes}
             edges={graph.edges}
             nodeTypes={nodeTypes}
-            colorMode="dark"
+            colorMode="light"
             nodesConnectable={canvasReady}
             nodesDraggable={canvasReady}
             minZoom={0.2}
@@ -314,8 +314,8 @@ export default function WorkflowBuilder({
             />
             <Controls showInteractive={false} />
             <MiniMap
-              nodeColor="#74669d"
-              maskColor="#151619b8"
+              nodeColor="#aaa7ef"
+              maskColor="#f6f7fbc9"
               pannable
               zoomable
             />

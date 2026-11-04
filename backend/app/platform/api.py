@@ -188,7 +188,11 @@ def derived_view(kind, record):
 
 
 def visible_records(kind, user):
-    return [derived_view(kind, record) for record in s.visible(kind, user)]
+    return [
+        derived_view(kind, record)
+        for record in s.visible(kind, user)
+        if kind != "tasks" or not record.get("deleted_at")
+    ]
 
 
 @router.get("/bootstrap")
@@ -197,19 +201,7 @@ def bootstrap(user: dict = read, scope: Literal["all", "current"] = "all", proje
     scoped = scope == "current" or project_id is not None
     if project_id:
         s.project_access(project_id, user, repository=repo)
-    projects = [p for p in repo.list("projects") if user["role"] == "admin" or user["id"] in p["members"]]
-    if not projects and user["role"] in ("admin", "operator"):
-        # Initialization creates executable templates, never synthetic runs or data.
-        with repo.transaction() as tx:
-            projects = [
-                p for p in tx.list("projects") if user["role"] == "admin" or user["id"] in p["members"]
-            ]
-            if not projects:
-                projects = [
-                    s.create_project(
-                        {"name": "我的工作空间", "description": "独立项目权限和任务数据"}, user, tx
-                    )
-                ]
+    projects = s.bootstrap_projects(user, repo)
     result = {"user": user, "projects": projects}
     selected = project_id or (projects[0]["id"] if projects else None)
     if scoped:
@@ -226,7 +218,15 @@ def bootstrap(user: dict = read, scope: Literal["all", "current"] = "all", proje
         "evaluations",
     ):
         if scoped:
-            result[kind] = [derived_view(kind, row) for row in repo.list(kind, selected)] if selected else []
+            result[kind] = (
+                [
+                    derived_view(kind, row)
+                    for row in repo.list(kind, selected)
+                    if kind != "tasks" or not row.get("deleted_at")
+                ]
+                if selected
+                else []
+            )
         else:
             result[kind] = visible_records(kind, user)
     result["data_assets"] = [s.safe_asset(a) for a in result["data_assets"]]
@@ -483,6 +483,11 @@ def members(project_id: str, body: c.MemberInput, user: dict = admin):
         project["members"] = sorted(set(body.members) | {project["owner_id"]})
         s.audit(tx, project_id, "project.members_changed", project_id, user)
         return tx.put("projects", project)
+
+
+@router.put("/projects/{project_id}/name")
+def rename_project(project_id: str, body: c.ProjectRenameInput, user: dict = edit):
+    return s.rename_project(project_id, body.name, user)
 
 
 @router.get("/agents")
@@ -760,6 +765,12 @@ def task(task_id: str, user: dict = read):
 @router.post("/tasks/{task_id}/cancel")
 def cancel(task_id: str, user: dict = edit):
     return task_view(s.cancel_task(task_id, user))
+
+
+@router.delete("/tasks/{task_id}", status_code=204)
+def delete_task(task_id: str, user: dict = edit):
+    s.delete_task(task_id, user)
+    return Response(status_code=204)
 
 
 @router.get("/tasks/{task_id}/result")

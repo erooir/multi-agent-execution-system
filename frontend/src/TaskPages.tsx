@@ -8,8 +8,9 @@ import {
   RefreshCw,
   Search,
   Square,
+  Trash2,
 } from "lucide-react";
-import { api, ApiError, idPath, post } from "./api";
+import { api, ApiError, idPath, post, remove } from "./api";
 import { money, reasonNames, taskTypes, terminal, time } from "./domain";
 import type { Item, Mutation, Notify } from "./types";
 import { NodeExecutionFacts, ToolCallDialog, ToolCalls } from "./TaskToolTrace";
@@ -30,6 +31,7 @@ import Graph from "./Graph";
 import { modeName } from "./domain";
 import { ArtifactContent, QualityView } from "./ResultViews";
 import { durationLabel, elapsedSeconds } from "./resultModel";
+import TaskSummary from "./TaskSummary";
 type Props = {
   projectId: string;
   tasks: Item[];
@@ -64,7 +66,8 @@ export default function TasksPage({
     [copy, setCopy] = useState<Item | undefined>(),
     [tab, setTab] = useState("tasks"),
     [search, setSearch] = useState(""),
-    [status, setStatus] = useState("all");
+    [status, setStatus] = useState("all"),
+    [deleting, setDeleting] = useState<Item | null>(null);
   const list = tasks.filter(
     (t) =>
       (status === "all" ||
@@ -98,7 +101,7 @@ export default function TasksPage({
     <>
       <SectionTitle
         eyebrow="TASK OPERATIONS"
-        title="任务运行"
+        title="任务中心"
         description="从受理到自动评审、有限修订与交付，所有状态来自持久执行记录。"
         actions={
           <>
@@ -116,7 +119,7 @@ export default function TasksPage({
                   }}
                 >
                   <Plus size={18} />
-                  新建通用任务
+                  新建任务
                 </button>
               </>
             )}
@@ -205,6 +208,15 @@ export default function TasksPage({
                           >
                             <ExternalLink size={17} />
                           </button>
+                          {canEdit && terminal.has(t.status) && (
+                            <button
+                              className="icon-button danger"
+                              aria-label={`删除任务 ${t.name || t.request?.name || t.id}`}
+                              onClick={() => setDeleting(t)}
+                            >
+                              <Trash2 size={17} />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -295,6 +307,14 @@ export default function TasksPage({
           )}
         </Panel>
       )}
+      {deleting && (
+        <DeleteTaskConfirm
+          task={deleting}
+          mutate={mutate}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => setDeleting(null)}
+        />
+      )}
       {create && (
         <TaskForm
           projectId={projectId}
@@ -337,10 +357,11 @@ function TaskDetail({
   const [task, setTask] = useState<Item | null>(null),
     [error, setError] = useState(""),
     [updated, setUpdated] = useState<string>(""),
-    [tab, setTab] = useState("graph"),
+    [tab, setTab] = useState("details"),
     [round, setRound] = useState<number | null>(null),
     [callId, setCallId] = useState<string | null>(null),
     [cancel, setCancel] = useState(false),
+    [deleting, setDeleting] = useState(false),
     [inspect, setInspect] = useState<Item | null>(null),
     [artifact, setArtifact] = useState<Item | null>(null);
   useEffect(() => {
@@ -444,6 +465,12 @@ function TaskDetail({
     setRound(revision);
     setTab("graph");
   }
+  function showNode(record: Item) {
+    const node = task?.nodes?.find(
+      (item: Item) => item.instance_id === record.id,
+    );
+    setInspect(node ? { ...record, ...node } : record);
+  }
   return (
     <>
       <button className="back-button" onClick={onBack}>
@@ -454,6 +481,7 @@ function TaskDetail({
         eyebrow="TASK TRACE"
         title={task.name || task.request?.name || "任务详情"}
         description={task.request?.goal}
+        descriptionVisible
         actions={
           canEdit && (
             <>
@@ -475,6 +503,12 @@ function TaskDetail({
                 >
                   <Square size={16} />
                   {task.cancel_requested ? "取消请求已登记" : "请求取消"}
+                </button>
+              )}
+              {terminal.has(task.status) && (
+                <button className="danger" onClick={() => setDeleting(true)}>
+                  <Trash2 size={16} />
+                  删除任务
                 </button>
               )}
             </>
@@ -559,6 +593,7 @@ function TaskDetail({
         value={tab}
         onChange={setTab}
         items={[
+          { id: "details", label: "任务详情" },
           { id: "graph", label: "执行图与实例" },
           { id: "review", label: "审核与迭代" },
           {
@@ -573,6 +608,13 @@ function TaskDetail({
           { id: "snapshot", label: "输入与冻结快照" },
         ]}
       />
+      {tab === "details" && (
+        <TaskSummary
+          task={task}
+          onNode={showNode}
+          onArtifact={(item) => void showArtifact(item)}
+        />
+      )}
       {tab === "graph" && (
         <>
           <Panel>
@@ -607,7 +649,7 @@ function TaskDetail({
                 </select>
               </label>
             </div>
-            <Graph nodes={graphNodes} agents={agents} onNode={setInspect} />
+            <Graph nodes={graphNodes} agents={agents} onNode={showNode} />
             <JsonView
               value={task.nodes}
               label="全部修订 / 恢复轮次的节点记录"
@@ -648,7 +690,7 @@ function TaskDetail({
                         <td>
                           <button
                             className="text-button mono small"
-                            onClick={() => setInspect(i)}
+                            onClick={() => showNode(i)}
                           >
                             {i.id}
                           </button>
@@ -893,6 +935,14 @@ function TaskDetail({
           }}
         />
       )}
+      {deleting && (
+        <DeleteTaskConfirm
+          task={task}
+          mutate={mutate}
+          onClose={() => setDeleting(false)}
+          onDeleted={onBack}
+        />
+      )}
       {inspect && !task.content_withheld && (
         <Modal
           wide
@@ -901,8 +951,62 @@ function TaskDetail({
         >
           <div className="modal-body">
             <Badge status={inspect.status || "unknown"} />
+            <dl className="trace-facts">
+              <dt>智能体</dt>
+              <dd>
+                {agents.find((a) => a.id === inspect.agent_id)?.name ||
+                  inspect.agent_id ||
+                  "未记录"}{" "}
+                · v{inspect.agent_version ?? "—"}
+              </dd>
+              <dt>步骤 / 实例</dt>
+              <dd>
+                {inspect.node_id || "—"} ·{" "}
+                <span className="mono">
+                  {inspect.instance_id || inspect.id}
+                </span>
+              </dd>
+              <dt>执行轮次</dt>
+              <dd>第 {inspect.attempt ?? "未记录"} 轮</dd>
+              <dt>开始时间</dt>
+              <dd>{time(inspect.started_at)}</dd>
+              <dt>结束时间</dt>
+              <dd>{time(inspect.finished_at)}</dd>
+              <dt>执行耗时</dt>
+              <dd>
+                {durationLabel(
+                  elapsedSeconds(inspect.started_at, inspect.finished_at),
+                )}
+              </dd>
+              <dt>任务输入资料</dt>
+              <dd>
+                {task.snapshot?.inputs
+                  ?.map((a: Item) => a.name || a.id)
+                  .join("、") || "未记录"}
+              </dd>
+            </dl>
+            {inspect.error && (
+              <p className="warning">
+                {typeof inspect.error === "string"
+                  ? reasonNames[inspect.error] || inspect.error
+                  : inspect.error.message || JSON.stringify(inspect.error)}
+              </p>
+            )}
             <NodeExecutionFacts node={inspect} />
-            <pre>{JSON.stringify(inspect, null, 2)}</pre>
+            {inspect.output && (
+              <>
+                <h3>步骤输出</h3>
+                <ArtifactContent
+                  artifact={{
+                    type: inspect.output.type,
+                    content: inspect.output.content ?? inspect.output,
+                  }}
+                  calls={task.tool_calls || []}
+                  onCall={setCallId}
+                />
+              </>
+            )}
+            <JsonView value={inspect} label="完整运行记录 JSON" />
             <h3>本节点实际工具记录</h3>
             <ToolCalls
               task={task}
@@ -942,6 +1046,31 @@ function TaskDetail({
         />
       )}
     </>
+  );
+}
+function DeleteTaskConfirm({
+  task,
+  mutate,
+  onClose,
+  onDeleted,
+}: {
+  task: Item;
+  mutate: Mutation;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  return (
+    <Confirm
+      title="删除已结束任务"
+      danger
+      confirm="确认删除"
+      description={`将“${task.name || task.request?.name || task.id}”从任务列表移除。历史运行记录、评测引用和累计费用仍保留，删除不会退还或重置预算。`}
+      onClose={onClose}
+      onConfirm={async () => {
+        await mutate(() => remove(idPath("tasks", task.id)), "任务已删除");
+        onDeleted();
+      }}
+    />
   );
 }
 const stageLabels: Record<string, string> = {

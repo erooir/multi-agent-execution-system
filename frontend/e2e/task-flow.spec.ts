@@ -24,7 +24,7 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
   await page.getByLabel("当前项目").selectOption(project.id);
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "数据资产", exact: true })
+    .getByRole("button", { name: "我的资料", exact: true })
     .click();
   await page.getByRole("button", { name: "登记 / 上传数据" }).click();
   let dialog = page.getByRole("dialog");
@@ -44,9 +44,9 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
   await expect(dialog).not.toBeVisible();
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "任务运行", exact: true })
+    .getByRole("button", { name: "任务中心", exact: true })
     .click();
-  await page.getByRole("button", { name: "新建通用任务", exact: true }).focus();
+  await page.getByRole("button", { name: "新建任务", exact: true }).focus();
   await page.keyboard.press("Enter");
   dialog = page.getByRole("dialog");
   await dialog.getByLabel("任务名称", { exact: true }).fill(name);
@@ -94,6 +94,7 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
   await expect(page.locator(".task-strip .badge")).toHaveText("成功", {
     timeout: 20000,
   });
+  await page.getByRole("button", { name: "执行图与实例", exact: true }).click();
   await expect(page.locator(".react-flow__node")).toHaveCount(1);
   await page
     .getByRole("button", { name: "结构化数据整理", exact: true })
@@ -150,20 +151,26 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
   ).toHaveText("成功");
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "工作台总览", exact: true })
+    .getByRole("button", { name: "工作台", exact: true })
     .click();
-  await expect(page.locator(".operations-summary")).toContainText(
-    "1 个终态样本",
-  );
+  await expect(
+    page.getByRole("heading", { name: "运行统计", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".monitor-grid strong")).toHaveCount(4);
+  await expect(page.locator(".latency-value")).not.toContainText("暂无样本");
   const metrics = await (
     await page.request.get(`/api/v2/metrics?project_id=${project.id}`)
   ).json();
   expect(metrics.latency.sample_count).toBe(1);
   expect(metrics.latency.p50_seconds).toBeGreaterThan(0);
-  await page.getByLabel("观测统计窗口").selectOption("168");
-  await expect(page.locator(".operations-summary")).toContainText(
-    "1 个终态样本",
+  const windowChanged = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/v2/metrics?") &&
+      new URL(response.url()).searchParams.get("window_hours") === "168",
   );
+  await page.getByLabel("观测统计窗口").selectOption("168");
+  expect((await windowChanged).ok()).toBeTruthy();
+  await expect(page.locator(".latency-value")).not.toContainText("暂无样本");
   await page.screenshot({
     path: `../.local/browser-iteration.png`,
     fullPage: true,
@@ -189,7 +196,7 @@ test("浏览器查看已完成真实云任务的MCP参数、结果和证据", as
     await page.getByLabel("当前项目").selectOption(task.project_id);
     await page
       .getByRole("navigation")
-      .getByRole("button", { name: "任务运行", exact: true })
+      .getByRole("button", { name: "任务中心", exact: true })
       .click();
     await page
       .locator("tr")

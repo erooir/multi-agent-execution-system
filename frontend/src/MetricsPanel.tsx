@@ -43,7 +43,7 @@ export default function MetricsPanel({ projectId }: { projectId: string }) {
   }, [projectId, hours]);
   return (
     <Panel
-      title="运行观测"
+      title="运行统计"
       className="operations-summary"
       actions={
         <select
@@ -74,21 +74,11 @@ export default function MetricsPanel({ projectId }: { projectId: string }) {
               <ListOrdered size={18} />
               <span>等待执行</span>
               <strong>{metrics.queue.waiting_count}</strong>
-              <small>
-                最长等待{" "}
-                {metrics.queue.oldest_wait_seconds == null
-                  ? "—"
-                  : durationLabel(metrics.queue.oldest_wait_seconds)}
-              </small>
             </div>
             <div>
               <Activity size={18} />
               <span>正在执行</span>
               <strong>{metrics.counts.active}</strong>
-              <small>
-                交互队列 {metrics.queue.by_service_class.interactive || 0} ·
-                批量队列 {metrics.queue.by_service_class.batch || 0}
-              </small>
             </div>
             <div>
               <Clock3 size={18} />
@@ -97,25 +87,14 @@ export default function MetricsPanel({ projectId }: { projectId: string }) {
                 {durationLabel(metrics.latency.p50_seconds)} /{" "}
                 {durationLabel(metrics.latency.p95_seconds)}
               </strong>
-              <small>
-                窗口内 {metrics.latency.sample_count} 个终态样本 · 含排队
-              </small>
             </div>
             <div>
               <ShieldAlert size={18} />
               <span>关联执行器</span>
               <strong>{metrics.workers.online} 在线</strong>
-              <small>
-                {metrics.workers.stale} 心跳超时 · {metrics.workers.stopped}{" "}
-                已停止
-              </small>
             </div>
           </div>
           <div className="monitor-foot">
-            <span>
-              排队与运行显示当前状态；耗时和失败统计使用所选时间窗。已排除{" "}
-              {metrics.excluded_rehearsal_count} 个演练记录。
-            </span>
             <small>观测于 {time(metrics.generated_at)}</small>
           </div>
           {metrics.latency.excluded_count > 0 && (
@@ -134,10 +113,6 @@ export default function MetricsPanel({ projectId }: { projectId: string }) {
               ))}
             </div>
           )}
-          <p className="muted small">
-            交互任务优先；批量任务等待 {metrics.scheduling.aging_seconds}{" "}
-            秒后提升顺序。执行中的任务不被抢占。关联执行器仅统计当前项目可见任务使用的工作进程。
-          </p>
         </>
       )}
     </Panel>

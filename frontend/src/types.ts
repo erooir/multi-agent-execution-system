@@ -7,7 +7,7 @@ export interface User {
 }
 export interface Bootstrap {
   user: User;
-  projects: Item[];
+  projects: (Item & { id: string; name: string })[];
   agents: Item[];
   workflows: Item[];
   tasks: Item[];

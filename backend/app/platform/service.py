@@ -152,6 +152,8 @@ def required(kind, record_id, user, write=False, repository=None):
     if not record:
         fail("not_found", "记录不存在", 404)
     project_access(record["project_id"], user, write, repository)
+    if kind == "tasks" and record.get("deleted_at"):
+        fail("not_found", "任务已删除", 404)
     if write and repository.connection is not None:
         record = repository.get(kind, record_id, for_update=True)
     return record
@@ -395,6 +397,44 @@ def capability_action(definition_id, action_name, user, repository=None):
     from . import capability_service
 
     return capability_service.action(definition_id, action_name, user, repository)
+
+
+def bootstrap_projects(user, repository=None):
+    repository = repository or repo
+
+    def accessible(tx):
+        return [p for p in tx.list("projects") if user["role"] == "admin" or user["id"] in p["members"]]
+
+    projects = accessible(repository)
+    if projects or user["role"] not in ("admin", "operator"):
+        return projects
+    with repository.transaction() as tx:
+        tx.lock_project_initialization()
+        projects = accessible(tx)
+        if not projects:
+            # Only executable templates are initialized, never runs or input data.
+            projects = [
+                create_project({"name": "我的工作空间", "description": "独立项目权限和任务数据"}, user, tx)
+            ]
+        return projects
+
+
+def rename_project(project_id, name, user, repository=None):
+    repository = repository or repo
+    with repository.transaction() as tx:
+        project = project_access(project_id, user, True, tx)
+        if project["name"] != name:
+            previous_name = project["name"]
+            project = tx.put("projects", {**project, "name": name})
+            audit(
+                tx,
+                project_id,
+                "project.renamed",
+                project_id,
+                user,
+                {"previous_name": previous_name, "name": name},
+            )
+        return project
 
 
 def create_project(body, user, repository=None):
@@ -869,6 +909,8 @@ def create_task(body, user, repository=None, *, preflight=False):
         project_access(body["project_id"], user, True, tx)
         previous = tx.list("tasks", body["project_id"], idempotency_key=body["idempotency_key"])
         if previous:
+            if previous[0].get("deleted_at"):
+                fail("task_deleted", "原任务已删除，请使用新的提交标识创建任务", 409)
             if TaskInput.model_validate(previous[0]["request"]).model_dump() != body:
                 fail("idempotency_conflict", "同一幂等键已有不同任务请求", 409)
             return {"ready": True, "existing_task_id": previous[0]["id"]} if preflight else previous[0]
@@ -1107,6 +1149,28 @@ def cancel_task(task_id, user, repository=None):
         task = tx.put("tasks", task)
         tx.event(task_id, "task.cancel_requested", {})
         return task
+
+
+def delete_task(task_id, user, repository=None):
+    """Remove a terminal run from the workbench, preserving references and lifetime billing."""
+    repository = repository or repo
+    with repository.transaction() as tx:
+        task = tx.get("tasks", task_id)
+        if not task:
+            fail("not_found", "任务不存在", 404)
+        project_access(task["project_id"], user, True, tx)
+        task = tx.get("tasks", task_id, for_update=True)
+        if task.get("deleted_at"):
+            return
+        if task["status"] not in TERMINAL:
+            fail("task_not_terminal", "只能删除已结束的任务，请先取消并等待执行结束", 409)
+        if task.get("lease_owner") or any(
+            item["status"] == "running" for item in tx.list("instances", task["project_id"], task_id=task_id)
+        ):
+            fail("task_cleanup_pending", "执行器尚未释放任务，请等待清理完成后再删除", 409)
+        tx.put("tasks", {**task, "deleted_at": now(), "deleted_by": user["id"]})
+        tx.event(task_id, "task.deleted", {"actor_id": user["id"]})
+        audit(tx, task["project_id"], "task.deleted", task_id, user)
 
 
 def safe_asset(record):

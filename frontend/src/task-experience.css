@@ -256,7 +256,7 @@
 .case-products details {
   margin: 0.65rem 0;
   padding: 0.65rem;
-  border: 1px solid var(--border, #3b3b43);
+  border: 1px solid var(--border, var(--line));
   border-radius: 8px;
   overflow-wrap: anywhere;
 }

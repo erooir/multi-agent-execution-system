@@ -56,7 +56,7 @@ test("工作台只刷新当前项目，迟到的项目响应不能切回旧项�
   }
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "数据资产" })
+    .getByRole("button", { name: "我的资料" })
     .click();
   await expect(page.getByText(b.name, { exact: true })).toBeVisible();
   let release!: () => void,

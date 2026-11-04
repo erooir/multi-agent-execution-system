@@ -88,7 +88,7 @@ test("真实资产编排：定义表单、不可变版本差异、可视化依�
 
   await page
     .getByRole("navigation")
-    .getByRole("button", { name: "协作流程", exact: true })
+    .getByRole("button", { name: "工作流", exact: true })
     .click();
   await page.getByRole("button", { name: "创建流程", exact: true }).click();
   dialog = page.getByRole("dialog", { name: "创建复用流程", exact: true });
