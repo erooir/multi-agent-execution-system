@@ -860,58 +860,54 @@ function Overview({
             />
           )}
         </Panel>
-        <div className="overview-side">
-          <Panel title="工作空间资源">
-            <div className="resource-row">
-              <Database size={18} />
-              <span>有效数据资产</span>
-              <strong>
-                {assets.filter((a) => a.status === "active").length}
-              </strong>
-            </div>
-            <div className="resource-row">
-              <Workflow size={18} />
-              <span>已发布流程</span>
-              <strong>
-                {workflows.filter((w) => w.status === "published").length}
-              </strong>
-            </div>
-            <div className="resource-row">
-              <Activity size={18} />
-              <span>执行服务</span>
-              <Badge
-                status={data.system.worker_online ? "online" : "offline"}
-              />
-            </div>
-          </Panel>
-          <Panel title="可用分析方式">
-            <details className="available-methods">
-              <summary>查看 {capabilities.length} 种分析方式</summary>
-              <div className="capability-list">
-                {capabilities.map((c) => (
-                  <div key={c.id}>
-                    <span>{c.name || taskTypes[c.id]}</span>
-                    <Badge
-                      status={
-                        c.available &&
-                        (!data.system.offline || c.modes?.includes("local"))
-                          ? "ready"
-                          : "unsupported"
-                      }
-                    >
-                      {!c.available
-                        ? "待接入"
-                        : data.system.offline && !c.modes?.includes("local")
-                          ? "离线不可用"
-                          : "已接入"}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            </details>
-          </Panel>
-        </div>
+        <Panel title="工作空间资源">
+          <div className="resource-row">
+            <Database size={18} />
+            <span>有效数据资产</span>
+            <strong>
+              {assets.filter((a) => a.status === "active").length}
+            </strong>
+          </div>
+          <div className="resource-row">
+            <Workflow size={18} />
+            <span>已发布流程</span>
+            <strong>
+              {workflows.filter((w) => w.status === "published").length}
+            </strong>
+          </div>
+          <div className="resource-row">
+            <Activity size={18} />
+            <span>执行服务</span>
+            <Badge status={data.system.worker_online ? "online" : "offline"} />
+          </div>
+        </Panel>
       </div>
+      <Panel title="可用分析方式" className="analysis-methods">
+        <details className="available-methods">
+          <summary>查看 {capabilities.length} 种分析方式</summary>
+          <div className="capability-list">
+            {capabilities.map((c) => (
+              <div key={c.id}>
+                <span>{c.name || taskTypes[c.id]}</span>
+                <Badge
+                  status={
+                    c.available &&
+                    (!data.system.offline || c.modes?.includes("local"))
+                      ? "ready"
+                      : "unsupported"
+                  }
+                >
+                  {!c.available
+                    ? "待接入"
+                    : data.system.offline && !c.modes?.includes("local")
+                      ? "离线不可用"
+                      : "已接入"}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        </details>
+      </Panel>
       {project?.id && (
         <details className="overview-analytics">
           <summary>运行统计</summary>
