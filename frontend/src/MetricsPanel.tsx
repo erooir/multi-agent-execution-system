@@ -43,7 +43,7 @@ export default function MetricsPanel({ projectId }: { projectId: string }) {
   }, [projectId, hours]);
   return (
     <Panel
-      title="运行观测"
+      title="运行统计"
       className="operations-summary"
       actions={
         <select

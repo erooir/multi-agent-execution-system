@@ -150,15 +150,6 @@ code {
   padding-block: 7px;
   min-height: 40px;
 }
-.available-methods > summary {
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 13px;
-  padding: 2px 0;
-}
-.available-methods .capability-list {
-  margin-top: 15px;
-}
 .nav-item.active,
 .nav-item.active:hover {
   background: var(--accent-bg);
@@ -374,13 +365,6 @@ main {
 .overview-analytics {
   margin-top: 22px;
 }
-.overview-analytics > summary {
-  cursor: pointer;
-  padding: 12px 0;
-  font-size: 14px;
-  font-weight: 550;
-  color: var(--secondary);
-}
 .overview-columns {
   margin-top: 24px;
   gap: 22px;
@@ -449,9 +433,7 @@ main {
   line-height: 1.6;
 }
 .overview-page .resource-row,
-.overview-page .capability-list > div,
-.overview-page .available-methods > summary,
-.overview-page .overview-analytics > summary {
+.overview-page .capability-list > div {
   font-size: 16px;
 }
 .overview-page .badge {

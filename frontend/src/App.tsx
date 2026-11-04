@@ -883,36 +883,32 @@ function Overview({
         </Panel>
       </div>
       <Panel title="可用分析方式" className="analysis-methods">
-        <details className="available-methods">
-          <summary>查看 {capabilities.length} 种分析方式</summary>
-          <div className="capability-list">
-            {capabilities.map((c) => (
-              <div key={c.id}>
-                <span>{c.name || taskTypes[c.id]}</span>
-                <Badge
-                  status={
-                    c.available &&
-                    (!data.system.offline || c.modes?.includes("local"))
-                      ? "ready"
-                      : "unsupported"
-                  }
-                >
-                  {!c.available
-                    ? "待接入"
-                    : data.system.offline && !c.modes?.includes("local")
-                      ? "离线不可用"
-                      : "已接入"}
-                </Badge>
-              </div>
-            ))}
-          </div>
-        </details>
+        <div className="capability-list">
+          {capabilities.map((c) => (
+            <div key={c.id}>
+              <span>{c.name || taskTypes[c.id]}</span>
+              <Badge
+                status={
+                  c.available &&
+                  (!data.system.offline || c.modes?.includes("local"))
+                    ? "ready"
+                    : "unsupported"
+                }
+              >
+                {!c.available
+                  ? "待接入"
+                  : data.system.offline && !c.modes?.includes("local")
+                    ? "离线不可用"
+                    : "已接入"}
+              </Badge>
+            </div>
+          ))}
+        </div>
       </Panel>
       {project?.id && (
-        <details className="overview-analytics">
-          <summary>运行统计</summary>
+        <div className="overview-analytics">
           <MetricsPanel key={project.id} projectId={project.id} />
-        </details>
+        </div>
       )}
     </div>
   );
