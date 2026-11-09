@@ -6,12 +6,16 @@ import time
 
 from ..casework import replay
 from . import service as s
+from . import task_plugins
 from .contracts import ToolParameters
 from .db import now, repo
+from .resource_locks import lock_snapshot_dependencies
 
 
 def _validate_sample_scope(sample, agent_id):
     if sample.get("request", {}).get("task_type") == "case_analysis":
+        if sample.get("snapshot", {}).get("task_plugin"):
+            s.fail("unsupported_evaluation_scope", "用例重放不支持任务插件", 422)
         replay.validate(sample, agent_id)
         return
     nodes = sample["snapshot"].get("workflow", {}).get("nodes", [])
@@ -32,13 +36,24 @@ def _validate_sample_scope(sample, agent_id):
 
 
 def _verify_sources(record, repository):
+    if s.digest(record["baseline"]) != record.get("baseline_hash") or s.digest(
+        repository.get("agent_versions", record["baseline"]["id"])
+    ) != record.get("baseline_hash"):
+        s.fail("evaluation_changed", "冻结智能体基线已变化", 409)
+    lock_snapshot_dependencies(
+        repository, [sample["snapshot"] for sample in record["samples"]], include_agents=True
+    )
     for sample in record["samples"]:
         _validate_sample_scope(sample, record["agent_id"])
+        try:
+            task_plugins.validate_frozen(
+                sample["snapshot"].get("task_plugin"), repository, record["project_id"]
+            )
+        except task_plugins.TaskPluginError as exc:
+            s.fail(exc.code, exc.message, 409)
         if record["policy"].get("scope") == replay.SCOPE:
             for prev in sample["snapshot"]["agents"]:
-                current = repository.get(
-                    "agents", prev["agent_id"], for_update=repository.connection is not None
-                )
+                current = repository.get("agents", prev["agent_id"])
                 pinned = repository.get("agent_versions", f"{prev['agent_id']}:{prev['version']}")
                 if (
                     not current
@@ -49,9 +64,7 @@ def _verify_sources(record, repository):
                 ):
                     s.fail("evaluation_changed", "用例专员已停用，或冻结的专员版本不再匹配", 409)
         for frozen in sample["snapshot"]["inputs"]:
-            current = repository.get(
-                "data_assets", frozen["id"], for_update=repository.connection is not None
-            )
+            current = repository.get("data_assets", frozen["id"])
             if frozen.get("project_id") != record["project_id"]:
                 s.fail("permission_denied", "评测来源不能跨项目", 403)
             s.verify_frozen_asset(frozen, current)
@@ -101,6 +114,7 @@ def create(body, user, repository=None):
         if not 2 <= len(sample_ids) <= 20:
             s.fail("insufficient_evaluation_data", "至少需要两个独立任务作为冻结样本和保留样本")
         samples = []
+        used_sources = set()
         for task_id in sample_ids:
             task = s.required("tasks", task_id, user, repository=tx)
             if task["project_id"] != body["project_id"] or task["status"] not in s.TERMINAL:
@@ -113,6 +127,10 @@ def create(body, user, repository=None):
             if not any(a.get("agent_id", a["id"]) == agent["id"] for a in task["snapshot"]["agents"]):
                 s.fail("invalid_evaluation_sample", "样本未使用目标智能体")
             _validate_sample_scope(task, agent["id"])
+            checksums = {a["checksum"] for a in task["snapshot"]["inputs"]}
+            if not checksums or checksums & used_sources:
+                s.fail("insufficient_evaluation_data", "开发和留出任务的实际来源内容必须互不重叠", 422)
+            used_sources.update(checksums)
             samples.append(
                 {
                     "task_id": task_id,
@@ -140,6 +158,7 @@ def create(body, user, repository=None):
             "improvements",
             {
                 **body,
+                "target_kind": "agent",
                 "status": "candidate",
                 "baseline_version": agent["current_version"],
                 "baseline": baseline,
@@ -170,6 +189,10 @@ async def evaluate(candidate_id, user, repository=None):
 
     repository = repository or repo
     record = s.required("improvements", candidate_id, user, True, repository)
+    if record.get("target_kind") == "workflow":
+        from .workflow_improvement import evaluate as evaluate_workflow
+
+        return await evaluate_workflow(record, user, repository)
     if record["status"] in ("promoted", "rolled_back"):
         s.fail("invalid_state", "已发布候选不能重新评测", 409)
     if s.digest(record["samples"]) != record["dataset_hash"]:
@@ -204,7 +227,9 @@ async def evaluate(candidate_id, user, repository=None):
                 task_type = sample["request"]["task_type"]
                 if task_type not in version["tool_ids"]:
                     raise ValueError("candidate_tool_missing")
-                output = execute_local(task_type, inputs, config)
+                output = task_plugins.execute(
+                    sample["snapshot"].get("task_plugin"), task_type, inputs, config, execute_local
+                )
                 quality = deterministic_quality(sample["request"], output, inputs)
                 pair[label] = {
                     "output": output,
@@ -231,7 +256,12 @@ async def evaluate(candidate_id, user, repository=None):
     )
     hard_fail = any(p["candidate"]["quality"].get("hard_failures") for p in results)
     holdout_pass = all(p["candidate"]["quality"]["passed"] for p in results if p["split"] == "holdout")
-    gained = candidate_pass > base_pass
+    gained = any(
+        p["split"] == "development"
+        and p["candidate"]["quality"]["passed"]
+        and not p["baseline"]["quality"]["passed"]
+        for p in results
+    )
     saved_revisions = 0
     if is_case:
         gained, regression, saved_revisions = replay.quality_gain(results)
@@ -268,7 +298,10 @@ async def evaluate(candidate_id, user, repository=None):
             },
         )
         record.update(
-            status="evaluated" if passed else "rejected", evaluation_id=evaluation["id"], verdict=verdict
+            status="evaluated" if passed else "rejected",
+            evaluation_id=evaluation["id"],
+            verdict=verdict,
+            evaluation_hash=s.digest(evaluation),
         )
         tx.put("improvements", record)
         s.audit(tx, record["project_id"], "improvement.evaluated", candidate_id, user, verdict)
@@ -279,6 +312,10 @@ def promote(candidate_id, user, repository=None):
     repository = repository or repo
     with repository.transaction() as tx:
         record = s.required("improvements", candidate_id, user, True, tx)
+        if record.get("target_kind") == "workflow":
+            from .workflow_improvement import promote as promote_workflow
+
+            return promote_workflow(record, user, tx)
         if record["status"] != "evaluated" or not record.get("verdict", {}).get("passed"):
             s.fail("quality_gate_failed", "只有经过真实评测且质量改善的候选才能晋升", 409)
         evaluation = tx.get("evaluations", record.get("evaluation_id"))
@@ -290,10 +327,11 @@ def promote(candidate_id, user, repository=None):
             or evaluation.get("dataset_hash") != record["dataset_hash"]
             or evaluation.get("candidate_hash") != record.get("candidate_hash")
             or evaluation.get("verdict") != record.get("verdict")
+            or s.digest(evaluation) != record.get("evaluation_hash")
         ):
             s.fail("quality_gate_failed", "候选、数据集或评测证据与冻结结果不一致", 409)
-        _verify_sources(record, tx)
         agent = s.required("agents", record["agent_id"], user, True, tx)
+        _verify_sources(record, tx)
         if record["policy"].get("scope") == replay.SCOPE and (
             s.digest(record["baseline"]) != record.get("baseline_hash")
             or s.digest(tx.get("agent_versions", record["baseline"]["id"])) != record["baseline_hash"]
@@ -333,12 +371,20 @@ def rollback(candidate_id, user, repository=None):
     repository = repository or repo
     with repository.transaction() as tx:
         record = s.required("improvements", candidate_id, user, True, tx)
+        if record.get("target_kind") == "workflow":
+            from .workflow_improvement import rollback as rollback_workflow
+
+            return rollback_workflow(record, user, tx)
         if record["status"] != "promoted":
             s.fail("invalid_state", "只有已晋升版本可以回滚", 409)
         agent = s.required("agents", record["agent_id"], user, True, tx)
         if agent["current_version"] != record["candidate_version"]:
             s.fail("version_changed", "当前版本已经变化，不能覆盖后续发布", 409)
         baseline = record["baseline"]
+        if s.digest(baseline) != record.get("baseline_hash") or s.digest(
+            tx.get("agent_versions", baseline["id"])
+        ) != record.get("baseline_hash"):
+            s.fail("version_changed", "原智能体版本校验失败，拒绝覆盖", 409)
         if record["policy"].get("scope") == replay.SCOPE:
             immutable = tx.get("agent_versions", f"{agent['id']}:{record['baseline_version']}")
             if s.digest(immutable) != record.get("baseline_hash") or s.digest(baseline) != record.get(
@@ -369,8 +415,15 @@ def _extractive_quality(task, config, repository):
     try:
         for frozen in snapshot["inputs"]:
             s.verify_frozen_asset(frozen, repository.get("data_assets", frozen["id"]))
+        task_plugins.validate_frozen(snapshot.get("task_plugin"), repository, task["project_id"])
         config = {**config, **nodes[0].get("config", {})}
-        output = execute_local(task["request"]["task_type"], snapshot["inputs"], config)
+        output = task_plugins.execute(
+            snapshot.get("task_plugin"),
+            task["request"]["task_type"],
+            snapshot["inputs"],
+            config,
+            execute_local,
+        )
         return deterministic_quality(task["request"], output, snapshot["inputs"])
     except (ValueError, RuntimeError, OSError, TypeError, KeyError):
         return None
@@ -389,6 +442,9 @@ async def maintain(repository=None):
         return 0
     actor = {"id": "system-improvement", "role": "admin"}
     count = await _maintain_cases(repository, actor)
+    from .workflow_improvement import maintain as maintain_workflows
+
+    count += await maintain_workflows(repository, actor)
     for task in repository.list("tasks", status="failed"):
         if (
             task.get("reason_code") != "quality_not_met"
@@ -484,7 +540,7 @@ async def maintain(repository=None):
         count += 1
     # Roll back a promoted version after a real hard quality regression.
     for candidate in repository.list("improvements", status="promoted"):
-        if candidate["policy"].get("scope") == replay.SCOPE:
+        if candidate["policy"].get("scope") == replay.SCOPE or candidate.get("target_kind") == "workflow":
             continue
         failures = [
             t
@@ -511,8 +567,8 @@ async def maintain(repository=None):
             after = _extractive_quality(task, candidate["candidate"].get("parameters", {}), repository)
             if before and before["passed"] and after and not after["passed"]:
                 with repository.transaction() as tx:
-                    current = tx.get("improvements", candidate["id"], for_update=True)
-                    agent = tx.get("agents", candidate["agent_id"], for_update=True)
+                    current = s.required("improvements", candidate["id"], actor, True, tx)
+                    agent = s.required("agents", candidate["agent_id"], actor, True, tx)
                     if (
                         current["status"] == "promoted"
                         and agent["current_version"] == current["candidate_version"]
@@ -564,7 +620,7 @@ async def _maintain_cases(repository, actor):
             watched += 1
             evidence = replay.regression_evidence(candidate, t, repository)
             with repository.transaction() as tx:
-                fresh = tx.get("improvements", candidate["id"], for_update=True)
+                fresh = s.required("improvements", candidate["id"], actor, True, tx)
                 if fresh["status"] != "promoted":
                     break
                 if key <= fresh.get("observed_through", []):

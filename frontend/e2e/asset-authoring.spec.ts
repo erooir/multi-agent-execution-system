@@ -6,13 +6,6 @@ test("真实资产编排：定义表单、不可变版本差异、可视化依�
   await page.setViewportSize({ width: 1440, height: 1100 });
   const name = `资产编排验收-${Date.now()}`;
   await page.goto("/manage");
-  await page
-    .getByLabel("用户名", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_USERNAME || "admin");
-  await page
-    .getByLabel("密码", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password");
-  await page.getByRole("button", { name: "登录", exact: true }).click();
   await expect(page.getByLabel("当前项目")).toBeVisible();
   const response = await page.request.post("/api/v2/projects", {
     data: {

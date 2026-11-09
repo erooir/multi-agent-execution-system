@@ -487,6 +487,7 @@ async def run_domain_executor(executor: DomainExecutor, context: ExecutorContext
                 "required_outputs": context.profile["profile"]["outputs"],
                 "sources": source_catalog(context),
                 "previous_outputs": executor.previous(context),
+                "agent_context": context.execution.active_context,
                 "repair": (
                     {
                         "action": execution.case_plan.get("action"),

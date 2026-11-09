@@ -3,13 +3,6 @@ import { test, expect } from "@playwright/test";
 test("任务详情、步骤弹窗与终态任务删除", async ({ page }) => {
   const name = `任务详情验收-${Date.now()}`;
   await page.goto("/manage");
-  await page
-    .getByLabel("用户名", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_USERNAME || "admin");
-  await page
-    .getByLabel("密码", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password");
-  await page.getByRole("button", { name: "登录", exact: true }).click();
   await expect(page.getByLabel("当前项目")).toBeVisible();
   const p = await page.request.post("/api/v2/projects", {
     data: { name, description: "合成任务详情与删除验收" },

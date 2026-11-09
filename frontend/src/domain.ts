@@ -62,6 +62,14 @@ export const statusNames: Record<string, string> = {
   unsupported: "未支持",
 };
 export const reasonNames: Record<string, string> = {
+  context_invalid: "智能体上下文或依赖产物校验失败",
+  context_limit_exceeded: "智能体依赖上下文超过上限，未截断发布",
+  plugin_revoked: "任务插件已撤销",
+  plugin_version_changed: "任务插件版本或执行器发生变化",
+  plugin_input_contract_invalid: "资料不符合任务插件输入合同",
+  plugin_output_contract_invalid: "任务插件产物未通过独立校验",
+  plugin_input_too_large: "资料超过任务插件输入上限",
+  plugin_output_too_large: "产物超过任务插件输出上限",
   data_egress_blocked: "资料未获云端外发授权",
   model_input_too_large: "模型上下文超限，请缩小资料或交付范围",
   model_connection_failed: "无法连接模型服务，请检查网络和代理",

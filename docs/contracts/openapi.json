@@ -898,6 +898,42 @@
         }
       }
     },
+    "/api/v2/capability-definitions/task-plugins": {
+      "post": {
+        "summary": "Create Task Plugin",
+        "operationId": "create_task_plugin_api_v2_capability_definitions_task_plugins_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskPluginInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/capability-definitions/{definition_id}/versions": {
       "get": {
         "summary": "Capability Versions",
@@ -2892,6 +2928,42 @@
         }
       }
     },
+    "/api/v2/workflow-improvements": {
+      "post": {
+        "summary": "Create Workflow Improvement",
+        "operationId": "create_workflow_improvement_api_v2_workflow_improvements_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkflowImprovementInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/improvements/{candidate_id}/{action}": {
       "post": {
         "summary": "Improvement Action",
@@ -3391,6 +3463,14 @@
             },
             "type": "array",
             "title": "Definitions"
+          },
+          "task_plugins": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Task Plugins"
           }
         },
         "additionalProperties": false,
@@ -4530,6 +4610,19 @@
             ],
             "title": "Workflow Id"
           },
+          "plugin_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plugin Id"
+          },
           "mode": {
             "type": "string",
             "enum": [
@@ -4601,6 +4694,65 @@
           "idempotency_key"
         ],
         "title": "TaskInput"
+      },
+      "TaskPluginInput": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Description",
+            "default": ""
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "image_metadata",
+              "source_digest",
+              "structured_table"
+            ],
+            "title": "Provider"
+          },
+          "input_media_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Input Media Types"
+          },
+          "max_input_bytes": {
+            "type": "integer",
+            "maximum": 20000000.0,
+            "minimum": 1.0,
+            "title": "Max Input Bytes",
+            "default": 10000000
+          },
+          "max_output_bytes": {
+            "type": "integer",
+            "maximum": 2000000.0,
+            "minimum": 100.0,
+            "title": "Max Output Bytes",
+            "default": 1000000
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_id",
+          "name",
+          "provider"
+        ],
+        "title": "TaskPluginInput"
       },
       "TaskPreflight": {
         "properties": {
@@ -4993,6 +5145,52 @@
           "stopped"
         ],
         "title": "WorkerMetrics"
+      },
+      "WorkflowImprovementInput": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowNode"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "minItems": 1,
+            "title": "Nodes"
+          },
+          "sample_task_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 2,
+            "title": "Sample Task Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_id",
+          "name",
+          "workflow_id",
+          "nodes",
+          "sample_task_ids"
+        ],
+        "title": "WorkflowImprovementInput"
       },
       "WorkflowInput": {
         "properties": {

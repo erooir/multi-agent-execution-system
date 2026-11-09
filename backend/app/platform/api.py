@@ -105,6 +105,12 @@ def workers_view(user=None, task_ids=None):
             item["active_task_ids"] = [
                 task_id for task_id in item.get("active_task_ids", []) if task_id in task_ids
             ]
+            # Global free slots/maintenance reveal work in other projects. A
+            # scoped count describes visible tasks, not the whole worker load.
+            item["available_slots"] = None
+            item.pop("maintenance_active", None)
+        item["active_count"] = len(item.get("active_task_ids", []))
+        item["load_scope"] = "visible_tasks" if task_ids is not None else "worker"
         if user and user.get("role") != "admin":
             item.pop("hostname", None)
             item.pop("pid", None)
@@ -409,6 +415,11 @@ def create_native_toolkit(body: c.NativeToolkitInput, user: dict = admin):
 @router.post("/capability-definitions/mcp", status_code=201)
 def create_mcp_server(body: c.McpServerInput, user: dict = admin):
     return s.capability_view(s.create_mcp_server(body.model_dump(), user, repo))
+
+
+@router.post("/capability-definitions/task-plugins", status_code=201)
+def create_task_plugin(body: c.TaskPluginInput, user: dict = admin):
+    return s.capability_view(s.create_task_plugin(body.model_dump(), user, repo))
 
 
 @router.get("/capability-definitions/{definition_id}/versions")
@@ -1002,6 +1013,13 @@ def create_improvement(body: c.ImprovementInput, user: dict = edit):
     from .improvement import create
 
     return derived_view("improvements", create(body.model_dump(), user))
+
+
+@router.post("/workflow-improvements", status_code=201)
+def create_workflow_improvement(body: c.WorkflowImprovementInput, user: dict = edit):
+    from .workflow_improvement import create
+
+    return derived_view("improvements", create(body.model_dump(), user, repo))
 
 
 @router.post("/improvements/{candidate_id}/{action}")

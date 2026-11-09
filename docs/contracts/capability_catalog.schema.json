@@ -40,6 +40,14 @@
       },
       "title": "Definitions",
       "type": "array"
+    },
+    "task_plugins": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Task Plugins",
+      "type": "array"
     }
   },
   "required": [

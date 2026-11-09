@@ -319,6 +319,8 @@ class Execution:
     failure: BaseException | None = None
     case_plan: dict | None = None
     recovery: dict | None = None
+    active_context: dict | None = None
+    result_refs: dict = field(default_factory=dict)
 
     @property
     def request(self):
@@ -373,8 +375,11 @@ class Execution:
             deadline = timestamp(current["created_at"]) + self.request.get("deadline_seconds", 300)
         if time.time() >= timestamp(deadline):
             raise TaskFailure("deadline_exceeded", "任务已超过提交时确定的截止时间")
+        from .resource_locks import lock_snapshot_dependencies
+
+        lock_snapshot_dependencies(target, [self.task["snapshot"]])
         for frozen in self.inputs:
-            asset = target.get("data_assets", frozen["id"], for_update=repository is not None)
+            asset = target.get("data_assets", frozen["id"])
             if not asset or asset.get("project_id") != current["project_id"]:
                 raise TaskFailure("input_unavailable", "任务输入不存在或访问范围已变化")
             if asset.get("status") != "active":
@@ -385,6 +390,14 @@ class Execution:
                 raise TaskFailure("input_changed", "任务输入与受理时快照不一致")
             if self.request["mode"] == "cloud" and asset.get("classification") != "public":
                 raise TaskFailure("data_egress_blocked", "资料的外发授权已失效，已阻止后续云模型请求")
+        from . import task_plugins
+
+        try:
+            task_plugins.validate_frozen(
+                self.task["snapshot"].get("task_plugin"), target, current["project_id"]
+            )
+        except task_plugins.TaskPluginError as exc:
+            raise TaskFailure(exc.code, exc.message) from None
         return current
 
     def cancelled(self):
@@ -463,6 +476,12 @@ def _execution_issues(execution: Execution) -> list[dict]:
     if execution.recovery:
         issues.append(execution.recovery)
     return issues
+
+
+def _model_context(execution, previous):
+    from .agent_context import model_view
+
+    return model_view(execution, previous)
 
 
 async def _model(
@@ -558,7 +577,7 @@ async def _cloud_image(execution, agent, previous, revision):
                     }
                     for item in execution.inputs
                 ],
-                "previous_outputs": [item["content"] for item in previous],
+                "agent_exchange": _model_context(execution, previous),
                 "previous_issues": _execution_issues(execution),
                 "revision": revision,
                 "required_output": {
@@ -604,7 +623,7 @@ async def _cloud_text(execution: Execution, agent: dict, previous: list[dict], r
         {
             "goal": execution.request["goal"],
             "sources": sources,
-            "previous_outputs": [item["content"] for item in previous],
+            "agent_exchange": _model_context(execution, previous),
             "quality": execution.request.get("quality", {}),
             "revision": revision,
             "previous_issues": _execution_issues(execution),
@@ -674,7 +693,7 @@ async def _cloud_tool_agent(execution, agent, previous, revision, permissions, i
             "quality": execution.request.get("quality", {}),
             "revision": revision,
             "previous_issues": _execution_issues(execution),
-            "previous_outputs": previous,
+            "agent_exchange": _model_context(execution, previous),
             "skills": [
                 {key: value for key, value in item.items() if key not in {"files", "handler"}}
                 for item in session.skills.values()
@@ -815,6 +834,8 @@ async def _run_atomic(
     boundary: set[str] | None = None,
     model_allowed: bool = True,
     reuse_revision: int | None = None,
+    upstream_refs: list[str] | None = None,
+    parent_instance_id: str | None = None,
 ) -> dict:
     execution.check()
     config = {**agent.get("parameters", {}), **plan.get("config", {})}
@@ -829,6 +850,7 @@ async def _run_atomic(
     if stored and stored.get("status") == "succeeded":
         output = stored.get("output")
         if isinstance(output, dict):
+            execution.result_refs[plan["id"]] = row_id
             return output
     if reuse_revision is not None:
         previous_node = execution.repository.get(
@@ -860,6 +882,7 @@ async def _run_atomic(
                         node_id=plan["id"],
                         instance_id=previous_node["instance_id"],
                     )
+                execution.result_refs[plan["id"]] = row_id
                 return output
     instance_id = uuid.uuid4().hex
     execution.active_node_id = plan["id"]
@@ -882,8 +905,11 @@ async def _run_atomic(
     with execution.repository.transaction() as tx:
         execution.check(tx)
         tx.put("nodes", node)
-        tx.put(
-            "instances",
+        from . import agent_context
+
+        instance = agent_context.start(
+            execution,
+            tx,
             {
                 "id": instance_id,
                 "project_id": node["project_id"],
@@ -892,9 +918,17 @@ async def _run_atomic(
                 "agent_version": node["agent_version"],
                 "node_id": node["node_id"],
                 "status": "running",
-                "context_id": uuid.uuid4().hex,
             },
+            upstream_refs or [],
+            revision,
+            parent_instance_id,
         )
+        execution.active_context = {
+            "instance_id": instance_id,
+            "context_id": instance["context_id"],
+            "parent_instance_id": parent_instance_id,
+            **instance["context"],
+        }
         tx.event(
             node["task_id"],
             "node.started",
@@ -902,6 +936,7 @@ async def _run_atomic(
             node_id=plan["id"],
             instance_id=instance_id,
         )
+    agent_context.validate_messages(execution, previous)
     if execution.request["mode"] == "cloud" and task_type in {
         "source_summary",
         "text_analysis",
@@ -939,6 +974,8 @@ async def _run_atomic(
         else:
             output = await _cloud_text(execution, agent, previous, revision)
     else:
+        from . import task_plugins
+
         if revision and task_type in {"source_summary", "text_analysis"}:
             config["max_chars"] = min(
                 20000,
@@ -986,7 +1023,14 @@ async def _run_atomic(
                 **({"repair_plan": execution.case_plan} if execution.case_plan else {}),
             )
         else:
-            operation = asyncio.to_thread(execute_local, task_type, tool_inputs, config)
+            operation = asyncio.to_thread(
+                task_plugins.execute,
+                execution.task["snapshot"].get("task_plugin"),
+                task_type,
+                tool_inputs,
+                config,
+                execute_local,
+            )
         local_call = asyncio.create_task(operation)
         try:
             output = await asyncio.shield(local_call)
@@ -997,6 +1041,8 @@ async def _run_atomic(
             with contextlib.suppress(Exception):
                 await local_call
             raise
+        except task_plugins.TaskPluginError as exc:
+            raise TaskFailure(exc.code, exc.message) from None
         if previous and task_type == "structured_transform":
             output["source_refs"] = list(
                 dict.fromkeys(ref for item in previous for ref in item["source_refs"])
@@ -1026,6 +1072,7 @@ async def _run_atomic(
             node_id=plan["id"],
             instance_id=instance_id,
         )
+    execution.result_refs[plan["id"]] = row_id
     return output
 
 
@@ -1039,10 +1086,21 @@ async def _run_node(
     depth=0,
     model_allowed=True,
     reuse_revision: int | None = None,
+    upstream_refs: list[str] | None = None,
+    parent_instance_id: str | None = None,
 ) -> dict:
     if agent.get("structure") != "composite":
         return await _run_atomic(
-            execution, plan, agent, previous, revision, boundary, model_allowed, reuse_revision
+            execution,
+            plan,
+            agent,
+            previous,
+            revision,
+            boundary,
+            model_allowed,
+            reuse_revision,
+            upstream_refs,
+            parent_instance_id,
         )
     if depth >= 5 or not agent.get("members"):
         raise TaskFailure("invalid_plan", "复合智能体成员为空或超过最大深度")
@@ -1050,29 +1108,72 @@ async def _run_node(
     if boundary is not None:
         effective &= boundary
     model_allowed = model_allowed and agent.get("model_policy") == "cloud"
-    output = None
-    for index, member in enumerate(agent["members"]):
-        child = _agent(execution, member["agent_id"], member["version"])
-        child_plan = {**plan, "id": f"{plan['id']}.{index}", "label": child.get("name", plan["label"])}
-        output = await _run_node(
+    from . import agent_context
+
+    coordinator_id = uuid.uuid4().hex
+    with execution.repository.transaction() as tx:
+        agent_context.start(
             execution,
-            child_plan,
-            child,
-            previous,
+            tx,
+            {
+                "id": coordinator_id,
+                "project_id": execution.task["project_id"],
+                "task_id": execution.task["id"],
+                "agent_id": agent.get("agent_id") or agent["id"],
+                "agent_version": agent["version"],
+                "node_id": plan["id"],
+                "status": "running",
+            },
+            upstream_refs or [],
             revision,
-            effective,
-            depth + 1,
-            model_allowed,
-            reuse_revision,
+            parent_instance_id,
+            "coordinator",
         )
-        gate = deterministic_quality(
-            {**execution.request, "quality": {"min_records": 0, "min_length": 0}},
-            output,
-            execution.inputs,
-        )
-        if gate["hard_failures"]:
-            raise TaskFailure("internal_output_invalid", "复合成员输出未通过结构与来源检查，已停止后续调用")
-        previous = [*previous, output]
+    output = None
+    incoming = list(upstream_refs or [])
+    completed = False
+    try:
+        for index, member in enumerate(agent["members"]):
+            child = _agent(execution, member["agent_id"], member["version"])
+            child_plan = {
+                **plan,
+                "id": f"{plan['id']}.{index}",
+                "agent_id": member["agent_id"],
+                "agent_version": member["version"],
+                "label": child.get("name", plan["label"]),
+            }
+            output = await _run_node(
+                execution,
+                child_plan,
+                child,
+                previous,
+                revision,
+                effective,
+                depth + 1,
+                model_allowed,
+                reuse_revision,
+                incoming,
+                coordinator_id,
+            )
+            gate = deterministic_quality(
+                {**execution.request, "quality": {"min_records": 0, "min_length": 0}},
+                output,
+                execution.inputs,
+            )
+            if gate["hard_failures"]:
+                raise TaskFailure(
+                    "internal_output_invalid", "复合成员输出未通过结构与来源检查，已停止后续调用"
+                )
+            ref = execution.result_refs[child_plan["id"]]
+            with execution.repository.transaction() as tx:
+                agent_context.reply(execution, tx, coordinator_id, ref)
+            previous = [*previous, output]
+            incoming.append(ref)
+            execution.result_refs[plan["id"]] = ref
+        completed = True
+    finally:
+        with contextlib.suppress(LeaseLost):
+            agent_context.release(execution, coordinator_id, "completed" if completed else "interrupted")
     return output
 
 
@@ -1118,6 +1219,7 @@ async def _execute_graph(execution: Execution, revision: int, reuse_revision: in
             ):
                 raise TaskFailure("repair_checkpoint_changed", "复用检查点与冻结节点版本不一致")
             outputs[plan["id"]] = prior["output"]
+            execution.result_refs[plan["id"]] = prior["id"]
             continue
         previous = [outputs[dep] for dep in plan.get("depends_on", [])]
         for item in previous:
@@ -1130,7 +1232,13 @@ async def _execute_graph(execution: Execution, revision: int, reuse_revision: in
                 )
         agent = _agent(execution, plan["agent_id"], plan.get("agent_version"))
         outputs[plan["id"]] = await _run_node(
-            execution, plan, agent, previous, revision, reuse_revision=reuse_revision
+            execution,
+            plan,
+            agent,
+            previous,
+            revision,
+            reuse_revision=reuse_revision,
+            upstream_refs=[execution.result_refs[dep] for dep in plan.get("depends_on", [])],
         )
     execution.outputs = (
         [outputs["review"]] if execution.request["task_type"] == "case_analysis" else list(outputs.values())
@@ -1824,6 +1932,7 @@ def _finish(execution: Execution, status: str, reason_code: str | None = None, m
                         "method": output["method"],
                         "warnings": output.get("warnings", []),
                         "rehearsal": task["request"]["mode"] == "rehearsal",
+                        **({"task_plugin": output["task_plugin"]} if output.get("task_plugin") else {}),
                     },
                 )
                 artifacts.append(
@@ -1864,6 +1973,10 @@ def _finish(execution: Execution, status: str, reason_code: str | None = None, m
             ],
             "mode": task["request"]["mode"],
         }
+        if plugin := task["snapshot"].get("task_plugin"):
+            result["version_refs"].append(
+                {"plugin_id": plugin["id"], "version": plugin["version"], "checksum": plugin["checksum"]}
+            )
         _close_case_tool_calls(task, reason_code or "node_interrupted")
         for instance in tx.list("instances", task["project_id"], task_id=task["id"], status="running"):
             uncertain = reason_code == "execution_uncertain" or (

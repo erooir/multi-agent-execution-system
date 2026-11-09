@@ -141,6 +141,10 @@ def _external_items(definition, version):
         "definition_id": definition["id"],
         "native_driver": "agno",
     }
+    if kind == "task_plugin":
+        from .task_plugins import project_version
+
+        return {"task_plugins": [project_version(definition, version)]}
     if kind == "skill":
         return {
             "skills": [
@@ -244,6 +248,7 @@ def catalog(project_id=None, repository=None):
         "skills": _skill_specs(),
         "mcp_servers": _mcp_servers(),
         "definitions": [],
+        "task_plugins": [],
     }
     if project_id is None:
         return result

@@ -32,12 +32,13 @@ def test_sdk_logs_never_include_validation_inputs():
 
 
 @pytest.mark.asyncio
-async def test_composite_rejects_bad_internal_evidence_before_next_member(monkeypatch):
-    execution = SimpleNamespace(
-        request={"task_type": "text_analysis"},
-        inputs=[{"id": "fixture-source", "content": "真实合成资料", "source_version": "1"}],
-    )
+async def test_composite_rejects_bad_internal_evidence_before_next_member(tool_repository, monkeypatch):
+    seed(tool_repository, task_type="text_analysis", content="真实合成资料")
+    claim = tool_repository.claim("composite-worker")
+    execution = runtime.Execution(tool_repository, claim, "composite-worker", claim["lease_token"])
     agent = {
+        "id": "parent",
+        "version": 1,
         "structure": "composite",
         "members": [{"agent_id": "first", "version": 1}, {"agent_id": "second", "version": 1}],
         "model_policy": "cloud",
@@ -49,10 +50,10 @@ async def test_composite_rejects_bad_internal_evidence_before_next_member(monkey
         called.append(args[2]["id"])
         return {
             "method": "tool_agent",
-            "source_refs": ["fixture-source"],
+            "source_refs": ["input-1"],
             "content": {
                 "text": "错误结果",
-                "citations": [{"source_id": "fixture-source", "quote": "不存在的引用"}],
+                "citations": [{"source_id": "input-1", "quote": "不存在的引用"}],
             },
         }
 
@@ -62,6 +63,9 @@ async def test_composite_rejects_bad_internal_evidence_before_next_member(monkey
         await runtime._run_node(execution, {"id": "root", "label": "fixture"}, agent, [], 0)
     assert error.value.code == "internal_output_invalid"
     assert called == ["first"]
+    coordinator = tool_repository.list("instances")[0]
+    assert coordinator["kind"] == "coordinator"
+    assert coordinator["release_reason"] == "interrupted"
 
 
 @pytest.fixture

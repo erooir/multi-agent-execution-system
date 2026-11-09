@@ -1,7 +1,7 @@
 name: Platform checks
 on:
   push:
-    branches: [main]
+    branches: [main, "codex/**"]
   pull_request:
 permissions:
   contents: read
@@ -62,6 +62,8 @@ jobs:
           HANGZHI_SMOKE_PASSWORD: synthetic-browser-password
           HANGZHI_BROWSER_URL: http://127.0.0.1:8100
           HANGZHI_OFFLINE: "true"
+          HANGZHI_AUTO_IMPROVE: "false"
+          HANGZHI_WORKER_CONCURRENCY: "4"
         run: |
           mkdir -p .local
           npm --prefix frontend exec -- playwright install --with-deps chromium

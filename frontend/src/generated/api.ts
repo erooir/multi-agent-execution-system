@@ -437,6 +437,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/capability-definitions/task-plugins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Task Plugin */
+        post: operations["create_task_plugin_api_v2_capability_definitions_task_plugins_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/capability-definitions/{definition_id}/versions": {
         parameters: {
             query?: never;
@@ -1181,6 +1198,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/workflow-improvements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Workflow Improvement */
+        post: operations["create_workflow_improvement_api_v2_workflow_improvements_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/improvements/{candidate_id}/{action}": {
         parameters: {
             query?: never;
@@ -1409,6 +1443,10 @@ export interface components {
             }[];
             /** Definitions */
             definitions?: {
+                [key: string]: unknown;
+            }[];
+            /** Task Plugins */
+            task_plugins?: {
                 [key: string]: unknown;
             }[];
         };
@@ -1849,6 +1887,8 @@ export interface components {
             input_refs?: string[];
             /** Workflow Id */
             workflow_id?: string | null;
+            /** Plugin Id */
+            plugin_id?: string | null;
             /**
              * Mode
              * @default local
@@ -1890,6 +1930,35 @@ export interface components {
              */
             use_project_knowledge: boolean;
             quality?: components["schemas"]["Quality"];
+        };
+        /** TaskPluginInput */
+        TaskPluginInput: {
+            /** Project Id */
+            project_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "image_metadata" | "source_digest" | "structured_table";
+            /** Input Media Types */
+            input_media_types?: string[];
+            /**
+             * Max Input Bytes
+             * @default 10000000
+             */
+            max_input_bytes: number;
+            /**
+             * Max Output Bytes
+             * @default 1000000
+             */
+            max_output_bytes: number;
         };
         /** TaskPreflight */
         TaskPreflight: {
@@ -2037,6 +2106,19 @@ export interface components {
              * @default 45
              */
             stale_after_seconds: number;
+        };
+        /** WorkflowImprovementInput */
+        WorkflowImprovementInput: {
+            /** Project Id */
+            project_id: string;
+            /** Name */
+            name: string;
+            /** Workflow Id */
+            workflow_id: string;
+            /** Nodes */
+            nodes: components["schemas"]["WorkflowNode"][];
+            /** Sample Task Ids */
+            sample_task_ids: string[];
         };
         /** WorkflowInput */
         WorkflowInput: {
@@ -2843,6 +2925,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["McpServerInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_task_plugin_api_v2_capability_definitions_task_plugins_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskPluginInput"];
             };
         };
         responses: {
@@ -4514,6 +4629,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ImprovementInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_workflow_improvement_api_v2_workflow_improvements_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowImprovementInput"];
             };
         };
         responses: {

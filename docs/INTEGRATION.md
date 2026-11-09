@@ -57,5 +57,20 @@ POST /tasks返回202和TaskRun对象，以其中id作为task_id。GET /tasks/{id
 
 `image_ocr` 在本地处理图片，输出文字块、坐标和真实置信度；`image_understand` 只接受 public 图片，原图经统一模型网关发送，独立评审也读取原图。图片 base64 不进入事件、日志、工具 checkpoint 或产物。
 
+## 任务插件与流程改进
+
+管理员通过 `POST /capability-definitions/task-plugins` 登记任务插件，再沿用能力发布/停用/撤回/版本接口。`task_plugin_input.schema.json` 定义清单输入；provider目前为 `image_metadata`、`source_digest`、`structured_table`，分别执行图片解码与元数据、来源摘录、结构化处理。输入模态、媒体类型、固定产物Schema和执行器摘要由部署版本决定，登记只能缩小允许媒体及大小范围，不能导入代码或扩大工具权限。
+
+管理TaskInput可指定 `plugin_id`；不指定时平台按稳定ID顺序自动选择兼容已发布插件并冻结 `snapshot.task_plugin`。普通问答入口无新增选项。停用只阻止新受理，撤回和实现/版本变化阻断后续执行；历史幂等请求保持原快照。产物与节点保留插件版本引用。已有无插件任务保持原执行合同。
+
+当前插件没有音频转写、视频理解或图像语义provider；这些能力不能只填写manifest获得。已有音视频用例工具仍按其实际模型与数据合同运行。扩展provider须随应用研发发布、安装离线依赖、增加真实工具及输入/输出验收，不能在运行任务内安装任意第三方插件。
+
+`POST /workflow-improvements` 以 `workflow_improvement_input.schema.json` 接收项目、工作流、原节点集合内的候选依赖/参数和至少两个独立真实任务。节点ID、职责标签、智能体ID和冻结版本保持不变；开发与留出任务的来源内容校验和不可重叠，仅更换资料名称或ID不算独立样本。候选及评测仍从 `/improvements`、`/evaluations` 读取，`target_kind=workflow` 区分工作流；新Agent候选为 `agent`，旧记录缺省按agent解释。评测、晋升和回滚复用 `/improvements/{id}/evaluate|promote|rollback`。通用流程重放只支持本地固定原子节点的文本摘录和结构化处理；模型/复合/用例流程不在此范围，既有用例策略改进继续采用自己的冻结合同。
+
+任务详情实例增加 `kind`、`parent_instance_id`、`context` 与 `result_messages`。`context.inbox` 是发送者实例、上下文、节点产物、来源与校验和引用；不含原始消息全文。新增 `agent.context_created`、`agent.delegated`、`agent.message_delivered`、`agent.result_returned` 事件可通过原有事件API续传。跨任务消息、内容变更及依赖上下文超限分别按后端检查拒绝，普通提问者仍无法读取管理轨迹。
+
+消息由执行器依据冻结依赖和复合成员顺序构造；当前没有面向模型或外部客户端的任意收件人发送API。复合协调者记录委派和结果，不是另一个自主协商的模型会话。通用云执行的依赖上下文超过64KiB时返回 `context_limit_exceeded`，不会静默丢弃消息后继续宣称完成。
+
 ## 契约发布
+
 docs/contracts中的JSON Schema由 scripts/export_contracts.py 从Pydantic生成。CI检查漂移。这里只包含公开工程契约，不复制私有方案全文。

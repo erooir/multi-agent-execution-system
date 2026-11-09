@@ -188,6 +188,20 @@ def create_native_toolkit(body, user, repository):
     return _new_definition(body, user, repository, "agno_toolkit", spec)
 
 
+def create_task_plugin(body, user, repository):
+    from .contracts import TaskPluginInput
+    from .task_plugins import TaskPluginError, manifest
+
+    if user.get("role") != "admin":
+        fail("permission_denied", "任务插件发布配置要求管理员角色", 403)
+    body = TaskPluginInput.model_validate(body).model_dump()
+    try:
+        spec = manifest(body)
+    except TaskPluginError as exc:
+        fail(exc.code, exc.message, 422)
+    return _new_definition(body, user, repository, "task_plugin", spec)
+
+
 def create_mcp_server(body, user, repository):
     if body["transport"] == "streamable_http":
         if not body["url"] or body["launcher_id"]:
@@ -230,6 +244,29 @@ def publish(definition_id, user, repository, tool_bindings=None):
         if definition["status"] in {"revoked", "destroyed"}:
             fail("invalid_state", "已撤销或销毁的能力不能发布", 409)
         spec = dict(definition.get("draft_spec") or {})
+        if definition["kind"] == "task_plugin":
+            from .task_plugins import TaskPluginError, manifest
+
+            if user.get("role") != "admin":
+                fail("permission_denied", "任务插件发布要求管理员角色", 403)
+            try:
+                spec = manifest(
+                    {
+                        "project_id": definition["project_id"],
+                        "name": definition["name"],
+                        **{
+                            key: spec[key]
+                            for key in (
+                                "provider",
+                                "input_media_types",
+                                "max_input_bytes",
+                                "max_output_bytes",
+                            )
+                        },
+                    }
+                )
+            except TaskPluginError as exc:
+                fail(exc.code, exc.message, 422)
         if definition["kind"] == "skill":
             spec["tool_bindings"] = tool_bindings or {}
             unknown = set(spec["tool_bindings"]) - set(spec["required_tools"])
@@ -266,6 +303,8 @@ def publish(definition_id, user, repository, tool_bindings=None):
 def action(definition_id, action_name, user, repository):
     with repository.transaction() as tx:
         definition = required("capability_definitions", definition_id, user, True, tx)
+        if definition["kind"] == "task_plugin" and user.get("role") != "admin":
+            fail("permission_denied", "任务插件管理要求管理员角色", 403)
         status = definition["status"]
         if action_name == "disable" and status == "published":
             definition["status"] = "disabled"
@@ -288,7 +327,10 @@ def action(definition_id, action_name, user, repository):
             )
             active = any(
                 task["status"] not in TERMINAL
-                and definition_id in json.dumps(task.get("snapshot", {}).get("agents", []))
+                and (
+                    definition_id in json.dumps(task.get("snapshot", {}).get("agents", []))
+                    or (task.get("snapshot", {}).get("task_plugin") or {}).get("id") == definition_id
+                )
                 for task in tx.list("tasks", definition["project_id"])
             )
             if referenced or active:

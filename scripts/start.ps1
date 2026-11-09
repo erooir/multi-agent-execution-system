@@ -1,11 +1,13 @@
 param(
     [ValidateRange(1024,65535)][int]$Port = 8000,
+    [ValidateRange(1,32)][int]$WorkerConcurrency = $(if ($env:HANGZHI_WORKER_CONCURRENCY) { [int]$env:HANGZHI_WORKER_CONCURRENCY } else { 2 }),
     [switch]$SkipBuild, [string]$DmUrlFile, [switch]$LegacySQLite,
     [switch]$Offline = ($env:HANGZHI_OFFLINE -eq 'true'),
     [switch]$AutoImprove = ($env:HANGZHI_AUTO_IMPROVE -eq 'true'),
     [switch]$QuestionPublicEgress = ($env:HANGZHI_QUESTION_PUBLIC_EGRESS -eq 'true')
 )
 $ErrorActionPreference = 'Stop'
+if ($WorkerConcurrency -lt 1 -or $WorkerConcurrency -gt 32) { throw 'Worker concurrency must be from 1 to 32.' }
 $projectRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'platform_processes.ps1')
 Set-Location -LiteralPath $projectRoot
@@ -98,13 +100,15 @@ if (Test-Path -LiteralPath $workerState) {
     $process = Get-PlatformProcesses -ProcessId $record.pid
     if ($process) {
         if ($record.profile_id -ne $profileId) { throw 'Existing worker uses a different database, model or improvement policy. Stop it before switching.' }
+        $recordedConcurrency = if ($null -eq $record.concurrency) { 2 } else { [int]$record.concurrency }
+        if ($recordedConcurrency -ne $WorkerConcurrency) { throw 'Existing worker uses a different concurrency. Stop it before switching.' }
         if ($process.ExecutablePath -ne $pythonExecutable -or $process.CommandLine -notlike '*backend.app.platform.worker*') { throw 'Recorded worker PID belongs to another process; inspect the state file.' }
         $workerRunning = $true
     }
 }
 if (-not $workerRunning) {
-    $workerProcess = Start-Process -FilePath $pythonExecutable -ArgumentList @('-m','backend.app.platform.worker') -WorkingDirectory $projectRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $localDirectory 'v2-worker.stdout.log') -RedirectStandardError (Join-Path $localDirectory 'v2-worker.stderr.log') -PassThru
-    @{pid=$workerProcess.Id;root=$projectRoot;kind='worker';executable=$pythonExecutable;profile_id=$profileId} | ConvertTo-Json | Set-Content -LiteralPath $workerState -Encoding utf8
+    $workerProcess = Start-Process -FilePath $pythonExecutable -ArgumentList @('-m','backend.app.platform.worker','--concurrency',$WorkerConcurrency) -WorkingDirectory $projectRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $localDirectory 'v2-worker.stdout.log') -RedirectStandardError (Join-Path $localDirectory 'v2-worker.stderr.log') -PassThru
+    @{pid=$workerProcess.Id;root=$projectRoot;kind='worker';executable=$pythonExecutable;profile_id=$profileId;concurrency=$WorkerConcurrency} | ConvertTo-Json | Set-Content -LiteralPath $workerState -Encoding utf8
     Start-Sleep -Seconds 2
     $workerProcess.Refresh()
     if ($workerProcess.HasExited) { throw 'Worker exited; inspect .local/v2-worker.stderr.log.' }
@@ -112,5 +116,6 @@ if (-not $workerRunning) {
 Write-Output "Hangzhi v2: http://127.0.0.1:$Port"
 if ($Offline) { Write-Output 'Model access: fully offline.' } else { Write-Output 'Model access: online gateway available for authorized, budgeted tasks.' }
 Write-Output "Cross-task automatic improvement: $env:HANGZHI_AUTO_IMPROVE"
+Write-Output "Task concurrency per worker: $WorkerConcurrency"
 Write-Output 'API is ready; worker process is running. Check the operations page for its heartbeat.'
 Write-Output 'Existing identities and lifetime budget are preserved. Fresh installations: read the private bootstrap-admin.json.'

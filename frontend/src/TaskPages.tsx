@@ -32,6 +32,7 @@ import { modeName } from "./domain";
 import { ArtifactContent, QualityView } from "./ResultViews";
 import { durationLabel, elapsedSeconds } from "./resultModel";
 import TaskSummary from "./TaskSummary";
+import AgentCommunication from "./AgentCommunication";
 type Props = {
   projectId: string;
   tasks: Item[];
@@ -707,6 +708,7 @@ function TaskDetail({
               )}
             </div>
           </Panel>
+          <AgentCommunication task={task} agents={agents} onNode={showNode} />
         </>
       )}
       {tab === "review" && (

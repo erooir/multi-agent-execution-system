@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { adminStorageStatePath } from "./auth-setup";
 
 test("真实浏览器：上传、失败保留、任务完成、双视角、复制、事件续传与产物权限", async ({
   page,
@@ -6,15 +7,7 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
 }) => {
   const name = `浏览器验收-${Date.now()}`;
   await page.goto("/manage");
-  await page
-    .getByLabel("用户名", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_USERNAME || "admin");
-  await page
-    .getByLabel("密码", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password");
-  await page.getByRole("button", { name: "登录", exact: true }).click();
   await expect(page.getByLabel("当前项目")).toBeVisible();
-  await page.context().storageState({ path: "../.local/browser-auth.json" });
   const created = await page.request.post("/api/v2/projects", {
     data: { name, description: "浏览器自动验收，仅含合成资料" },
   });
@@ -130,6 +123,7 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
   ).toBe(200);
   const anonymous = await playwright.request.newContext({
     baseURL: process.env.HANGZHI_BROWSER_URL || "http://127.0.0.1:8000",
+    storageState: { cookies: [], origins: [] },
   });
   expect(
     (await anonymous.get(`/api/v2/artifacts/${artifact}/download`)).status(),
@@ -179,7 +173,7 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
 
 test("浏览器查看已完成真实云任务的MCP参数、结果和证据", async ({ browser }) => {
   const context = await browser.newContext({
-    storageState: "../.local/browser-auth.json",
+    storageState: adminStorageStatePath(),
     baseURL: process.env.HANGZHI_BROWSER_URL || "http://127.0.0.1:8000",
   });
   try {

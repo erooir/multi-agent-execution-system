@@ -28,6 +28,7 @@ const kindNames: Record<string, string> = {
   agno_toolkit: "Agno 工具包",
   http_tool: "HTTP JSON 工具",
   mcp_server: "MCP 服务",
+  task_plugin: "任务插件",
 };
 
 export default function CapabilityPages({
@@ -45,6 +46,8 @@ export default function CapabilityPages({
     [versions, setVersions] = useState<Item | null>(null),
     [mapping, setMapping] = useState("{}"),
     [form, setForm] = useState<Item>({});
+  const pluginSpec = (id: string) =>
+    (catalog.task_plugins || []).find((p: Item) => p.id === id)?.spec;
 
   async function load() {
     try {
@@ -68,7 +71,9 @@ export default function CapabilityPages({
     setForm({
       name: "",
       description: "",
-      provider: "calculator",
+      provider: kind === "task_plugin" ? "image_metadata" : "calculator",
+      max_input_bytes: 10000000,
+      max_output_bytes: 1000000,
       include_tools: "",
       transport: "stdio",
       url: "",
@@ -144,6 +149,13 @@ export default function CapabilityPages({
                 </p>
                 {item.upstream_version && (
                   <small>上游版本 {item.upstream_version}</small>
+                )}
+                {item.kind === "task_plugin" && (
+                  <p className="note">
+                    {pluginSpec(item.id)
+                      ? `${pluginSpec(item.id).input_modalities.join(" / ")} → ${pluginSpec(item.id).artifact_type} · 本地执行，平台自动匹配`
+                      : "发布后冻结输入与产物合同，由平台自动匹配。"}
+                  </p>
                 )}
                 <div className="actions">
                   {item.kind === "mcp_server" &&
@@ -233,39 +245,48 @@ export default function CapabilityPages({
                 description: form.description,
               };
               const path =
-                create === "agno_toolkit"
-                  ? "toolkits"
-                  : create === "http_tool"
-                    ? "tools"
-                    : "mcp";
+                create === "task_plugin"
+                  ? "task-plugins"
+                  : create === "agno_toolkit"
+                    ? "toolkits"
+                    : create === "http_tool"
+                      ? "tools"
+                      : "mcp";
               const body =
-                create === "agno_toolkit"
+                create === "task_plugin"
                   ? {
                       ...base,
                       provider: form.provider,
-                      include_tools: splitList(form.include_tools),
+                      max_input_bytes: Number(form.max_input_bytes),
+                      max_output_bytes: Number(form.max_output_bytes),
                     }
-                  : create === "http_tool"
+                  : create === "agno_toolkit"
                     ? {
                         ...base,
-                        url: form.url,
-                        secret_ref: form.secret_ref || null,
-                        input_schema: parseObject(
-                          form.input_schema,
-                          "输入 Schema",
-                        ),
-                        output_schema: parseObject(
-                          form.output_schema,
-                          "输出 Schema",
-                        ),
+                        provider: form.provider,
+                        include_tools: splitList(form.include_tools),
                       }
-                    : {
-                        ...base,
-                        transport: form.transport,
-                        url: form.url,
-                        launcher_id: form.launcher_id,
-                        secret_ref: form.secret_ref || null,
-                      };
+                    : create === "http_tool"
+                      ? {
+                          ...base,
+                          url: form.url,
+                          secret_ref: form.secret_ref || null,
+                          input_schema: parseObject(
+                            form.input_schema,
+                            "输入 Schema",
+                          ),
+                          output_schema: parseObject(
+                            form.output_schema,
+                            "输出 Schema",
+                          ),
+                        }
+                      : {
+                          ...base,
+                          transport: form.transport,
+                          url: form.url,
+                          launcher_id: form.launcher_id,
+                          secret_ref: form.secret_ref || null,
+                        };
               await mutate(
                 () => post(`/v2/capability-definitions/${path}`, body),
                 "接入能力已保存",
@@ -290,15 +311,27 @@ export default function CapabilityPages({
             </Field>
           ) : (
             <>
-              {create !== "agno_toolkit" && (
+              {isAdmin && (
                 <Field label="接入类型">
                   <select
                     value={create}
-                    onChange={(e) => setCreate(e.target.value)}
+                    onChange={(e) => {
+                      setCreate(e.target.value);
+                      setForm({
+                        ...form,
+                        provider:
+                          e.target.value === "task_plugin"
+                            ? "image_metadata"
+                            : "calculator",
+                      });
+                    }}
                   >
                     <option value="agno_toolkit">Agno 工具包</option>
                     <option value="http_tool">只读 HTTP JSON 工具</option>
                     <option value="mcp_server">MCP 服务</option>
+                    <option value="task_plugin">
+                      任务插件 · 模态与产物合同
+                    </option>
                   </select>
                 </Field>
               )}
@@ -317,6 +350,49 @@ export default function CapabilityPages({
                   }
                 />
               </Field>
+              {create === "task_plugin" && (
+                <>
+                  <Field label="插件执行器">
+                    <select
+                      value={form.provider}
+                      onChange={(e) =>
+                        setForm({ ...form, provider: e.target.value })
+                      }
+                    >
+                      <option value="image_metadata">
+                        图像文件解码与元数据
+                      </option>
+                      <option value="source_digest">文本来源摘录</option>
+                      <option value="structured_table">结构化表格处理</option>
+                    </select>
+                  </Field>
+                  <Field label="输入总大小上限（字节）">
+                    <input
+                      type="number"
+                      min={1}
+                      max={20000000}
+                      value={form.max_input_bytes}
+                      onChange={(e) =>
+                        setForm({ ...form, max_input_bytes: e.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field label="产物大小上限（字节）">
+                    <input
+                      type="number"
+                      min={100}
+                      max={2000000}
+                      value={form.max_output_bytes}
+                      onChange={(e) =>
+                        setForm({ ...form, max_output_bytes: e.target.value })
+                      }
+                    />
+                  </Field>
+                  <p className="note">
+                    执行器由部署版本提供。图像插件验证真实文件及尺寸；语义理解和音视频能力需另行接入并验证。
+                  </p>
+                </>
+              )}
               {create === "agno_toolkit" && (
                 <>
                   <Field label="Agno 工具包">

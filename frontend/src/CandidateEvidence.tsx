@@ -51,11 +51,27 @@ export default function CandidateEvidence({
       ) : (
         <>
           <p>
-            基线 v{candidate.baseline_version ?? "—"}
+            {candidate.target_kind === "workflow" ? "工作流版本" : "智能体版本"}{" "}
+            · 基线 v{candidate.baseline_version ?? "—"}
             {candidate.candidate_version
               ? " · 已发布候选 v" + candidate.candidate_version
               : ""}
           </p>
+          {candidate.target_kind === "workflow" && (
+            <>
+              <p className="note">
+                完整重放冻结的本地流程。节点、智能体版本和权限保持受控，运行中的任务继续使用原快照。
+              </p>
+              <JsonView
+                value={candidate.baseline?.nodes}
+                label="基线流程依赖与参数"
+              />
+              <JsonView
+                value={candidate.candidate?.nodes}
+                label="候选流程依赖与参数"
+              />
+            </>
+          )}
           {repair && (
             <section className="candidate-repair">
               <h3>触发改进的审核记录</h3>

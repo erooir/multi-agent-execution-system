@@ -1,5 +1,17 @@
 # 航智智能体管理平台架构 v2
 
+## 2026-11-09 执行与扩展增量
+
+TaskRun及达梦租约仍是唯一调度权威。Worker默认并发2，部署可配置1–32个任务槽；同步领取、计划调度和Worker登记与Agent异步执行分开，耗时本地处理继续使用受控线程。一个任务占用槽位直到实际调用结束，停止和取消不提前释放。增加槽位不改变网关每进程的模型并发限制或历史账本跨进程原子预算预留。基础任务并发与单个DAG的节点并行不同，本轮仍按依赖顺序执行单任务图，不承诺目标硬件容量或SLA。
+
+智能体上下文使用 `directed-context-v1`：每次实际运行建立新实例和context_id，记录任务、项目、修订、租约代次、授权输入ID、明确依赖节点及父实例。消息只保存已完成节点的产物引用、发送者实例/上下文、版本、来源和SHA-256；实际执行读取经校验的同任务依赖输出。无依赖的同级节点不互读，模型文本不能寻址其他任务、发送消息或授予工具权限。复合智能体建立协调者实例，持久记录委派和成员返回；其成员按冻结顺序接收上游及此前成员结果。协调者表示平台编排边界，不额外启动一个模型进行自由对话或动态协商。独立审核继续保持独立模型上下文。重试创建新上下文，成功检查点复用保留原发送者。完整内容留在权限保护的节点/产物记录，事件不复制原文。通用云执行的依赖上下文上限64KiB，超限诚实终止而非静默截断；领域Agent继续使用其有标注的紧凑投影和完整工具检查点。
+
+任务插件在现有能力定义/不可变版本表登记，manifest映射部署时已安装的受信任provider，声明输入模态、媒体类型、大小和固定产物合同。发布、受理、执行期复查均沿用项目权限、冻结摘要、撤销及工具授权；本地插件也必须经过原Worker和确定性质量检查。当前provider为图片解码元数据、来源摘录和结构化处理；图片元数据不代表图像语义理解，音频/视频处理仍使用既有用例能力和已配置模型，并未新增对应任务插件。插件不是任意Python导入或运行时安装入口；新增媒体处理器需正常研发发布与真实能力验证，不因为声明某模态就认定模型具备该能力。
+
+改进对象分为智能体与工作流。既有Agent候选保留；Workflow候选冻结流程与所有Agent版本，保持节点集合、职责标签及智能体绑定，只改变依赖或授权参数。通用Workflow重放支持 `source_summary`、`text_analysis` 和 `structured_transform` 的本地固定原子节点，复用任务插件的原执行合同；不把这类重放外推为模型或任意多模态流程的改进证明。开发/留出资料相互独立，重放完整本地图并保存实际输出和质量比较；要求开发样本有可测增益、留出通过、无硬失败或退化，每个样本同时受原任务时限及60秒上限约束。新任务使用已晋升版本，运行中任务始终保留快照；回滚不覆盖后续独立发布。自动维护开关同时治理两类候选，代码、权限、依赖及模型权重不属于自主修改范围。
+
+参考的是开源 [DeepSeek Harness架构](https://github.com/deepseek-ai/deepseek-harness/blob/fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159/docs/architecture.md)、[子智能体消息](https://github.com/deepseek-ai/deepseek-harness/blob/fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159/docs/subsystems/subagent.md)和[团队任务图](https://github.com/deepseek-ai/deepseek-harness/blob/fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159/docs/subsystems/agent-team.md)中的能力边界、稳定身份和显式通信设计。2026-11-09核对该提交为MIT许可的developer preview；本项目未引入其运行时、遥测或安装机制，继续使用Agno AgentOS与统一模型网关。
+
 ## 问题入口与管理入口
 
 根路径是用户问答工作台。甲方资料先由具备权限的人员在项目内登记，普通用户只提交问题，平台负责匹配、选材、编排和自动审核。用户读本人问题的进度、答案、可溯源的引用与缺口。管理视图位于 `/manage`，沿用同一项目、任务执行器和版本记录。
@@ -51,7 +63,7 @@ Python/FastAPI + Agno 3.0.10 私有运行时，React/TypeScript 管理台。API 
 - GET/POST /schedules；POST /schedules/{id}/disable|enable。持久 interval_seconds,next_run_at,timezone,task_template；计划ID和触发时间构成幂等键。
 - GET /capabilities|budget|workers|audits；GET/POST /connectors；POST /knowledge/search；GET/POST /memories。
 - GET /capability-definitions；POST /capability-definitions/skills/import|toolkits|tools|mcp；POST /capability-definitions/{id}/discover|publish|disable|enable|revoke|destroy；GET /capability-definitions/{id}/versions。网络目标、launcher 与 secret_ref 仅 admin 管理，普通 operator 可导入纯文档 Skill。
-- GET/POST /improvements；POST /improvements/{id}/evaluate|promote|rollback；GET /evaluations。候选仅改变授权配置，保存真实样本和输出，硬回归禁止晋升。
+- GET/POST /improvements；POST /workflow-improvements；POST /improvements/{id}/evaluate|promote|rollback；GET /evaluations。候选仅改变授权配置，保存真实样本和输出，硬回归禁止晋升。
 
 ## 字段
 AgentSpec: id,project_id,name,description,purpose(general|specialized),structure(atomic|composite),capabilities[],modalities[],tool_ids[],instructions,model_policy(local|cloud),members[{agent_id,version}],parameters,status(draft|published|disabled|retired|destroyed),current_version。发布冻结配置和成员版本，检查循环及深度；复合上层local策略不允许cloud子节点。禁用阻止新任务，存量按快照执行；销毁保留tombstone并检查引用。
@@ -75,9 +87,9 @@ platform/runtime.py 提供 async process_claim(repository,task,worker_id) 以及
 
 ## 恢复与质量
 达梦按调度顺序选择候选任务，对候选行逐一加锁并重验。PostgreSQL兼容分支使用FOR UPDATE SKIP LOCKED；SQLite BEGIN IMMEDIATE。所有结果经过租约令牌验证；旧worker不能写入。完成节点复用。外部调用前记录in_flight，接管未确认调用返回execution_uncertain，禁止盲重放付费请求。取消在途调用不能提前宣称释放。
-硬Schema/来源/权限校验不能被模型自评分覆盖，评审上下文独立，同一模型的相关偏差仍需在评审结论中明确。有界修订失败保留原始问题；仅allow_partial时可部分交付。评测目前限定local_atomic_single_node：冻结至少两个真实终态任务样本、基线和候选，最后一个作保留样本；实际重放、记录输出与耗时，禁止硬回归且要求可测增益。数据集和候选均作哈希完整性校验，晋升前复核证据、来源状态和版本。回滚仅切换稳定版本指针，不删除历史，新发布使用最大历史版本+1。
+硬Schema/来源/权限校验不能被模型自评分覆盖，评审上下文独立，同一模型的相关偏差仍需在评审结论中明确。有界修订失败保留原始问题；仅allow_partial时可部分交付。评测按范围分为通用智能体 `local_atomic_single_node`、固定用例协作组 `local_case_team` 和通用工作流 `local_workflow_dag`，分别使用对应的实际本地执行合同。冻结至少两个真实终态任务及互不重叠的来源内容，最后一个作留出样本；保存实际输出和耗时，要求开发样本有增益、留出通过、无硬失败或退化。基线、候选、数据集和完整评测结果均校验摘要，晋升前重新核对来源及版本。回滚切换稳定版本指针及对应定义内容，不删除历史，新发布使用最大历史版本+1。
 
-自动改进仅在HANGZHI_AUTO_IMPROVE=true时运行，当前只可依据真实质量失败调整本地提取式文本max_chars；不得修改代码、权限或权重，仍需相同冻结评测门槛。未知能力明确失败。真实上游及模型接入需要实际契约样例与运行证据。
+自动改进仅在HANGZHI_AUTO_IMPROVE=true时运行：通用智能体与工作流可根据真实提取式文本覆盖失败调整相应max_chars；固定用例可根据已保存的审核缺陷选择已授权修复策略。其他合法流程依赖或参数变更可建立候选，但仍需同一冻结评测门槛，并非自动生成任意编排。自动维护也会重放后续质量失败，只有证明新版本相对基线退化才回滚；数据撤回或服务故障本身不是质量退化证据。不得修改代码、权限或权重。未知能力明确失败，真实上游及模型接入需要实际契约样例与运行证据。
 
 ## 验收
 成功、缺数据、错Schema、重复键、越权、撤回、过期、不支持能力、模型错误、质量不合格、超时、取消、重复领取、过期接管和旧实例隔离。UI只显示持久状态和账本；无样本不显示成功率。上游接口、多模态、目标硬件和断网部署必须实际验证，不能由本机演练替代。

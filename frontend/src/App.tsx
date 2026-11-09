@@ -574,6 +574,7 @@ function ManagementApp() {
                   {...common}
                   isAdmin={user.role === "admin"}
                   improvements={scoped("improvements")}
+                  workflows={scoped("workflows")}
                   evaluations={scoped("evaluations")}
                   workers={data.workers}
                   agents={agents}

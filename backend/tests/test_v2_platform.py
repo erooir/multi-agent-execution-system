@@ -236,9 +236,9 @@ def test_composite_cycles_permissions_and_graph_validation(db):
 
 async def test_measured_improvement_reject_promote_and_rollback(db):
     p = project(db)
-    a = asset(db, p, "Public fixture sentence. " * 200, modality="text", media_type="text/plain")
     samples = []
     for index in range(2):
+        a = asset(db, p, f"Public fixture sentence {index}. " * 200, modality="text", media_type="text/plain")
         finished = await run(
             db,
             task_body(

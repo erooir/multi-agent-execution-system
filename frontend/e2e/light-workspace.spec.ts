@@ -1,6 +1,9 @@
 import { test, expect } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 
+// Keep one real UI login check; business tests use the independently prepared session.
+test.use({ storageState: { cookies: [], origins: [] } });
+
 test("Light 工作空间：导航、说明展开、表单及移动布局", async ({ page }) => {
   const folder = "../.local/light-screens";
   await mkdir(folder, { recursive: true });

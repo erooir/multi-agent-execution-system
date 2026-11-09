@@ -80,7 +80,26 @@ async def sample(db, project, asset, key="one", **changes):
 
 async def candidate(db):
     project, asset = fixtures(db)
-    samples = [await sample(db, project, asset, key=str(index)) for index in range(2)]
+    other = service.create_asset(
+        {
+            **{
+                k: asset[k]
+                for k in (
+                    "project_id",
+                    "name",
+                    "modality",
+                    "media_type",
+                    "source_id",
+                    "provenance",
+                    "classification",
+                )
+            },
+            "content": "Independent holdout source. " * 500,
+        },
+        ADMIN,
+        db,
+    )
+    samples = [await sample(db, project, a, key=str(index)) for index, a in enumerate((asset, other))]
     agent = next(a for a in db.list("agents", project["id"]) if "source_summary" in a["capabilities"])
     body = {
         "project_id": project["id"],
@@ -197,6 +216,39 @@ async def test_improvement_freeze_detects_changed_input_and_candidate(db):
     with pytest.raises(service.DomainError) as error:
         improvement.promote(created["id"], ADMIN, db)
     assert error.value.code == "quality_gate_failed"
+
+
+async def test_agent_improvement_requires_independent_sources_and_intact_evidence(db):
+    project, asset, _, body = await candidate(db)
+    clone = await sample(db, project, asset, key="same-source-again")
+    with pytest.raises(service.DomainError) as error:
+        improvement.create({**body, "sample_task_ids": [body["sample_task_ids"][0], clone["id"]]}, ADMIN, db)
+    assert error.value.code == "insufficient_evaluation_data"
+    created = improvement.create(body, ADMIN, db)
+    evaluated = await improvement.evaluate(created["id"], ADMIN, db)
+    evidence = db.get("evaluations", evaluated["evaluation_id"])
+    evidence["samples"][0]["candidate"]["output"] = {"invented": True}
+    db.put("evaluations", evidence)
+    with pytest.raises(service.DomainError) as error:
+        improvement.promote(created["id"], ADMIN, db)
+    assert error.value.code == "quality_gate_failed"
+
+
+async def test_agent_improvement_rejects_changed_baseline_and_holdout_only_gain(db):
+    project, asset, _, body = await candidate(db)
+    passing = await sample(db, project, asset, key="already-passes", quality={"min_length": 100})
+    created = improvement.create(
+        {**body, "sample_task_ids": [passing["id"], body["sample_task_ids"][1]]}, ADMIN, db
+    )
+    evaluated = await improvement.evaluate(created["id"], ADMIN, db)
+    assert evaluated["status"] == "rejected"
+    assert evaluated["verdict"]["candidate_passed"] == 2
+    current = db.get("improvements", created["id"])
+    current["baseline"]["parameters"] = {"max_chars": 100}
+    db.put("improvements", current)
+    with pytest.raises(service.DomainError) as error:
+        await improvement.evaluate(created["id"], ADMIN, db)
+    assert error.value.code == "evaluation_changed"
 
 
 async def test_withdrawn_evaluation_cannot_promote_and_rollback_keeps_version_history(db):

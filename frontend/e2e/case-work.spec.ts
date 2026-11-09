@@ -4,13 +4,6 @@ test("用例任务：真实提交、三节点审核、来源证据与智能体�
   page,
 }) => {
   await page.goto("/manage");
-  await page
-    .getByLabel("用户名", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_USERNAME || "admin");
-  await page
-    .getByLabel("密码", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password");
-  await page.getByRole("button", { name: "登录", exact: true }).click();
   await expect(page.getByLabel("当前项目")).toBeVisible();
   const name = "用例验收-" + Date.now();
   const p = await page.request.post("/api/v2/projects", { data: { name } });

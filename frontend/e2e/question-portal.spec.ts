@@ -1,4 +1,7 @@
 import { test, expect } from "@playwright/test";
+import { adminStorageStatePath } from "./auth-setup";
+
+test.use({ storageState: { cookies: [], origins: [] } });
 
 test("普通用户只提交一个问题，平台在已有资料上自动构建流程并交付答复", async ({
   page,
@@ -6,17 +9,12 @@ test("普通用户只提交一个问题，平台在已有资料上自动构建�
   baseURL,
 }) => {
   test.setTimeout(105_000);
-  const manager = await browser.newContext({ baseURL });
+  const manager = await browser.newContext({
+    baseURL,
+    storageState: adminStorageStatePath(),
+  });
   const stamp = Date.now();
   try {
-    const login = await manager.request.post("/api/auth/login", {
-      data: {
-        username: process.env.HANGZHI_SMOKE_USERNAME || "admin",
-        password:
-          process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password",
-      },
-    });
-    expect(login.ok()).toBeTruthy();
     const register = await page.request.post("/api/auth/register", {
       data: {
         username: "ask_" + stamp,

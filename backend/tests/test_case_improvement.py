@@ -280,6 +280,7 @@ async def test_extractive_maintenance_requires_truncation_and_independent_holdou
 
 async def test_auto_rollback_requires_replayed_degradation(context, monkeypatch):
     from backend.app.casework import engine
+    from backend.tests.test_resource_lock_order import trace_locks
 
     db, pid = context
     await terminal(db, pid, "one")
@@ -303,7 +304,9 @@ async def test_auto_rollback_requires_replayed_degradation(context, monkeypatch)
     monkeypatch.setattr(engine, "execute", faulty)
     failed = await terminal(db, pid, "unseen", exact=True)
     assert failed["status"] in {"failed", "partial"} and failed["reason_code"] == "quality_not_met"
+    locks = trace_locks(monkeypatch)
     await improvement.maintain(db)
+    assert locks.index(("projects", pid)) < locks.index(("improvements", promoted["id"]))
     result = db.get("improvements", promoted["id"])
     assert result["status"] == "rolled_back"
     assert result["regression_evidence"]["task_id"] == failed["id"]

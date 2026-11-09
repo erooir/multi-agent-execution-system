@@ -10,5 +10,5 @@ Build the production Hangzhi agent management platform on self-hosted Agno Agent
 - Bind to 127.0.0.1 by default. Never expose unbudgeted AgentOS model routes. Disable telemetry and runtime downloads for offline operation.
 - Verify with small synthetic/public-safe data; never send private background materials to models.
 - Every meaningful change requires appropriate verification. Keep docs/IMPLEMENTATION_PLAN.md updated.
-- Work directly on main using normal commits and pushes after archiving old refs. No force pushes or rewritten history.
+- Follow the user's current branch instruction. This development uses codex/concurrency-agent-evolution-20261109; commit and push that branch only, without merging main. No force pushes or rewritten history.
 

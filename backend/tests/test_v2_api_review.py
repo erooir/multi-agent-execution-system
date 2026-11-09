@@ -81,6 +81,42 @@ def test_bootstrap_requires_membership_and_returns_no_business_data_for_unassign
         )
 
 
+def test_worker_capacity_does_not_expose_hidden_project_activity(db):
+    first, second = project(db), project(db)
+    viewer = {"id": "worker-observer", "role": "reviewer"}
+    db.put("projects", {**first, "members": [viewer["id"]]})
+    one = service.create_task(task_body(first, asset(db, first)), ADMIN, db)
+    two = service.create_task(task_body(second, asset(db, second)), ADMIN, db)
+    db.put(
+        "workers",
+        {
+            "id": "shared-worker",
+            "status": "running",
+            "active_task_ids": [one["id"], two["id"]],
+            "active_count": 2,
+            "concurrency": 4,
+            "available_slots": 2,
+            "maintenance_active": True,
+            "hostname": "private-host",
+            "pid": 123,
+        },
+    )
+    app = application()
+    with TestClient(app) as client:
+        global_view = client.get("/api/v2/workers").json()[0]
+        assert global_view["active_count"] == 2 and global_view["available_slots"] == 2
+        assert global_view["load_scope"] == "worker"
+        scoped = client.get("/api/v2/bootstrap", params={"scope": "current", "project_id": first["id"]})
+        scoped_worker = scoped.json()["workers"][0]
+        assert scoped_worker["active_count"] == 1 and scoped_worker["available_slots"] is None
+        assert scoped_worker["load_scope"] == "visible_tasks"
+        app.dependency_overrides[auth.get_current_user] = lambda: viewer
+        visible = client.get("/api/v2/workers").json()[0]
+        assert visible["active_task_ids"] == [one["id"]] and visible["active_count"] == 1
+        assert visible["available_slots"] is None
+        assert not {"hostname", "pid", "maintenance_active"}.intersection(visible)
+
+
 @pytest.mark.parametrize(
     "headers,chunks,status",
     [

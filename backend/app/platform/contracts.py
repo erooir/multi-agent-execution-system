@@ -259,6 +259,16 @@ class NativeToolkitInput(Contract):
     include_tools: list[str] = Field(default_factory=list, max_length=30)
 
 
+class TaskPluginInput(Contract):
+    project_id: str
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=2000)
+    provider: Literal["image_metadata", "source_digest", "structured_table"]
+    input_media_types: list[str] = Field(default_factory=list, max_length=20)
+    max_input_bytes: int = Field(default=10_000_000, ge=1, le=20_000_000)
+    max_output_bytes: int = Field(default=1_000_000, ge=100, le=2_000_000)
+
+
 class SkillPublishInput(Contract):
     tool_bindings: dict[str, str] = Field(default_factory=dict)
 
@@ -269,6 +279,7 @@ class CapabilityCatalog(Contract):
     skills: list[dict[str, Any]]
     mcp_servers: list[dict[str, Any]]
     definitions: list[dict[str, Any]] = Field(default_factory=list)
+    task_plugins: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class TaskPreflight(Contract):
@@ -400,6 +411,7 @@ class TaskInput(Contract):
     case_scope: Literal["reference", "sample", "project"] = "reference"
     input_refs: list[str] = Field(default_factory=list, max_length=50)
     workflow_id: str | None = None
+    plugin_id: str | None = Field(default=None, min_length=1, max_length=100)
     mode: Literal["local", "cloud", "rehearsal"] = "local"
     service_class: Literal["batch", "interactive"] = Field(
         default="batch", description="交互任务优先；批量任务等待60秒后提升，不抢占运行任务，不承诺硬实时SLA"
@@ -523,6 +535,14 @@ class ImprovementInput(Contract):
     tool_ids: list[str] = Field(default_factory=list, max_length=10)
     sample_task_ids: list[str] = Field(min_length=2, max_length=20)
     parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowImprovementInput(Contract):
+    project_id: str
+    name: str = Field(min_length=1, max_length=100)
+    workflow_id: str
+    nodes: list[WorkflowNode] = Field(min_length=1, max_length=30)
+    sample_task_ids: list[str] = Field(min_length=2, max_length=20)
 
 
 class ResultBundle(Contract):

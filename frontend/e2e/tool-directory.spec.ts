@@ -18,14 +18,6 @@ test("工具目录检索与技能依赖可追到发布智能体，试用与只�
   baseURL,
 }) => {
   test.setTimeout(90_000);
-  const login = await page.request.post("/api/auth/login", {
-    data: {
-      username: process.env.HANGZHI_SMOKE_USERNAME || "admin",
-      password:
-        process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password",
-    },
-  });
-  expect(login.ok()).toBeTruthy();
   const stamp = Date.now();
   const projectResponse = await page.request.post("/api/v2/projects", {
     data: { name: "工具目录验收-" + stamp },
@@ -80,7 +72,12 @@ test("工具目录检索与技能依赖可追到发布智能体，试用与只�
   });
   expect(created.ok()).toBeTruthy();
   const viewer = await created.json();
-  const session = await browser.newContext({ baseURL });
+  // A second identity must not inherit the invocation's administrator cookie:
+  // login deliberately revokes the previous session carried by that request.
+  const session = await browser.newContext({
+    baseURL,
+    storageState: { cookies: [], origins: [] },
+  });
   try {
     expect(
       (
@@ -90,13 +87,16 @@ test("工具目录检索与技能依赖可追到发布智能体，试用与只�
       ).ok(),
     ).toBeTruthy();
     const viewerPage = await session.newPage();
+    expect((await viewerPage.request.get("/api/auth/me")).status()).toBe(401);
+    const login = await viewerPage.request.post("/api/auth/login", {
+      data: { username, password },
+    });
     expect(
-      (
-        await viewerPage.request.post("/api/auth/login", {
-          data: { username, password },
-        })
-      ).ok(),
+      login.ok(),
+      `Reviewer login returned HTTP ${login.status()}`,
     ).toBeTruthy();
+    expect((await login.json()).user.role).toBe("reviewer");
+    expect((await page.request.get("/api/auth/me")).ok()).toBeTruthy();
     await openTools(viewerPage, p.id);
     await viewerPage
       .getByLabel("搜索工具或技能（Skill）")
@@ -117,12 +117,14 @@ test("工具目录检索与技能依赖可追到发布智能体，试用与只�
     ).toHaveCount(0);
   } finally {
     await session.close();
-    expect(
-      (
-        await page.request.put("/api/users/" + viewer.id, {
-          data: { enabled: false },
-        })
-      ).ok(),
-    ).toBeTruthy();
+    const disabled = await page.request.put("/api/users/" + viewer.id, {
+      data: { enabled: false },
+    });
+    expect
+      .soft(
+        disabled.ok(),
+        `Reviewer cleanup returned HTTP ${disabled.status()}`,
+      )
+      .toBeTruthy();
   }
 });

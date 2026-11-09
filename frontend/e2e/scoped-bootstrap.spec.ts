@@ -1,14 +1,6 @@
 import { test, expect } from "@playwright/test";
 
 test("工作台只刷新当前项目，迟到的项目响应不能切回旧项目", async ({ page }) => {
-  const login = await page.request.post("/api/auth/login", {
-    data: {
-      username: process.env.HANGZHI_SMOKE_USERNAME || "admin",
-      password:
-        process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password",
-    },
-  });
-  expect(login.ok()).toBeTruthy();
   const stamp = Date.now();
   async function seed(side: string) {
     const response = await page.request.post("/api/v2/projects", {

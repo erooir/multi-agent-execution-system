@@ -9,11 +9,6 @@ test("云端浏览器：公开文件上传后无人值守完成证据分析", as
   test.setTimeout(360000);
   const name = `云端浏览器验收-${Date.now()}`;
   await page.goto("/manage");
-  await page.getByLabel("用户名", { exact: true }).fill("admin");
-  await page
-    .getByLabel("密码", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_PASSWORD!);
-  await page.getByRole("button", { name: "登录", exact: true }).click();
   await page.getByLabel("当前项目").selectOption({ label: "本轮真实验收" });
   await page
     .getByRole("navigation")

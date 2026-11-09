@@ -338,6 +338,7 @@ export function KnowledgePage({
 export function ImprovementsPage({
   projectId,
   improvements,
+  workflows,
   evaluations,
   workers,
   agents,
@@ -349,6 +350,7 @@ export function ImprovementsPage({
   notify,
 }: Common & {
   improvements: Item[];
+  workflows: Item[];
   evaluations: Item[];
   workers: Item[];
   agents: Item[];
@@ -367,6 +369,9 @@ export function ImprovementsPage({
     [selected, setSelected] = useState<Item | null>(null),
     [action, setAction] = useState<{ item: Item; type: string } | null>(null);
   const [parameters, setParameters] = useState("{}");
+  const [targetKind, setTargetKind] = useState("agent"),
+    [workflowId, setWorkflowId] = useState(""),
+    [workflowNodes, setWorkflowNodes] = useState("[]");
   const online = workers.filter((worker) => worker.health === "online");
   const fresh = improvements.find((i) => i.id === selected?.id);
   const labels: Record<string, string> = {
@@ -408,7 +413,7 @@ export function ImprovementsPage({
               <thead>
                 <tr>
                   <th>候选</th>
-                  <th>智能体 / 基线</th>
+                  <th>迭代对象 / 基线</th>
                   <th>状态</th>
                   <th>评测证据</th>
                   <th>操作</th>
@@ -427,8 +432,9 @@ export function ImprovementsPage({
                       <small>{time(i.created_at)}</small>
                     </td>
                     <td>
-                      {agents.find((a) => a.id === i.agent_id)?.name ||
-                        i.agent_id}
+                      {i.target_kind === "workflow"
+                        ? `流程 · ${workflows.find((w) => w.id === i.workflow_id)?.name || i.workflow_id}`
+                        : `智能体 · ${agents.find((a) => a.id === i.agent_id)?.name || i.agent_id}`}
                       <small>基线 v{i.baseline_version || "—"}</small>
                     </td>
                     <td>
@@ -523,16 +529,36 @@ export function ImprovementsPage({
           onSubmit={() =>
             mutate(
               () =>
-                post("/v2/improvements", {
-                  ...form,
-                  project_id: projectId,
-                  tool_ids: splitList(form.tool_ids),
-                  parameters: parseObject(parameters, "候选工具参数"),
-                }),
+                targetKind === "workflow"
+                  ? post("/v2/workflow-improvements", {
+                      project_id: projectId,
+                      name: form.name,
+                      workflow_id: workflowId,
+                      nodes: JSON.parse(workflowNodes),
+                      sample_task_ids: form.sample_task_ids,
+                    })
+                  : post("/v2/improvements", {
+                      ...form,
+                      project_id: projectId,
+                      tool_ids: splitList(form.tool_ids),
+                      parameters: parseObject(parameters, "候选工具参数"),
+                    }),
               "改进候选已保存",
             )
           }
         >
+          <Field label="迭代对象">
+            <select
+              value={targetKind}
+              onChange={(e) => {
+                setTargetKind(e.target.value);
+                setForm({ ...form, sample_task_ids: [] });
+              }}
+            >
+              <option value="agent">智能体版本</option>
+              <option value="workflow">工作流版本</option>
+            </select>
+          </Field>
           <div className="form-grid">
             <Field label="候选名称">
               <input
@@ -541,61 +567,116 @@ export function ImprovementsPage({
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
               />
             </Field>
-            <Field label="基线智能体">
-              <select
-                required
-                value={form.agent_id}
-                onChange={(e) => {
-                  const agent = agents.find((a) => a.id === e.target.value);
-                  setParameters(
-                    JSON.stringify(agent?.parameters || {}, null, 2),
-                  );
-                  setForm({
-                    ...form,
-                    agent_id: e.target.value,
-                    instructions: agent?.instructions || "",
-                    tool_ids: (agent?.tool_ids || []).join(", "),
-                  });
-                }}
-              >
-                <option value="">选择已发布智能体</option>
-                {agents
-                  .filter((a) => a.status === "published")
-                  .map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name} · v{a.current_version}
-                    </option>
-                  ))}
-              </select>
-            </Field>
+            {targetKind === "agent" ? (
+              <Field label="基线智能体">
+                <select
+                  required
+                  value={form.agent_id}
+                  onChange={(e) => {
+                    const agent = agents.find((a) => a.id === e.target.value);
+                    setParameters(
+                      JSON.stringify(agent?.parameters || {}, null, 2),
+                    );
+                    setForm({
+                      ...form,
+                      agent_id: e.target.value,
+                      instructions: agent?.instructions || "",
+                      tool_ids: (agent?.tool_ids || []).join(", "),
+                    });
+                  }}
+                >
+                  <option value="">选择已发布智能体</option>
+                  {agents
+                    .filter((a) => a.status === "published")
+                    .map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name} · v{a.current_version}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+            ) : (
+              <Field label="基线工作流">
+                <select
+                  required
+                  value={workflowId}
+                  onChange={(e) => {
+                    setWorkflowId(e.target.value);
+                    const flow = workflows.find((w) => w.id === e.target.value);
+                    setWorkflowNodes(
+                      JSON.stringify(
+                        (flow?.nodes || []).map((n: Item) => ({
+                          id: n.id,
+                          label: n.label,
+                          agent_id: n.agent_id,
+                          depends_on: n.depends_on || [],
+                          config: n.config || {},
+                        })),
+                        null,
+                        2,
+                      ),
+                    );
+                    setForm({ ...form, sample_task_ids: [] });
+                  }}
+                >
+                  <option value="">选择已发布流程</option>
+                  {workflows
+                    .filter((w) => w.status === "published")
+                    .map((w) => (
+                      <option value={w.id} key={w.id}>
+                        {w.name} · v{w.current_version}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+            )}
           </div>
-          <Field label="候选执行指令">
-            <textarea
-              rows={6}
-              value={form.instructions}
-              maxLength={8000}
-              onChange={(e) =>
-                setForm({ ...form, instructions: e.target.value })
-              }
-            />
-          </Field>
-          <Field label="候选工具 ID（逗号分隔）">
-            <input
-              value={form.tool_ids}
-              onChange={(e) => setForm({ ...form, tool_ids: e.target.value })}
-            />
-          </Field>
-          <Field
-            label="候选工具参数 JSON"
-            hint="在允许范围内设置 max_chars、sort_by 等参数；用于与固定基线真实对比。"
-          >
-            <textarea
-              className="mono"
-              rows={4}
-              value={parameters}
-              onChange={(e) => setParameters(e.target.value)}
-            />
-          </Field>
+          {targetKind === "agent" ? (
+            <>
+              <Field label="候选执行指令">
+                <textarea
+                  rows={6}
+                  value={form.instructions}
+                  maxLength={8000}
+                  onChange={(e) =>
+                    setForm({ ...form, instructions: e.target.value })
+                  }
+                />
+              </Field>
+              <Field label="候选工具 ID（逗号分隔）">
+                <input
+                  value={form.tool_ids}
+                  onChange={(e) =>
+                    setForm({ ...form, tool_ids: e.target.value })
+                  }
+                />
+              </Field>
+              <Field
+                label="候选工具参数 JSON"
+                hint="在允许范围内设置 max_chars、sort_by 等参数；用于与固定基线真实对比。"
+              >
+                <textarea
+                  className="mono"
+                  rows={4}
+                  value={parameters}
+                  onChange={(e) => setParameters(e.target.value)}
+                />
+              </Field>
+            </>
+          ) : (
+            <Field
+              label="候选流程节点 JSON"
+              hint="只调整已有节点的依赖与授权参数，节点职责和智能体版本保持冻结。"
+            >
+              <textarea
+                required
+                className="mono"
+                rows={12}
+                value={workflowNodes}
+                onChange={(e) => setWorkflowNodes(e.target.value)}
+              />
+            </Field>
+          )}
           <div className="field">
             <span>冻结评测样本 · 至少两个真实任务</span>
             <div className="selection-list">
@@ -603,7 +684,9 @@ export function ImprovementsPage({
                 .filter(
                   (t) =>
                     ["succeeded", "partial", "failed"].includes(t.status) &&
-                    t.request?.mode !== "rehearsal",
+                    t.request?.mode !== "rehearsal" &&
+                    (targetKind !== "workflow" ||
+                      t.request?.workflow_id === workflowId),
                 )
                 .map((t) => (
                   <label className="check" key={t.id}>
@@ -803,6 +886,7 @@ export function OperationsPage({
                       <th>进程标识</th>
                       <th>状态</th>
                       <th>最近心跳</th>
+                      <th>任务并发</th>
                       <th>详情</th>
                     </tr>
                   </thead>
@@ -817,6 +901,16 @@ export function OperationsPage({
                           {time(
                             w.heartbeat_at || w.last_heartbeat || w.updated_at,
                           )}
+                        </td>
+                        <td>
+                          {w.concurrency == null
+                            ? "未记录"
+                            : `${w.active_count ?? w.active_task_ids?.length ?? 0} / ${w.concurrency}`}
+                          <small>
+                            {w.available_slots == null
+                              ? "仅统计可见任务"
+                              : `空闲 ${w.available_slots} 槽`}
+                          </small>
                         </td>
                         <td>
                           <JsonView value={w} />

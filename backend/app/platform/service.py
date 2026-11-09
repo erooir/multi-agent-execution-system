@@ -371,6 +371,13 @@ def create_native_toolkit(body, user, repository=None):
     return capability_service.create_native_toolkit(body, user, repository)
 
 
+def create_task_plugin(body, user, repository=None):
+    repository = repository or repo
+    from . import capability_service
+
+    return capability_service.create_task_plugin(body, user, repository)
+
+
 def create_mcp_server(body, user, repository=None):
     repository = repository or repo
     from . import capability_service
@@ -1045,6 +1052,12 @@ def create_task(body, user, repository=None, *, preflight=False):
             ):
                 fail("no_compatible_agent", "流程包含不匹配或未授权的智能体，请更新流程版本", 422)
         agents = _freeze_agents(tx, workflow["nodes"], body["project_id"])
+        from .task_plugins import TaskPluginError, select_plugin
+
+        try:
+            task_plugin = select_plugin(body, inputs, tx)
+        except TaskPluginError as exc:
+            fail(exc.code, exc.message, 403 if exc.code == "plugin_permission_denied" else 422)
         if case_contract:
             from ..casework.team import verify_team
 
@@ -1101,6 +1114,7 @@ def create_task(body, user, repository=None, *, preflight=False):
                     "inputs": inputs,
                     "scheduling": scheduling,
                     **({"case_profile": case_contract} if case_contract else {}),
+                    **({"task_plugin": task_plugin} if task_plugin else {}),
                 },
                 "created_at": accepted_at.isoformat(),
                 "attempt": 0,

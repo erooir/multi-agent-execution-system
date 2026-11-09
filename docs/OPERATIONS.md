@@ -10,18 +10,30 @@
 
 公开测试环境可使用 `./scripts/start.ps1 -SkipBuild -QuestionPublicEgress`，也可在忽略目录的 `.local/question-public-egress.txt` 保存 `true`。这项部署策略只允许系统在选定资料均已明确获准公开外发时，经统一网关使用公开资料取证。单次问题受任务预算和历史账本共同约束，`-Offline` 会关闭外发。普通用户不选择模型或修改策略。
 
-- API 默认绑定 `127.0.0.1`，Worker 作为独立进程共享平台数据库。只有管理 API 可从浏览器访问，AgentOS 原生模型、团队和工作流路由不公开。
+- API 默认绑定 `127.0.0.1`，Worker 作为独立进程共享平台数据库。浏览器使用平台受控的问答与管理 API，AgentOS 原生模型、团队和工作流路由不公开。
 - `HANGZHI_DATABASE_URL` 配置平台业务库；正式入口强制达梦连接，连接配置缺失即停止启动。达梦凭据仅在服务端环境或受保护凭据文件中设置，不能写入 Git 或命令记录。
 - 身份及设置随业务保存在达梦，迁移保留账号和历史任务，旧登录会话失效。上传文件位于 `.local/platform-assets/`；任务产物以业务库内容及索引保存。
 - 模型历史账本固定为仓库 `.local/budget.sqlite3`。更换业务库、工作目录、`WORKBENCH_DATA_DIR` 或升级代码都不会获得新额度。默认网关在历史账本缺失时拒绝启动计费；只能从完整、可信的最新备份恢复。需要在独立适配目录或独立验收服务中共用同一历史账本时，可显式设置 `HANGZHI_BUDGET_LEDGER_PATH` 指向该唯一原件；不要复制成两份可分别消费的账本，API 与 Worker 必须配置相同路径。
 - 模型密钥只从当前进程的 `DEEPSEEK_API_KEY_ZX` 或 Windows 当前用户注册表中的同名用户变量读取；旧变量名不再生效。日志、截图、异常和前端只显示是否已配置，不显示值。真实 deepseek-flash 验收须重启 API/Worker 后确认新变量已识别，不得打印密钥或使用旧进程缓存。
 - 外部 HTTP Tool 需要 `HANGZHI_TOOL_HOSTS`，Streamable HTTP MCP 需要 `HANGZHI_MCP_HOSTS`；stdio MCP 通过 `HANGZHI_MCP_LAUNCHERS` JSON 登记预装绝对路径、固定参数和 cwd。`HANGZHI_ALLOW_LOCAL_HTTP=true` 仅用于明确的本机 fixture。所有 `secret_ref` 只引用 Worker 环境变量，不能把密钥值写入定义。
-- 外部 MCP/Toolkit 由 Agno 原生驱动执行。升级后先运行 `uv sync --frozen --python 3.12`，再执行 `.venv/Scripts/python.exe -m scripts.enable_agent_tools` 补齐新模板；启动脚本会执行 schema v1→v2 加表迁移，不重置身份、业务或预算数据。
+- 外部 MCP/Toolkit 由 Agno 原生驱动执行。新增依赖与下载缓存放E盘，使用 `UV_PROJECT_ENVIRONMENT` 指定E盘虚拟环境，按 `uv.lock` 准备含 `dameng` extra 的锁定依赖；离线交付使用预先核验的介质。核验后将实际Python绝对路径写入私有 `.local/platform-python.txt`，启动与维护使用同一环境。模板升级使用该解释器执行 `-m scripts.enable_agent_tools`。需要schema升级时须先停服，显式执行 `-m scripts.dm_database init` 和 `check`；启动只核验达梦结构，不自动迁移或重置身份、业务及预算数据。
 - 禁止运行时安装依赖、下载模型/字体或启用遥测。RapidOCR 模型随固定依赖提供。对外部请求的许可由任务策略、部署白名单和网关共同执行。
 
 ## 跨任务自动维护开关
 
+2026-11-09 起，同一开关覆盖智能体和工作流两类受限候选。工作流候选可以由真实文本覆盖不足生成，完整本地DAG重放；部署的任务插件同样执行原合同与限额。没有独立开发/留出来源、可测增益或可靠回归证据时不晋升。管理员在“效果评测”中可区分对象、查看逐样本输出和版本，手动触发管理操作不构成任务执行中的人工审核等待。
+
 任务内修复默认可用，最多执行任务受理时批准的修订轮数。后台生成、评测和晋升跨任务候选由 Worker 的 `HANGZHI_AUTO_IMPROVE` 控制，未配置时关闭。Windows 可运行 `./scripts/start.ps1 -SkipBuild -AutoImprove` 开启，或 `-AutoImprove:$false` 关闭。需要正常启动也延续本机选择时，把单行 `true` 或 `false` 写入私有 `.local/auto-improve.txt`。显式启动参数优先，其次是环境变量和本机文件。切换策略需重启 API 与 Worker；“评测与改进”页显示实际在线 Worker 报告的状态。候选使用本地冻结参考资料，来源不独立、硬性回归或无开发收益时不会自动晋升。
+
+## 基础任务并发
+
+Worker 默认2个任务槽，合法范围1–32。Windows启动可用 `./scripts/start.ps1 -SkipBuild -WorkerConcurrency 4`，或配置 `HANGZHI_WORKER_CONCURRENCY=4`；独立进程可用 `python -m backend.app.platform.worker --concurrency 4`，CLI参数优先。Linux Compose读取同名环境变量。非法值直接报错，不静默降为串行。`--once`仍只执行至多一项。
+
+管理设置显示已占用/总槽位。全局管理员可看真实空闲槽位，按项目查看时只显示可见任务占用，不能据此推断其他项目负载。停止中的Worker持续报告占用直到本地调用结束；仍在执行的工具不提前标记释放。多个Worker共享同一DM业务库和唯一历史预算账本，租约防止重复领取。网关模型并发限制目前是每进程2，不等于整个部署或供应商的速率上限。
+
+目前共享账本适用于同一主机上的多个进程/容器。跨主机执行还需验证账本存储锁语义、网络与故障恢复，不能在多台机器复制账本各自消费同一额度。槽位配置变化需要停止旧Worker后重新启动；源码拉取、前端构建和数据库检查本身不会替换已运行进程。
+
+槽位代表允许的任务并发，不是目标设备吞吐承诺。单任务DAG仍顺序执行就绪节点；大媒体、模型限流、数据库及CPU容量需要目标硬件实测。本机验收用阻塞同步工具证明两个以上任务真实重叠，同时验证心跳、停止与接管。
 
 ## 预算与取消
 
@@ -37,7 +49,7 @@ usage = model_gateway.usage(task_id)
 
 任务上限在 SQLite 同一事务中与历史累计上限共同检查；已记录的任务额度只能收紧。重启、并发请求和换 purpose 不会重新分配额度。项目累计上限始终为人民币 300 元，单次输出最多 8000 tokens。每次请求先按最坏输入/输出范围预留，实际可靠用量返回后结算。
 
-2026-10-17 核对 [DeepSeek 中文价格表](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)：当前 Flash 高峰输入为人民币 2 元/百万 tokens、输出为 8 元/百万 tokens。网关继续用 4/16 的保守费率，忽略缓存及低峰优惠。它表示预算占用，不是供应商实际账单。模型 ID 由 `HANGZHI_MODEL_ID` 配置，但仅允许已核价的 Flash 名称；更换供应商或计费模型需要更新适配、价格依据和测试，不能只改字符串绕过控制。
+2026-10-17 核对 [DeepSeek 中文价格表](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)时记录的 Flash 高峰输入为人民币 2 元/百万 tokens、输出为 8 元/百万 tokens。这是当时核价记录；网关采用 4/16 的保守费率，忽略缓存及低峰优惠，表示预算占用而非供应商实际账单。模型 ID 由 `HANGZHI_MODEL_ID` 配置，但仅允许已核价的 Flash 名称；更换供应商或计费模型需要更新适配、价格依据和测试，不能只改字符串绕过控制。
 
 输入、输出 token 缺失或无效、超时、连接失败和在途取消均保留费用预留。收到未核价模型或实际用量超过预留时停止后续请求，需核对供应商及账本。不得用“调用失败”作为自动退款依据。费用不确定只影响账务展示与对账，不再阻止任务恢复：超时、连接失败、限流、服务端故障、截断和可纠正的输出错误在冻结修订次数、任务预算、20 次请求及截止时间上限内自动重试，全部尝试继续独立预留和计量。HTTP 400 等请求合同错误保留不含密钥和请求原文的供应商诊断，先修正请求，不盲目重放相同负载。
 
@@ -53,13 +65,14 @@ usage = model_gateway.usage(task_id)
 2. 从项目根目录执行：
 
 ```powershell
-& .venv/Scripts/python.exe scripts/runtime_backup.py backup --services-stopped
+$platformPython = (Get-Content -LiteralPath .local/platform-python.txt -Raw).Trim()
+& $platformPython scripts/runtime_backup.py backup --services-stopped
 ```
 
 输出为全新的 `.local/backups/snapshot-<UTC时间>-<随机后缀>/`，已存在的目标不会被覆盖。可用 `--path` 指定 `.local/backups/` 下的新目录。文件 manifest 包含哈希、大小、备份时间、预算汇总和跨库一致性声明。
 
 ```powershell
-& .venv/Scripts/python.exe scripts/runtime_backup.py verify --path .local/backups/实际目录
+& $platformPython scripts/runtime_backup.py verify --path .local/backups/实际目录
 ```
 
 未带 `--services-stopped` 仍可生成每个 SQLite 数据库的一致备份，但 manifest 明确标记 `cross_database_consistent=false`，不得用作整套恢复。该参数是操作者对维护状态的声明，脚本不会替操作者关闭进程。
@@ -73,7 +86,8 @@ usage = model_gateway.usage(task_id)
 3. 执行恢复：
 
 ```powershell
-& .venv/Scripts/python.exe scripts/runtime_backup.py restore --path .local/backups/实际目录 --services-stopped
+$platformPython = (Get-Content -LiteralPath .local/platform-python.txt -Raw).Trim()
+& $platformPython scripts/runtime_backup.py restore --path .local/backups/实际目录 --services-stopped
 ```
 
 恢复前自动备份当前运行态。非预算数据库和登记文件逐个原子替换；目标仍存在 WAL/SHM 时拒绝替换，应先确认服务关闭并做 SQLite 完整检查点。受控文件中快照外的现存文件不会自动删除，避免恢复操作破坏尚未归档的数据；它们没有新数据库引用时不会通过业务 API 暴露。
@@ -86,11 +100,11 @@ usage = model_gateway.usage(task_id)
 
 恢复多文件不构成跨文件原子事务。维护期间若中断，保持服务停止，利用自动生成的 pre-restore 快照恢复或重做已验证恢复；不可在部分恢复状态启动 Worker。恢复后检查 schema、项目隔离、费用基线、待恢复任务和外部调用不确定状态，执行公开/合成数据的完整任务后再开放服务。
 
-## PostgreSQL 目标环境
+## 历史 PostgreSQL 兼容环境（2026-10-17）
 
-当前开发机已按用户授权安装独立PostgreSQL17.11测试二进制至`.local/tools/postgresql17/`，仅以127.0.0.1:55432执行合成并发验收，测试完成后停止。它没有替换现有`.local/platform-v2.sqlite3`，也没有迁移或重置历史账本。二进制来源为EDB官方Windows发行包，下载地址和SHA-256保存在该目录的installation.json；测试密码保存在私有文件，不在本手册复制。
+2026-10-17在开发机按用户授权安装独立PostgreSQL17.11测试二进制至`.local/tools/postgresql17/`，仅以127.0.0.1:55432执行合成并发验收，测试完成后停止。当时没有替换SQLite业务库，也没有迁移或重置历史预算账本。二进制来源为EDB官方Windows发行包，下载地址和SHA-256保存在该目录的installation.json；测试密码保存在私有文件，不在本手册复制。当前正式业务与身份存储为达梦，本段不能作为新的生产数据库选型或运行状态。
 
-本脚本拒绝在 `HANGZHI_DATABASE_URL` 指向 PostgreSQL 时声称完成平台备份。正式环境协调以下操作：
+SQLite备份脚本拒绝在 `HANGZHI_DATABASE_URL` 指向 PostgreSQL 时声称完成平台备份。仅维护历史PostgreSQL环境时适用以下流程；达梦部署按前文的专门手册执行：
 
 - 在维护窗口暂停接单，停止 Worker 并确认租约和在途外部调用。使用与服务端兼容的 `pg_dump --format=custom` 保存业务库；数据库连接用 libpq 环境及受保护 `.pgpass`，不在命令行暴露密码。
 - 同一窗口用 SQLite backup API 保存身份库和固定预算账本，并复制受控资产目录。以共同恢复点记录 Git 提交、schema 版本、各文件哈希和账本汇总。
@@ -102,7 +116,8 @@ usage = model_gateway.usage(task_id)
 先完成前端生产构建、自动化测试和源码检查，再从根目录执行：
 
 ```powershell
-& .venv/Scripts/python.exe scripts/offline_package.py --target linux-x86_64-python3.12
+$platformPython = (Get-Content -LiteralPath .local/platform-python.txt -Raw).Trim()
+& $platformPython scripts/offline_package.py --target linux-x86_64-python3.12
 ```
 
 产物写入 `.local/release/`，包含 **Git 索引中的公开版本**、单独核查的前端构建、依赖分发元数据清单和逐文件 SHA-256。新模块需先审核并提交或暂存；未跟踪文件和未暂存的源码修改不进入包。前端只接受 index.html 和当前 Vite 构建的带哈希 JS/CSS；混入其他文件时停止。manifest 同时记录 HEAD 与工作区是否有未提交修改。

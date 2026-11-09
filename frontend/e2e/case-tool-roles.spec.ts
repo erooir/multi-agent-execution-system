@@ -4,14 +4,6 @@ test("用例岗位对照显示共享算法和不同权限，当前专员可执�
   page,
 }) => {
   test.setTimeout(90_000);
-  const login = await page.request.post("/api/auth/login", {
-    data: {
-      username: process.env.HANGZHI_SMOKE_USERNAME || "admin",
-      password:
-        process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password",
-    },
-  });
-  expect(login.ok()).toBeTruthy();
   const post = async (path: string, data: Record<string, unknown>) => {
     const res = await page.request.post("/api/v2/" + path, { data });
     expect(res.ok()).toBeTruthy();

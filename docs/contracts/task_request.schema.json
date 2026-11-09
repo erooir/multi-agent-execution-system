@@ -106,6 +106,20 @@
       "default": null,
       "title": "Workflow Id"
     },
+    "plugin_id": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Plugin Id"
+    },
     "mode": {
       "default": "local",
       "enum": [

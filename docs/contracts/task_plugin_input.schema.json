@@ -1,0 +1,59 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Description",
+      "type": "string"
+    },
+    "provider": {
+      "enum": [
+        "image_metadata",
+        "source_digest",
+        "structured_table"
+      ],
+      "title": "Provider",
+      "type": "string"
+    },
+    "input_media_types": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Input Media Types",
+      "type": "array"
+    },
+    "max_input_bytes": {
+      "default": 10000000,
+      "maximum": 20000000,
+      "minimum": 1,
+      "title": "Max Input Bytes",
+      "type": "integer"
+    },
+    "max_output_bytes": {
+      "default": 1000000,
+      "maximum": 2000000,
+      "minimum": 100,
+      "title": "Max Output Bytes",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "project_id",
+    "name",
+    "provider"
+  ],
+  "title": "TaskPluginInput",
+  "type": "object"
+}

@@ -16,9 +16,11 @@ from backend.app.platform.contracts import (
     OcrResult,
     ResultBundle,
     TaskInput,
+    TaskPluginInput,
     TaskPreflight,
     ToolCallRecord,
     ToolResult,
+    WorkflowImprovementInput,
     WorkflowInput,
 )
 
@@ -30,6 +32,8 @@ def main():
         "agent_spec": AgentInput,
         "data_asset": AssetInput,
         "task_request": TaskInput,
+        "task_plugin_input": TaskPluginInput,
+        "workflow_improvement_input": WorkflowImprovementInput,
         "workflow_spec": WorkflowInput,
         "result_bundle": ResultBundle,
         "tool_call": ToolCallRecord,

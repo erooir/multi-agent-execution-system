@@ -2,13 +2,6 @@ import { test, expect } from "@playwright/test";
 
 test("接入能力：Calculator登记、发布与不可变版本", async ({ page }) => {
   await page.goto("/manage");
-  await page
-    .getByLabel("用户名", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_USERNAME || "admin");
-  await page
-    .getByLabel("密码", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password");
-  await page.getByRole("button", { name: "登录", exact: true }).click();
   await expect(page.getByLabel("当前项目")).toBeVisible();
   const created = await page.request.post("/api/v2/projects", {
     data: { name: `原生能力验收-${Date.now()}`, description: "仅合成配置" },

@@ -3,14 +3,6 @@ import { test, expect } from "@playwright/test";
 test("任务详情展示条款匹配改道、复用的解析节点和独立复核结果", async ({
   page,
 }) => {
-  const login = await page.request.post("/api/auth/login", {
-    data: {
-      username: process.env.HANGZHI_SMOKE_USERNAME || "admin",
-      password:
-        process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password",
-    },
-  });
-  expect(login.ok()).toBeTruthy();
   const post = async (path: string, data: Record<string, unknown>) => {
     const res = await page.request.post("/api/v2/" + path, { data });
     expect(res.ok()).toBeTruthy();
