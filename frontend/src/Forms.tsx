@@ -4,7 +4,7 @@ import { api, post, put, idPath } from "./api";
 import { parseObject, splitList, taskTypes } from "./domain";
 import type { Item, Mutation } from "./types";
 import type { components } from "./generated/api";
-import { Field, FormModal } from "./ui";
+import { Field, FormModal, Modal } from "./ui";
 import ToolParameters from "./ToolParameters";
 import WorkflowBuilder from "./WorkflowBuilder";
 import { workflowIssues } from "./workflowEditorModel";
@@ -605,6 +605,9 @@ export function TaskForm({
     setPreviewError("");
   }, [form, quality]);
   function taskRequest(): components["schemas"]["TaskInput"] {
+    if (form.task_type === "autonomous_analysis") {
+      throw new Error("自主任务请前往任务工作台创建。");
+    }
     return {
       name: form.name,
       goal: form.goal,
@@ -630,6 +633,23 @@ export function TaskForm({
         required_fields: splitList(quality.required_fields),
       },
     };
+  }
+  if (form.task_type === "autonomous_analysis") {
+    return (
+      <Modal title="在任务工作台创建自主任务" onClose={onClose}>
+        <div className="modal-body">
+          <p>
+            自主任务由平台分析资料需求并规划执行，请在任务工作台新建；此处不会复制为通用任务或创建计划。
+          </p>
+          <a
+            className="button"
+            href={`/?project=${encodeURIComponent(projectId)}`}
+          >
+            前往任务工作台新建
+          </a>
+        </div>
+      </Modal>
+    );
   }
   return (
     <FormModal
@@ -668,6 +688,13 @@ export function TaskForm({
         afterCreate?.(result);
       }}
     >
+      <p className="muted small">
+        需要平台自主分析问题、准备资料并规划执行时，
+        <a href={`/?project=${encodeURIComponent(projectId)}`}>
+          前往任务工作台新建
+        </a>
+        。
+      </p>
       {catalogError && (
         <p className="warning" role="alert">
           能力目录读取失败：{catalogError}
@@ -701,18 +728,20 @@ export function TaskForm({
               });
             }}
           >
-            {Object.entries(taskTypes).map(([id, label]) => (
-              <option
-                value={id}
-                key={id}
-                disabled={!catalog.find((c) => c.id === id)?.available}
-              >
-                {label}
-                {catalog.find((c) => c.id === id)?.available
-                  ? ""
-                  : "（暂未接入）"}
-              </option>
-            ))}
+            {Object.entries(taskTypes)
+              .filter(([id]) => id !== "autonomous_analysis")
+              .map(([id, label]) => (
+                <option
+                  value={id}
+                  key={id}
+                  disabled={!catalog.find((c) => c.id === id)?.available}
+                >
+                  {label}
+                  {catalog.find((c) => c.id === id)?.available
+                    ? ""
+                    : "（暂未接入）"}
+                </option>
+              ))}
           </select>
         </Field>
       </div>
