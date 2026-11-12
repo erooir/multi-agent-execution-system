@@ -313,6 +313,7 @@ class Execution:
     worker_id: str
     token: int
     outputs: list[dict] = field(default_factory=list)
+    output_origins: dict[int, dict] = field(default_factory=dict)
     quality: dict | None = None
     lease_lost: bool = False
     active_node_id: str | None = None
@@ -806,6 +807,20 @@ async def _cloud_tool_agent(execution, agent, previous, revision, permissions, i
         await session.close()
 
 
+def _remember_output(execution, node, output):
+    """Track the actual producer, including reused checkpoints, without copying content."""
+    execution.output_origins[id(output)] = {
+        "node_record_id": node["id"],
+        "node_id": node["node_id"],
+        "instance_id": node.get("instance_id"),
+        "agent_id": node.get("agent_id"),
+        "agent_version": node.get("agent_version"),
+        "checksum": hashlib.sha256(canonical(output).encode("utf-8")).hexdigest(),
+        "type": output.get("type"),
+    }
+    return output
+
+
 async def _run_atomic(
     execution: Execution,
     plan: dict,
@@ -829,7 +844,7 @@ async def _run_atomic(
     if stored and stored.get("status") == "succeeded":
         output = stored.get("output")
         if isinstance(output, dict):
-            return output
+            return _remember_output(execution, stored, output)
     if reuse_revision is not None:
         previous_node = execution.repository.get(
             "nodes", f"{execution.task['id']}:{reuse_revision}:{plan['id']}"
@@ -860,8 +875,9 @@ async def _run_atomic(
                         node_id=plan["id"],
                         instance_id=previous_node["instance_id"],
                     )
-                return output
+                return _remember_output(execution, previous_node, output)
     instance_id = uuid.uuid4().hex
+    context_id = uuid.uuid4().hex
     execution.active_node_id = plan["id"]
     node = {
         "id": row_id,
@@ -878,6 +894,13 @@ async def _run_atomic(
         "error": None,
         "started_at": now(),
         "finished_at": None,
+        "context_manifest": {
+            "version": 1,
+            "context_id": context_id,
+            "revision": revision,
+            "input_refs": [a["id"] for a in execution.inputs],
+            "upstream": [execution.output_origins[id(item)] for item in previous],
+        },
     }
     with execution.repository.transaction() as tx:
         execution.check(tx)
@@ -892,8 +915,15 @@ async def _run_atomic(
                 "agent_version": node["agent_version"],
                 "node_id": node["node_id"],
                 "status": "running",
-                "context_id": uuid.uuid4().hex,
+                "context_id": context_id,
             },
+        )
+        tx.event(
+            node["task_id"],
+            "context.bound",
+            node["context_manifest"],
+            node_id=plan["id"],
+            instance_id=instance_id,
         )
         tx.event(
             node["task_id"],
@@ -1026,7 +1056,7 @@ async def _run_atomic(
             node_id=plan["id"],
             instance_id=instance_id,
         )
-    return output
+    return _remember_output(execution, node, output)
 
 
 async def _run_node(
@@ -1117,7 +1147,7 @@ async def _execute_graph(execution: Execution, revision: int, reuse_revision: in
                 or prior["agent_version"] != plan["agent_version"]
             ):
                 raise TaskFailure("repair_checkpoint_changed", "复用检查点与冻结节点版本不一致")
-            outputs[plan["id"]] = prior["output"]
+            outputs[plan["id"]] = _remember_output(execution, prior, prior["output"])
             continue
         previous = [outputs[dep] for dep in plan.get("depends_on", [])]
         for item in previous:

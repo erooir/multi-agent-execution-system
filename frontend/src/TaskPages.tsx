@@ -32,6 +32,7 @@ import { modeName } from "./domain";
 import { ArtifactContent, QualityView } from "./ResultViews";
 import { durationLabel, elapsedSeconds } from "./resultModel";
 import TaskSummary from "./TaskSummary";
+import AgentCollaboration from "./AgentCollaboration";
 type Props = {
   projectId: string;
   tasks: Item[];
@@ -658,6 +659,10 @@ function TaskDetail({
           {!!task.repair_history?.length && !task.content_withheld && (
             <RepairHistory history={task.repair_history} />
           )}
+          <AgentCollaboration
+            task={task}
+            nodes={roundNodes(task, round ?? task.revision ?? 0)}
+          />
           <Panel title="运行实例">
             <div className="table-scroll">
               {task.instances?.length ? (

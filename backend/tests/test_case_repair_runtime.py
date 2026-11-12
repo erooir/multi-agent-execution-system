@@ -45,6 +45,9 @@ async def test_unique_clause_failure_changes_route_and_reuses_the_actual_parse(d
     assert len(nodes) == len(db.list("instances", p["id"], task_id=result["id"])) == 5
     (first_parse,) = [n for n in nodes if n["node_id"] == "prepare"]
     assert plan["reused_nodes"] == {"prepare": first_parse["id"]}
+    revised_analysis = next(n for n in nodes if n["node_id"] == "analyze" and n["attempt"] == 2)
+    assert revised_analysis["context_manifest"]["upstream"][0]["node_record_id"] == first_parse["id"]
+    assert revised_analysis["context_manifest"]["revision"] == 1
     (artifact,) = db.list("artifacts", p["id"], task_id=result["id"])
     (pair,) = artifact["content"]["products"]["clause_map"]
     assert (

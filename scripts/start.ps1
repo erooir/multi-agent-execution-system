@@ -48,7 +48,22 @@ if (-not $PSBoundParameters.ContainsKey('QuestionPublicEgress') -and -not $env:H
     $QuestionPublicEgress = $choice -eq 'true'
 }
 $env:HANGZHI_QUESTION_PUBLIC_EGRESS = if ($QuestionPublicEgress -and -not $Offline) { 'true' } else { 'false' }
-$profile = $env:HANGZHI_DATABASE_URL + '|' + $env:HANGZHI_OFFLINE + '|' + $env:HANGZHI_AUTO_IMPROVE + '|' + $env:HANGZHI_QUESTION_PUBLIC_EGRESS
+# Persist an explicit shared historical ledger selection across terminal restarts.
+# Never create a replacement ledger when the selected original is unavailable.
+$budgetPointer = Join-Path $localDirectory 'budget-ledger-path.txt'
+if (-not $env:HANGZHI_BUDGET_LEDGER_PATH -and (Test-Path -LiteralPath $budgetPointer)) {
+    $env:HANGZHI_BUDGET_LEDGER_PATH = (Get-Content -LiteralPath $budgetPointer -Raw).Trim()
+    if (-not $env:HANGZHI_BUDGET_LEDGER_PATH) { throw 'Historical budget ledger pointer is empty.' }
+}
+if (-not $env:HANGZHI_BUDGET_LEDGER_PATH) {
+    $env:HANGZHI_BUDGET_LEDGER_PATH = Join-Path $localDirectory 'budget.sqlite3'
+}
+$env:HANGZHI_BUDGET_LEDGER_PATH = [System.IO.Path]::GetFullPath($env:HANGZHI_BUDGET_LEDGER_PATH)
+if (-not $Offline) {
+    & $pythonExecutable -c 'from backend.app.model_gateway import model_gateway; model_gateway.budget(); print("Historical budget ledger verified.")'
+    if ($LASTEXITCODE -ne 0) { throw 'Historical budget ledger unavailable; restore the configured original before online startup.' }
+}
+$profile = $env:HANGZHI_DATABASE_URL + '|' + $env:HANGZHI_OFFLINE + '|' + $env:HANGZHI_AUTO_IMPROVE + '|' + $env:HANGZHI_QUESTION_PUBLIC_EGRESS + '|' + $env:HANGZHI_BUDGET_LEDGER_PATH
 $sha = [System.Security.Cryptography.SHA256]::Create()
 try { $profileId = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($profile))).Replace('-','').ToLowerInvariant() } finally { $sha.Dispose() }
 if (-not $SkipBuild) {

@@ -424,6 +424,31 @@ async def test_structured_dag_passes_real_output_to_next_node(repository):
     assert finished["status"] == "succeeded"
     outputs = repository.list("nodes", task_id="task-1")
     assert outputs[-1]["output"]["content"]["records"] == [{"name": "alpha"}]
+    first, second = outputs
+    context = second["context_manifest"]
+    assert set(context) == {"version", "context_id", "revision", "input_refs", "upstream"}
+    assert context["upstream"][0]["node_record_id"] == first["id"]
+    assert (
+        context["upstream"][0]["checksum"]
+        == hashlib.sha256(runtime.canonical(first["output"]).encode("utf-8")).hexdigest()
+    )
+    assert context["context_id"] != first["context_manifest"]["context_id"]
+    assert context["input_refs"] == ["input-1"]
+    assert "alpha" not in json.dumps(context)
+    assert len([e for e in repository.list("events") if e["type"] == "context.bound"]) == 2
+
+
+async def test_context_isolates_tasks_and_unrelated_branches(repository):
+    for task_id in ("first", "second"):
+        task = seed(repository, task_id=task_id)
+        task["snapshot"]["workflow"]["nodes"].append(
+            {**task["snapshot"]["workflow"]["nodes"][0], "id": "independent"}
+        )
+        repository.put("tasks", task)
+        assert (await execute(repository))["status"] == "succeeded"
+    nodes = repository.list("nodes")
+    assert len({n["context_manifest"]["context_id"] for n in nodes}) == 4
+    assert all(n["context_manifest"]["upstream"] == [] for n in nodes)
 
 
 async def test_schedule_duplicate_workers_coalesce_and_recheck_principal(repository, monkeypatch):
