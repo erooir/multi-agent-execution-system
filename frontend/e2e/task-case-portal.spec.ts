@@ -560,7 +560,7 @@ test("任务从创建、资料上传到自动执行，展示真实契约中的�
   await expect(
     page.getByRole("cell", { name: "2023-01", exact: true }),
   ).toBeVisible();
-  await page.getByText("平台如何完成这项任务", { exact: true }).click();
+  await page.getByText("规划、执行与审核记录", { exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "审核不通过后的针对性调整" }),
   ).toBeVisible();
@@ -675,7 +675,7 @@ test("被拒绝的计划保持未执行，显示具体纠正和依赖补齐但�
     .check();
   await page.getByRole("button", { name: "创建任务", exact: true }).click();
   await expect(page.getByRole("heading", { name: "交付结果" })).toBeVisible();
-  await page.getByText("平台如何完成这项任务", { exact: true }).click();
+  await page.getByText("规划、执行与审核记录", { exact: true }).click();
   const rejected = page
     .locator(".taskcase-plan")
     .filter({ hasText: "计划 v1 · 已拒绝 · 未执行" });
@@ -956,7 +956,7 @@ test("引用边界修复仅显示位置校正，不能替代未通过的业务�
   await expect(
     page.getByRole("heading", { name: "交付结果", exact: true }),
   ).toBeVisible();
-  await page.getByText("平台如何完成这项任务", { exact: true }).click();
+  await page.getByText("规划、执行与审核记录", { exact: true }).click();
   const repair = page.locator(".taskcase-citation-repair");
   await expect(
     repair.getByRole("heading", { name: "引用边界已校正", exact: true }),

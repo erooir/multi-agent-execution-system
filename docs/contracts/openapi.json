@@ -385,6 +385,39 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "User tasks"
+        ],
+        "summary": "Delete",
+        "operationId": "delete_api_v2_task_cases__case_id__delete",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v2/task-cases/{case_id}/runs/{task_id}": {

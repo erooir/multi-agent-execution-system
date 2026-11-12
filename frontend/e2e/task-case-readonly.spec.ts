@@ -48,7 +48,7 @@ test("读取指定真实任务的交付、来源与审核轨迹（不创建或�
   );
   expect(original.ok()).toBe(true);
   expect(original.headers()["content-type"]).toContain("application/pdf");
-  await page.getByText("平台如何完成这项任务", { exact: true }).click();
+  await page.getByText("规划、执行与审核记录", { exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "实际参与的智能体" }),
   ).toBeVisible();

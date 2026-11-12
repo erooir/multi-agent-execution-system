@@ -39,9 +39,13 @@ def _principal(user):
     return {**user, "role": "operator"} if user["role"] == "requester" else user
 
 
-def required(tx, case_id, user, *, write=False):
+def required(tx, case_id, user, *, write=False, include_deleted=False):
     record = tx.get("task_cases", case_id, for_update=write)
-    if not record or (record["owner_id"] != user["id"] and user.get("role") != "admin"):
+    if (
+        not record
+        or (record.get("deleted_at") and not include_deleted)
+        or (record["owner_id"] != user["id"] and user.get("role") != "admin")
+    ):
         s.fail("not_found", "未找到此任务", 404)
     s.project_access(record["project_id"], user, repository=tx)
     if write:
@@ -256,6 +260,8 @@ def create(body, user, repository):
         cid = s.digest([body["project_id"], user["id"], body["idempotency_key"]])[:48]
         old = tx.get("task_cases", cid)
         if old:
+            if old.get("deleted_at"):
+                s.fail("task_case_deleted", "此提交对应的任务已删除，请使用新的提交标识创建任务", 409)
             if old["request_hash"] != s.digest(body):
                 s.fail("idempotency_conflict", "同一提交标识已用于不同任务", 409)
             return view(tx, old, user)
@@ -634,6 +640,36 @@ def cancel(case_id, user, repository):
         return view(tx, row, user)
 
 
+def delete(case_id, user, repository):
+    """Hide a user task while retaining its execution, reference and billing history."""
+    with repository.transaction() as tx:
+        row = required(tx, case_id, user, write=True, include_deleted=True)
+        if row.get("deleted_at"):
+            return
+        # Evaluation replays also reference this case but are not in task_ids.
+        runs = tx.list("tasks", row["project_id"], task_case_id=case_id)
+        if _status(tx, row) not in EDITABLE | {"succeeded"} or any(
+            task["status"] not in TERMINAL for task in runs
+        ):
+            s.fail("task_case_not_terminal", "任务或关联评测仍在执行，请先取消并等待执行结束", 409)
+        if any(
+            task.get("lease_owner")
+            or any(
+                item["status"] == "running"
+                for item in tx.list("instances", row["project_id"], task_id=task["id"])
+            )
+            for task in runs
+        ):
+            s.fail("task_case_cleanup_pending", "执行器尚未释放任务，请等待清理完成后再删除", 409)
+        deleted_at = s.now()
+        row.update(deleted_at=deleted_at, deleted_by=user["id"])
+        row["ingest_tokens"] = [
+            {**entry, "revoked": True, "revoked_at": deleted_at} for entry in row.get("ingest_tokens", [])
+        ]
+        tx.put("task_cases", row)
+        s.audit(tx, row["project_id"], "task_case.deleted", case_id, user)
+
+
 def get(case_id, user, repository):
     with repository.transaction() as tx:
         return view(tx, required(tx, case_id, user), user)
@@ -645,7 +681,7 @@ def history(project_id, user, repository):
         return [
             view(tx, row, user, summary=True)
             for row in reversed(tx.list("task_cases", project_id))
-            if row["owner_id"] == user["id"] or user.get("role") == "admin"
+            if not row.get("deleted_at") and (row["owner_id"] == user["id"] or user.get("role") == "admin")
         ]
 
 
@@ -1232,7 +1268,7 @@ def ingest_identity(case_id, token, repository):
     from .. import auth
 
     row = repository.get("task_cases", case_id)
-    if not row or not token:
+    if not row or row.get("deleted_at") or not token:
         s.fail("permission_denied", "资料接口令牌无效", 403)
     digest = hashlib.sha256(token.encode()).hexdigest()
     match = next(

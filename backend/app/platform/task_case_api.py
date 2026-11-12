@@ -76,6 +76,11 @@ def detail(case_id: str, user: dict = signed_in):
     return cases.get(case_id, user, repo)
 
 
+@router.delete("/{case_id}", status_code=204)
+def delete(case_id: str, user: dict = signed_in):
+    cases.delete(case_id, user, repo)
+
+
 @router.get("/{case_id}/runs/{task_id}")
 def task_run_detail(case_id: str, task_id: str, user: dict = signed_in):
     with repo.transaction() as tx:

@@ -19,10 +19,11 @@ import {
   RefreshCw,
   ShieldCheck,
   Sparkles,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
-import { api, ApiError, post } from "./api";
+import { api, ApiError, post, remove } from "./api";
 import { time, statusNames } from "./domain";
 import { Confirm, Empty, ErrorLine } from "./ui";
 import { QuestionProducts } from "./QuestionProducts";
@@ -40,6 +41,7 @@ import {
   taskCaseActive,
   taskCaseCanStart,
   taskCaseEditable,
+  taskCaseHeading,
   taskCaseResumable,
   taskCaseStatus,
   taskCaseTerminal,
@@ -82,6 +84,8 @@ export default function TaskCaseDesk({
   const [listError, setListError] = useState("");
   const [detailError, setDetailError] = useState("");
   const [tick, setTick] = useState(0);
+  const [notice, setNotice] = useState("");
+  const deletedIds = useRef(new Set<string>());
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const key = "hangzhi.task-case.selection." + projectId;
@@ -96,7 +100,10 @@ export default function TaskCaseDesk({
           { signal: controller.signal },
         );
         if (controller.signal.aborted) return;
-        setTasks(rows);
+        const visibleRows = rows.filter(
+          (row) => !deletedIds.current.has(row.id),
+        );
+        setTasks(visibleRows);
         setListError("");
         setSelected((old) => {
           let saved =
@@ -106,9 +113,9 @@ export default function TaskCaseDesk({
           } catch {
             /* Optional session preference. */
           }
-          return rows.some((r) => r.id === (old || saved))
+          return visibleRows.some((r) => r.id === (old || saved))
             ? old || saved
-            : rows[0]?.id || "";
+            : visibleRows[0]?.id || "";
         });
       } catch (e) {
         if (controller.signal.aborted) return;
@@ -152,7 +159,11 @@ export default function TaskCaseDesk({
         const row = await api<TaskCase>(path(selected), {
           signal: controller.signal,
         });
-        if (controller.signal.aborted || selectedRef.current !== selected)
+        if (
+          controller.signal.aborted ||
+          selectedRef.current !== selected ||
+          deletedIds.current.has(row.id)
+        )
           return;
         setDetail(row);
         setDetailError("");
@@ -181,18 +192,38 @@ export default function TaskCaseDesk({
     setDetail(row);
     setComposing(false);
     setDetailError("");
+    setNotice("");
     setTick((n) => n + 1);
   }, []);
+
+  function discard(id: string) {
+    deletedIds.current.add(id);
+    const next = tasks.find((task) => task.id !== id)?.id || "";
+    selectedRef.current = next;
+    setTasks((rows) => rows.filter((task) => task.id !== id));
+    setSelected(next);
+    setDetail(null);
+    setDetailError("");
+    setComposing(false);
+    setNotice("任务记录已删除。");
+    try {
+      sessionStorage.removeItem(key);
+    } catch {
+      /* Optional session preference. */
+    }
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("task_case") === id) {
+      url.searchParams.delete("task_case");
+      window.history.replaceState(null, "", url);
+    }
+    setTick((n) => n + 1);
+  }
 
   return (
     <div className="taskcase-desk">
       <div className="taskcase-heading">
         <div>
-          <p className="taskcase-eyebrow">从问题到可核验的交付</p>
           <h1>我的任务</h1>
-          <p>
-            描述你希望完成的工作，平台会判断所需资料，安排智能体和工具，并自动审核结果。
-          </p>
         </div>
         {canSubmit && (
           <button className="primary" onClick={() => setComposing(true)}>
@@ -201,6 +232,11 @@ export default function TaskCaseDesk({
           </button>
         )}
       </div>
+      {notice && (
+        <p role="status" className="taskcase-muted">
+          {notice}
+        </p>
+      )}
       {listError && (
         <ErrorLine>
           {listError}
@@ -239,7 +275,9 @@ export default function TaskCaseDesk({
                       setComposing(false);
                     }}
                   >
-                    <strong>{t.title || t.goal}</strong>
+                    <strong title={taskCaseHeading(t)}>
+                      {taskCaseHeading(t)}
+                    </strong>
                     <State status={t.status} />
                     <small>{time(t.created_at)}</small>
                   </button>
@@ -266,8 +304,9 @@ export default function TaskCaseDesk({
                   task={detail}
                   canSubmit={canSubmit}
                   onChange={accept}
+                  onDeleted={discard}
                 />
-              ) : loading || selected ? (
+              ) : detailError ? null : loading || selected ? (
                 <div className="taskcase-card" role="status">
                   正在读取任务详情…
                 </div>
@@ -346,7 +385,6 @@ function CreateTask({
         </span>
         <div>
           <h2>你希望完成什么工作？</h2>
-          <p>先说明目标。平台会告诉你是否需要补充资料以及需要什么资料。</p>
         </div>
       </div>
       <label>
@@ -394,9 +432,6 @@ function CreateTask({
             />
           </label>
         </div>
-        <p>
-          审核与修订共享此额度，并受项目历史累计预算约束。仅本地模式需要相应能力已就绪。
-        </p>
       </details>
       {mode === "cloud" && (
         <label className="taskcase-check taskcase-consent">
@@ -407,15 +442,11 @@ function CreateTask({
           />
           <span>
             允许平台通过统一网关，使用云模型处理本任务说明及我明确授权的公开资料。
-            <small>
-              未授权时可先查看资料需求，执行前需完成授权。请勿填写私密内容。
-            </small>
           </span>
         </label>
       )}
       {error && <ErrorLine>{error}</ErrorLine>}
       <div className="taskcase-form-footer">
-        <span>无需预选案例、智能体或工具</span>
         <button className="primary" disabled={busy || !goal.trim()}>
           {busy ? (
             <LoaderCircle size={17} className="taskcase-spin" />
@@ -433,17 +464,23 @@ function TaskDetail({
   task,
   canSubmit,
   onChange,
+  onDeleted,
 }: {
   task: TaskCase;
   canSubmit: boolean;
   onChange: (task: TaskCase) => void;
+  onDeleted: (id: string) => void;
 }) {
   const [cancel, setCancel] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
   const withheld = task.content_withheld || task.result?.content_withheld;
   const editable = canSubmit && taskCaseEditable.has(task.status);
   const resumable = taskCaseResumable.has(task.status);
   const resultFirst = task.status === "succeeded" && !!task.result;
+  const heading = taskCaseHeading(task);
+  const deletable =
+    taskCaseEditable.has(task.status) || taskCaseTerminal.has(task.status);
   const inputRecord = (
     <>
       {task.requirements_analysis?.summary && (
@@ -487,8 +524,8 @@ function TaskDetail({
           <State status={task.status} />
           <small>创建于 {time(task.created_at)}</small>
         </div>
-        <h2>{task.title || task.goal}</h2>
-        <p className="taskcase-goal">{task.goal}</p>
+        <h2 className="taskcase-goal">{heading}</h2>
+        {heading !== task.goal && <p className="taskcase-goal">{task.goal}</p>}
         {task.output_requirements && (
           <p className="taskcase-muted">交付要求：{task.output_requirements}</p>
         )}
@@ -520,13 +557,30 @@ function TaskDetail({
           </p>
         )}
         {error && <ErrorLine>{error}</ErrorLine>}
-        {canSubmit && !taskCaseTerminal.has(task.status) && (
-          <button
-            className="text-button taskcase-cancel"
-            onClick={() => setCancel(true)}
-          >
-            取消任务
-          </button>
+        {canSubmit && (
+          <div className="taskcase-actions">
+            {!taskCaseTerminal.has(task.status) && (
+              <button
+                className="text-button taskcase-cancel"
+                onClick={() => setCancel(true)}
+              >
+                取消任务
+              </button>
+            )}
+            <button
+              className="text-button taskcase-delete"
+              disabled={!deletable}
+              title={
+                deletable
+                  ? undefined
+                  : "请先取消任务，等待执行停止后再删除记录。"
+              }
+              onClick={() => setDeleting(true)}
+            >
+              <Trash2 size={16} />
+              删除任务记录
+            </button>
+          </div>
         )}
         {canSubmit && resumable && (
           <p className="taskcase-notice">
@@ -590,6 +644,35 @@ function TaskDetail({
               setError((e as Error).message);
               setCancel(false);
             }
+          }}
+        />
+      )}
+      {deleting && (
+        <Confirm
+          title="删除这项任务记录"
+          description="删除后，本任务将从任务记录中移除，上游提交入口也会失效。已上传资料、执行与审核记录及历史费用仍保留。"
+          danger
+          confirm="删除记录"
+          onClose={() => setDeleting(false)}
+          onConfirm={async () => {
+            try {
+              await remove(path(task.id));
+            } catch (error) {
+              if (
+                error instanceof ApiError &&
+                error.code === "task_case_not_terminal"
+              )
+                throw new Error(
+                  "任务仍在运行，请先取消任务并等待执行停止后再删除。",
+                );
+              if (
+                error instanceof ApiError &&
+                error.code === "task_case_cleanup_pending"
+              )
+                throw new Error("任务正在完成执行清理，请稍后再删除记录。");
+              throw error;
+            }
+            onDeleted(task.id);
           }}
         />
       )}
@@ -922,9 +1005,7 @@ function Requirements({
           )}
           {error && <ErrorLine>{error}</ErrorLine>}
           <div className="taskcase-form-footer">
-            <span role="status">
-              {stage || "后续的规划、执行与审核由平台自动完成"}
-            </span>
+            {stage && <span role="status">{stage}</span>}
             <button
               className="primary"
               disabled={
@@ -1004,7 +1085,7 @@ function DataApi({ task }: { task: TaskCase }) {
   }
   return (
     <details className="taskcase-api-help">
-      <summary>由甲方系统提交资料</summary>
+      <summary>上游提交资料</summary>
       <p>
         接入凭据仅能向本任务提交资料，不能读取任务结果或其他项目内容。资料仍须经过同一套权限、来源和格式校验。
       </p>
@@ -1274,8 +1355,7 @@ function Execution({ task }: { task: TaskCase }) {
       <details open={taskCaseActive.has(task.status) || undefined}>
         <summary>
           <ClipboardList size={19} />
-          <span>平台如何完成这项任务</span>
-          <small>规划、执行与审核记录</small>
+          <span>规划、执行与审核记录</span>
         </summary>
         <p className="taskcase-muted">
           以下来自实际保存的记录。节点执行完成与结果通过审核分别展示。

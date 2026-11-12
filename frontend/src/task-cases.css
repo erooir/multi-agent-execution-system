@@ -270,6 +270,7 @@
 }
 .taskcase-form-footer > button {
   flex: none;
+  margin-left: auto;
 }
 .taskcase-overview h2 {
   margin-top: 1rem;
@@ -277,7 +278,19 @@
 }
 .taskcase-goal {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   margin-bottom: 0.5rem;
+}
+.taskcase-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+.taskcase-delete {
+  margin-left: auto;
+  color: var(--danger, #ba3845);
 }
 .taskcase-input-record > summary {
   cursor: pointer;

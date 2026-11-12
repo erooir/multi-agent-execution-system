@@ -136,6 +136,15 @@ export const taskCaseTerminal = new Set([
   "cancelled",
 ]);
 
+export function taskCaseHeading(
+  task: Pick<TaskCase, "title" | "goal">,
+): string {
+  // Older records stored the first 80 Python characters as their automatic title.
+  // Keep that storage contract while showing the complete goal in the workspace.
+  const automaticTitle = Array.from(task.goal).slice(0, 80).join("");
+  return !task.title || task.title === automaticTitle ? task.goal : task.title;
+}
+
 export function taskCaseCanStart(task: TaskCase): boolean {
   return (
     task.status === "ready" &&

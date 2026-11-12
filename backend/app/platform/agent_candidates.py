@@ -236,8 +236,10 @@ def evaluate(cid, case_ids, max_cost_cny, user, repository):
             [" ".join(origin["request"]["goal"].casefold().split()), sorted(origin_hashes)]
         )
         samples, signatures, seen_hashes = [], {origin_signature}, set(origin_hashes)
+        # Stable lock order serializes replay admission against task deletion.
+        locked_cases = {case_id: required(tx, case_id, user, write=True) for case_id in sorted(case_ids)}
         for case_id in case_ids:
-            case = required(tx, case_id, user)
+            case = locked_cases[case_id]
             if case["project_id"] != candidate["project_id"]:
                 s.fail("permission_denied", "评测样本不能跨项目", 403)
             task = tx.get("tasks", case.get("task_id")) if case.get("task_id") else None
