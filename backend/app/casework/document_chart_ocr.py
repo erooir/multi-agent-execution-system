@@ -295,7 +295,7 @@ def extract_monthly_labels(image):
             "end_date": end.isoformat(),
             "deaths": k[0],
             "injured": inj[0],
-            "basis": "图中已印数字的OCR；待同口径总数复算",
+            "basis": "图中已印数字的OCR；总数一致性见独立复算结果",
             "kind": "chart_label_ocr",
         }
         result.append(({"label_bboxes": boxes[2 * i : 2 * i + 2], "image_size": list(im.size)}, text, fields))

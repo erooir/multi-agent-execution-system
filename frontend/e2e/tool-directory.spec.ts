@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { adminSession } from "./admin-session";
 
 async function openTools(page: Page, projectId: string) {
   await page.goto("/manage");
@@ -18,13 +19,7 @@ test("工具目录检索与技能依赖可追到发布智能体，试用与只�
   baseURL,
 }) => {
   test.setTimeout(90_000);
-  const login = await page.request.post("/api/auth/login", {
-    data: {
-      username: process.env.HANGZHI_SMOKE_USERNAME || "admin",
-      password:
-        process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password",
-    },
-  });
+  const login = await adminSession(page.context());
   expect(login.ok()).toBeTruthy();
   const stamp = Date.now();
   const projectResponse = await page.request.post("/api/v2/projects", {
@@ -45,6 +40,10 @@ test("工具目录检索与技能依赖可追到发布智能体，试用与只�
   await expect(page.getByRole("heading", { name: "没有匹配项" })).toBeVisible();
   await page.getByRole("button", { name: "清除筛选" }).click();
   await page.getByRole("button", { name: /^文档技能包 · / }).click();
+  await page
+    .locator(".catalog-index")
+    .getByRole("button", { name: /evidence-analysis/ })
+    .click();
   await details
     .getByRole("button", { name: "授权资料目录", exact: true })
     .click();

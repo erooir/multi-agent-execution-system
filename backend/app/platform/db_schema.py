@@ -17,8 +17,19 @@ from sqlalchemy import (
 
 from .dameng import DMDocument
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 CAPABILITY_TABLES = frozenset({"capability_definitions", "capability_versions"})
+AUTONOMY_TABLES = frozenset(
+    {
+        "task_cases",
+        "data_submissions",
+        "plan_versions",
+        "agent_candidates",
+        "script_versions",
+        "sandbox_runs",
+        "review_reports",
+    }
+)
 KINDS = [
     "projects",
     "agents",
@@ -41,6 +52,7 @@ KINDS = [
     "audits",
     "capability_definitions",
     "capability_versions",
+    *sorted(AUTONOMY_TABLES),
 ]
 metadata = MetaData()
 tables = {}

@@ -11,6 +11,7 @@ import { api } from "./api";
 import type { Item } from "./types";
 import { Empty, JsonView, SectionTitle, Tabs } from "./ui";
 import { parameterNames } from "./agentPreviewModel";
+import { agentScopeLabel } from "./agentScopeModel";
 import {
   catalogMatches,
   eligibleAgents,
@@ -20,7 +21,20 @@ import {
 } from "./toolCatalogModel";
 import "./tool-catalog.css";
 
-type Catalog = { tools: Item[]; skills: Item[]; mcp_servers: Item[] };
+type Readiness = {
+  available: boolean;
+  status: "ready" | "unavailable";
+  reason: string;
+};
+type Catalog = {
+  tools: Item[];
+  skills: Item[];
+  mcp_servers: Item[];
+  readiness?: {
+    tools: Record<string, Readiness>;
+    skills: Record<string, Readiness>;
+  };
+};
 type Props = {
   projectId: string;
   agents: Item[];
@@ -96,6 +110,9 @@ export default function ToolCatalog({
   );
   const selected = visible.find((item) => item.id === selectedId) || visible[0];
   const holders = selected ? grants.get(selected.id) || [] : [];
+  const readiness = selected
+    ? catalog?.readiness?.[kind]?.[selected.id]
+    : undefined;
   function resetFilters() {
     setQuery("");
     setGroup("");
@@ -132,6 +149,18 @@ export default function ToolCatalog({
               { id: "skills", label: "文档技能包 · " + skills.length },
             ]}
           />
+          {catalog.readiness && (
+            <p className="catalog-readiness-summary">
+              当前部署已就绪{" "}
+              {
+                items.filter(
+                  (item) =>
+                    catalog.readiness?.[kind]?.[item.id]?.available === true,
+                ).length
+              }{" "}
+              / {items.length} 项。实际执行还需满足任务授权、输入条件与预算。
+            </p>
+          )}
           <div className="toolbar catalog-controls">
             <label className="search">
               <Search size={17} aria-hidden="true" />
@@ -199,6 +228,19 @@ export default function ToolCatalog({
                       </small>
                       <strong>{item.label || item.name}</strong>
                       <code>{item.id}</code>
+                      {catalog.readiness?.[kind]?.[item.id] && (
+                        <small
+                          className={
+                            catalog.readiness[kind][item.id].available
+                              ? "catalog-ready"
+                              : "catalog-unavailable"
+                          }
+                        >
+                          {catalog.readiness[kind][item.id].available
+                            ? "依赖已就绪"
+                            : "当前不可用"}
+                        </small>
+                      )}
                     </span>
                     <ChevronRight size={16} aria-hidden="true" />
                   </button>
@@ -224,6 +266,23 @@ export default function ToolCatalog({
                   <code>{selected.id}</code>
                   <span>v{selected.version}</span>
                 </p>
+                {readiness && (
+                  <div
+                    className={
+                      "catalog-readiness " +
+                      (readiness.available
+                        ? "catalog-ready"
+                        : "catalog-unavailable")
+                    }
+                  >
+                    <strong>
+                      {readiness.available
+                        ? "当前部署依赖已就绪"
+                        : "当前部署尚不可用"}
+                    </strong>
+                    {readiness.reason && <p>{readiness.reason}</p>}
+                  </div>
+                )}
                 {kind === "tools" ? (
                   <>
                     <div className="tags">
@@ -301,7 +360,9 @@ export default function ToolCatalog({
                     <h3>文档技能包依赖的工具</h3>
                     <div className="catalog-dependencies">
                       {selected.required_tools?.map((name: string) => {
-                        const tool = tools.find((item) => item.name === name);
+                        const tool = tools.find(
+                          (item) => item.name === name || item.id === name,
+                        );
                         return tool ? (
                           <button
                             key={name}
@@ -347,7 +408,10 @@ export default function ToolCatalog({
                         <li key={agent.id}>
                           <span>
                             <strong>{agent.name}</strong>
-                            <small>智能体 v{agent.current_version}</small>
+                            <small>
+                              智能体 v{agent.current_version} ·{" "}
+                              {agentScopeLabel(agent)}
+                            </small>
                           </span>
                           <div>
                             <button

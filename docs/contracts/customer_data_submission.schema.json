@@ -1,0 +1,92 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "maxLength": 150,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "content": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "items": {},
+          "type": "array"
+        }
+      ],
+      "title": "Content"
+    },
+    "media_type": {
+      "default": "application/json",
+      "enum": [
+        "text/plain",
+        "text/csv",
+        "application/json"
+      ],
+      "title": "Media Type",
+      "type": "string"
+    },
+    "classification": {
+      "default": "local",
+      "enum": [
+        "local",
+        "public"
+      ],
+      "title": "Classification",
+      "type": "string"
+    },
+    "source_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Source Id",
+      "type": "string"
+    },
+    "source_version": {
+      "default": "1",
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Source Version",
+      "type": "string"
+    },
+    "provenance": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Provenance",
+      "type": "string"
+    },
+    "requirement_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Requirement Id"
+    },
+    "idempotency_key": {
+      "maxLength": 140,
+      "minLength": 1,
+      "title": "Idempotency Key",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "content",
+    "source_id",
+    "provenance",
+    "idempotency_key"
+  ],
+  "title": "InlineSubmissionInput",
+  "type": "object"
+}

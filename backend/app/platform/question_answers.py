@@ -4,6 +4,8 @@ import math
 import re
 
 from ..casework.delivery_brief import HEAVY, LABELS, findings
+from ..casework.document_common import bounded_excerpt
+from ..casework.narrative_checks import monthly_delivery_summary
 from . import service as s
 from .question_events import project_events
 from .question_geo import project_geo
@@ -145,6 +147,21 @@ def render_case(artifact, sources, question, *, summary=False):
         answer = _text(business.get("answer") or "", sources)
         tables = business.get("tables", [])
         unanswered = business.get("missing", [])
+        if case == "B05":
+            answer = monthly_delivery_summary(products) + "\n" + answer
+            limitations = products.get("limitations", [])
+            if limitations:
+                tables.append(
+                    {
+                        "title": "统计范围与核验限制（原文）",
+                        "columns": ["限制原文", "证据编号"],
+                        "rows": [
+                            [item.get("text", ""), "、".join(item.get("evidence_ids", []))]
+                            for item in limitations
+                        ],
+                        "total_rows": len(limitations),
+                    }
+                )
     elif case == "G03":
         answer = "\n".join(_text(note, sources) for note in findings(report))
         tables = [] if summary else [t for k, v in products.items() if (t := _table(k, v, sources))]
@@ -171,8 +188,11 @@ def render_case(artifact, sources, question, *, summary=False):
             refs.append(
                 {
                     "source": source["name"],
+                    "source_id": e.get("source_id"),
+                    "page": (e.get("location") or {}).get("page"),
                     "location": _location(e.get("location")),
-                    "excerpt": str(e.get("quote", ""))[:450],
+                    "excerpt": bounded_excerpt(str(e.get("quote", "")), 450),
+                    "quote_truncated": bool(e.get("quote_truncated")) or len(str(e.get("quote", ""))) > 450,
                 }
             )
         if len(refs) >= 36:
@@ -200,7 +220,13 @@ def render_semantic(artifact, sources):
         source = sources.get(cite.get("source_id"))
         if source and source["classification"] == "public" and isinstance(cite.get("quote"), str):
             citations.append(
-                {"source": source["name"], "location": _location(cite), "excerpt": cite["quote"][:450]}
+                {
+                    "source": source["name"],
+                    "source_id": cite.get("source_id"),
+                    "location": _location(cite),
+                    "excerpt": bounded_excerpt(cite["quote"], 450),
+                    "quote_truncated": len(cite["quote"]) > 450,
+                }
             )
     return {
         "answer": _text(value["text"], sources),

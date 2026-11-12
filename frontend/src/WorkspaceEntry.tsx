@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import type { Item } from "./types";
+import { isRestrictedAgent } from "./agentScopeModel";
 import "./workspace.css";
 
 export default function WorkspaceEntry({
@@ -25,7 +26,9 @@ export default function WorkspaceEntry({
       });
     return () => controller.abort();
   }, [projectId]);
-  const published = agents.filter((a) => a.status === "published");
+  const published = agents.filter(
+    (a) => a.status === "published" && !isRestrictedAgent(a),
+  );
   const dual = published.filter(
     (a) => a.executor_bindings?.local && a.executor_bindings?.cloud,
   ).length;
@@ -41,7 +44,7 @@ export default function WorkspaceEntry({
   ).length;
   return (
     <section className="workspace-entry" aria-label="项目资源汇总">
-      <h2>智能体与工具概况</h2>
+      <h2>可复用智能体与工具概况</h2>
       <dl className="workspace-summary-stats">
         <div>
           <dt>固定流程智能体</dt>
@@ -60,6 +63,12 @@ export default function WorkspaceEntry({
           <dd>{toolCount ?? "—"}</dd>
         </div>
       </dl>
+      {agents.some(isRestrictedAgent) && (
+        <p className="muted">
+          另有 {agents.filter(isRestrictedAgent).length}{" "}
+          个任务或评测专属定义，未计入可复用智能体。
+        </p>
+      )}
       {error && <p role="status">工具数量暂不可用</p>}
     </section>
   );

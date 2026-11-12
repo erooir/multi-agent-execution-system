@@ -47,7 +47,7 @@ def submit(body, user, repository):
             qid, old = _existing(tx, body, user)
             if old:
                 return _view(tx, old, user)
-            assets = tx.list("data_assets", body.project_id)
+            assets = [a for a in tx.list("data_assets", body.project_id) if not a.get("task_case_id")]
             plan = intake_plan.plan_question(body.question, body.project_id, assets)
             record = {
                 "id": qid,
@@ -82,7 +82,7 @@ def submit(body, user, repository):
                     )
                 else:
                     code = plan["case_id"]
-                    team.install(body.project_id, worker, tx, case_id=code)
+                    team.install(body.project_id, worker, tx, case_id=code, upgrade=True)
                     task = s.create_task(
                         {
                             "project_id": body.project_id,

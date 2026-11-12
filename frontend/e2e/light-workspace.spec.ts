@@ -144,10 +144,10 @@ test("Light 工作空间：导航、说明展开、表单及移动布局", async
   await page.screenshot({ path: `${folder}/mobile.png`, fullPage: true });
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "有什么想了解的？" }),
+    page.getByRole("heading", { name: "我的任务", exact: true }),
   ).toBeVisible();
-  await expect(page.locator(".question-history")).not.toContainText(
-    "正在读取历史",
+  await expect(page.locator(".taskcase-history")).not.toContainText(
+    "正在读取任务",
   );
   await page.screenshot({
     path: `${folder}/question-mobile.png`,

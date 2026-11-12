@@ -1,0 +1,26 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "task_case_ids": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 10,
+      "minItems": 2,
+      "title": "Task Case Ids",
+      "type": "array"
+    },
+    "max_cost_cny": {
+      "default": 4,
+      "maximum": 10,
+      "minimum": 0.2,
+      "title": "Max Cost Cny",
+      "type": "number"
+    }
+  },
+  "required": [
+    "task_case_ids"
+  ],
+  "title": "CandidateEvaluationInput",
+  "type": "object"
+}

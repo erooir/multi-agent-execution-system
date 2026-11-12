@@ -13,7 +13,13 @@ from sqlalchemy import create_engine, inspect, text
 
 from backend.app.identity_records import DMIdentityStore
 from backend.app.platform.dameng import database_url, identity_guard, identity_metadata
-from backend.app.platform.db_schema import CAPABILITY_TABLES, SCHEMA_VERSION, metadata, schema
+from backend.app.platform.db_schema import (
+    AUTONOMY_TABLES,
+    CAPABILITY_TABLES,
+    SCHEMA_VERSION,
+    metadata,
+    schema,
+)
 
 
 def assert_initialized(connection):
@@ -35,19 +41,22 @@ def prepare_schema(engine):
             connection.execute(identity_guard.insert().values(id=1))
             connection.execute(schema.insert().values(version=SCHEMA_VERSION))
         else:
-            legacy = expected - CAPABILITY_TABLES
-            recognized = (expected, legacy, expected - {"questions"}, legacy - {"questions"})
-            if existing not in recognized:
-                raise RuntimeError("达梦schema必须为空或为受支持的完整平台schema；拒绝自动接管或修复")
+            if "schema_version" not in existing:
+                raise RuntimeError("达梦schema不是已登记的平台schema；拒绝自动接管")
             versions = connection.execute(schema.select()).scalars().all()
-            if versions not in ([1], [SCHEMA_VERSION]) or (
-                not CAPABILITY_TABLES <= existing and versions != [1]
-            ):
+            v2 = expected - AUTONOMY_TABLES
+            v1 = v2 - CAPABILITY_TABLES
+            recognized = {
+                1: (v1, v1 - {"questions"}, v2, v2 - {"questions"}),
+                2: (v2,),
+                SCHEMA_VERSION: (expected,),
+            }
+            if len(versions) != 1 or existing not in recognized.get(versions[0], ()):
                 raise RuntimeError("达梦平台schema版本与表结构不匹配")
-            for name in ("questions", *sorted(CAPABILITY_TABLES)):
+            for name in ("questions", *sorted(CAPABILITY_TABLES), *sorted(AUTONOMY_TABLES)):
                 if name not in existing:
                     metadata.tables[name].create(connection)
-            if versions == [1]:
+            if versions != [SCHEMA_VERSION]:
                 connection.execute(schema.update().values(version=SCHEMA_VERSION))
     with engine.connect() as connection:
         assert_initialized(connection)

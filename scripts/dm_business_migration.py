@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 
 from backend.app.platform.dameng import identity_guard
 from backend.app.platform.db import assert_dm_schema
-from backend.app.platform.db_schema import CAPABILITY_TABLES, SCHEMA_VERSION, tables
+from backend.app.platform.db_schema import AUTONOMY_TABLES, CAPABILITY_TABLES, SCHEMA_VERSION, tables
 
 
 def _check_asset(payload, assets_dir):
@@ -40,11 +40,15 @@ def import_business(engine, source: Path, assets_dir: Path):
             )
         }
         expected = {*tables, "schema_version"}
-        legacy = expected - CAPABILITY_TABLES
+        v2 = expected - AUTONOMY_TABLES
+        legacy = v2 - CAPABILITY_TABLES
         versions = [r[0] for r in old.execute("SELECT version FROM schema_version")]
-        if names not in (expected, legacy, expected - {"questions"}, legacy - {"questions"}) or (
-            versions != ([SCHEMA_VERSION] if CAPABILITY_TABLES <= names else [1])
-        ):
+        supported = {
+            1: (legacy, legacy - {"questions"}, v2, v2 - {"questions"}),
+            2: (v2,),
+            SCHEMA_VERSION: (expected,),
+        }
+        if len(versions) != 1 or names not in supported.get(versions[0], ()):
             raise ValueError("不支持的源表或schema版本；拒绝迁移身份库/账本或遗漏数据")
         if old.execute(
             "SELECT 1 FROM tasks WHERE status IS NULL OR status NOT IN ('succeeded','partial','failed','cancelled') LIMIT 1"

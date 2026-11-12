@@ -207,3 +207,26 @@
     padding: 0.65rem 0.8rem;
   }
 }
+.catalog-readiness-summary {
+  color: var(--muted);
+  font-size: 0.82rem;
+  margin: 0.8rem 0 1rem;
+}
+.catalog-readiness {
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  padding: 0.7rem 0.9rem;
+  margin: 1rem 0;
+  background: var(--surface2);
+  font-size: 0.84rem;
+}
+.catalog-readiness p {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+}
+.catalog-ready {
+  color: var(--good);
+}
+.catalog-unavailable {
+  color: var(--warn);
+}

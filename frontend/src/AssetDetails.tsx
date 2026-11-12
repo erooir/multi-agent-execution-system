@@ -7,6 +7,7 @@ import { ParameterSummary } from "./ToolParameters";
 import { changedVersionFields, versionFields } from "./workflowEditorModel";
 import { RoleFacts } from "./CaseRoles";
 import AgentToolPreview from "./AgentToolPreview";
+import AgentScope from "./AgentScope";
 
 const modalities: Record<string, string> = {
   text: "文本",
@@ -73,6 +74,7 @@ export function AgentDetails({
           <p>{agent.description || "尚未填写职责说明"}</p>
         </div>
       </div>
+      <AgentScope agent={agent} />
       {version?.role_contract && (
         <section className="asset-role">
           <h3>已发布用例岗位合同 · v{version.version}</h3>

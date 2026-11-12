@@ -41,6 +41,7 @@ def frozen_profile(code):
             "role_evidence",
             "role_analysis",
             "document_common",
+            "narrative_checks",
             "geo_raster",
         }
         prefix = "geo_" if code.startswith("G") else "document_"

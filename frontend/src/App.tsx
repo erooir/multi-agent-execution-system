@@ -74,7 +74,10 @@ export default function App() {
   return window.location.pathname.replace(/\/$/, "") === "/manage" ? (
     <ManagementApp />
   ) : (
-    <QuestionPortal Login={Login} />
+    <QuestionPortal
+      Login={Login}
+      legacy={window.location.pathname.replace(/\/$/, "") === "/questions"}
+    />
   );
 }
 function ManagementApp() {
@@ -286,7 +289,7 @@ function ManagementApp() {
       />
     );
   if (user.role === "requester")
-    return <p role="status">正在进入问答工作台…</p>;
+    return <p role="status">正在进入任务工作台…</p>;
   const canEdit = user.role !== "reviewer",
     scoped = (kind: keyof Bootstrap) =>
       projectItems(data?.[kind] as Item[], projectId),
@@ -409,7 +412,7 @@ function ManagementApp() {
           </div>
           <div className="top-actions">
             <a className="desk-link" href="/">
-              返回问答
+              返回任务工作台
             </a>
             <span className={`connection ${error ? "error" : ""}`}>
               <span className="status-dot" />

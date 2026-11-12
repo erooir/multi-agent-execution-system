@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { api, idPath, post, put } from "./api";
 import CandidateEvidence from "./CandidateEvidence";
+import TaskAgentCandidates from "./TaskAgentCandidates";
 import { money, parseObject, splitList, taskTypes, time } from "./domain";
 import type { Bootstrap, Item, Mutation, Notify, User } from "./types";
 import {
@@ -401,7 +402,15 @@ export function ImprovementsPage({
           </p>
         </div>
       </div>
-      <Panel title="改进候选">
+      {canEdit && (
+        <TaskAgentCandidates
+          projectId={projectId}
+          canEdit={canEdit}
+          isAdmin={isAdmin}
+          onTask={onTask}
+        />
+      )}
+      <Panel title="既有配置改进候选">
         {improvements.length ? (
           <div className="table-scroll">
             <table>

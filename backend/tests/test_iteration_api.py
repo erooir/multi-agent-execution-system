@@ -21,7 +21,11 @@ def test_capability_route_contract_and_legacy_compatibility(db, monkeypatch):
     monkeypatch.setattr(api, "repo", db)
     monkeypatch.setattr(service, "repo", db)
     app = application()
-    assert len([route for route in api.router.routes if route.path == "/api/v2/capabilities"]) == 1
+    # Recent FastAPI includes nested routers lazily; an included router is not a leaf route.
+    assert (
+        len([route for route in api.router.routes if getattr(route, "path", None) == "/api/v2/capabilities"])
+        == 1
+    )
     with TestClient(app) as client:
         assert isinstance(client.get("/api/v2/capabilities").json(), list)
         response = client.get("/api/v2/capabilities", params={"project_id": p["id"]})

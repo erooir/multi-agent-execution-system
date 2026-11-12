@@ -99,7 +99,12 @@ def _workflow(tx, project_id):
             for t in available["tools"]
             if t["id"] in BASE_TOOL_IDS
         ],
-        skill_refs=[{"skill_id": k["id"], "version": k["version"]} for k in available["skills"]],
+        skill_refs=[
+            {"skill_id": k["id"], "version": k["version"]}
+            for k in available["skills"]
+            if not set(k["required_tools"])
+            - (set(BASE_TOOL_IDS) | {t["name"] for t in available["tools"] if t["id"] in BASE_TOOL_IDS})
+        ],
         instructions="用中文作答，为事实提供逐字引用。清楚标注推断与缺口，不将模型结论视为确定性复算。",
     ).model_dump()
     agent.update(
@@ -110,22 +115,43 @@ def _workflow(tx, project_id):
         explicit_workflow_only=True,
         runtime_bindings=freeze_bindings(agent),
     )
+    definition = tx.get("agents", aid)
+    agent_version = 1
+    upgrade = False
+    if definition is not None:
+        agent_version = definition["current_version"]
+        old = tx.get("agent_versions", f"{aid}:{agent_version}")
+        stable = set(agent) - {"id", "current_version", "runtime_bindings", "tool_refs", "skill_refs"}
+        if (
+            definition["status"] != "published"
+            or not old
+            or any(old.get(k) != agent[k] or definition.get(k) != agent[k] for k in stable)
+        ):
+            s.fail("semantic_profile_changed", "公开取证专员的业务约束已变化，拒绝替换为其他指令或权限", 409)
+        if (
+            {ref["tool_id"] for ref in old.get("tool_refs", [])} != set(BASE_TOOL_IDS)
+            or definition.get("tool_refs") != old.get("tool_refs")
+            or definition.get("skill_refs") != old.get("skill_refs")
+        ):
+            s.fail("semantic_profile_changed", "公开取证专员的工具许可已被修改，拒绝自动扩大或替换权限", 409)
+        upgrade = any(old.get(k) != agent[k] for k in ("runtime_bindings", "tool_refs", "skill_refs"))
+        if upgrade:
+            agent_version = max(v["version"] for v in tx.list("agent_versions", definition_id=aid)) + 1
+    agent["current_version"] = agent_version
     version = {
         **agent,
-        "id": aid + ":1",
+        "id": f"{aid}:{agent_version}",
         "definition_id": aid,
         "agent_id": aid,
-        "version": 1,
+        "version": agent_version,
         "checksum": s.digest(agent),
     }
-    definition = tx.get("agents", aid)
     if definition is None:
         tx.put("agents", agent)
         tx.put("agent_versions", version)
-    else:
-        old = tx.get("agent_versions", aid + ":1")
-        if definition["status"] != "published" or not old or any(old.get(k) != v for k, v in version.items()):
-            s.fail("semantic_profile_changed", "公开取证专员的冻结版本不可用；拒绝替换为其他模型或工具", 409)
+    elif upgrade:
+        tx.put("agents", {**definition, **agent})
+        tx.put("agent_versions", version)
     flow = {
         "id": wid,
         "project_id": project_id,
@@ -139,25 +165,38 @@ def _workflow(tx, project_id):
                 "id": "evidence",
                 "label": "公开证据分析",
                 "agent_id": aid,
-                "agent_version": 1,
+                "agent_version": agent_version,
                 "depends_on": [],
                 "config": {},
             }
         ],
     }
-    frozen = {**flow, "id": wid + ":1", "definition_id": wid, "version": 1}
     current = tx.get("workflows", wid)
+    flow_version = 1
+    if current is not None:
+        flow_version = current["current_version"]
+        previous = tx.get("workflow_versions", f"{wid}:{flow_version}")
+        old_nodes = (previous or {}).get("nodes") or []
+        old_agent_version = old_nodes[0].get("agent_version") if len(old_nodes) == 1 else None
+        prior_nodes = [{**node, "agent_version": old_agent_version} for node in flow["nodes"]]
+        stable = set(flow) - {"id", "current_version", "nodes"}
+        if (
+            not previous
+            or any(previous.get(k) != flow[k] or current.get(k) != flow[k] for k in stable)
+            or current.get("nodes") != previous.get("nodes")
+            or previous.get("nodes") != prior_nodes
+        ):
+            s.fail("semantic_profile_changed", "公开取证流程已变更，拒绝调用未经核对的流程", 409)
+        if previous["nodes"] != flow["nodes"]:
+            flow_version = max(v["version"] for v in tx.list("workflow_versions", definition_id=wid)) + 1
+    flow["current_version"] = flow_version
+    frozen = {**flow, "id": f"{wid}:{flow_version}", "definition_id": wid, "version": flow_version}
     if current is None:
         tx.put("workflows", flow)
         tx.put("workflow_versions", frozen)
-    else:
-        previous = tx.get("workflow_versions", wid + ":1")
-        if (
-            any(current.get(k) != v for k, v in flow.items())
-            or not previous
-            or any(previous.get(k) != v for k, v in frozen.items())
-        ):
-            s.fail("semantic_profile_changed", "公开取证流程已变更，拒绝调用未经核对的流程", 409)
+    elif flow_version != current["current_version"]:
+        tx.put("workflows", {**current, **flow})
+        tx.put("workflow_versions", frozen)
     return wid
 
 

@@ -1,6 +1,7 @@
 """Public-only semantic handoff boundaries. No calls to any model provider."""
 
 import json
+from copy import deepcopy
 
 import pytest
 from pydantic import ValidationError
@@ -77,6 +78,42 @@ def _parent(repo, body, inputs):
         },
     )
     return parent
+
+
+def test_builtin_dependency_upgrade_preserves_old_versions_and_rejects_changed_instructions(
+    fixture, monkeypatch
+):
+    from backend.app.platform import public_evidence
+
+    repo, body, _, _ = fixture
+    pid = body["project_id"]
+    with repo.transaction() as tx:
+        wid = public_evidence._workflow(tx, pid)
+    aid = pid + "-public-evidence-agent"
+    old_agent = deepcopy(repo.get("agent_versions", aid + ":1"))
+    old_flow = deepcopy(repo.get("workflow_versions", wid + ":1"))
+    freeze = public_evidence.freeze_bindings
+
+    def changed_dependency(agent):
+        frozen = deepcopy(freeze(agent))
+        frozen["tools"][0]["checksum"] = "explicit-synthetic-upgraded-runtime"
+        return frozen
+
+    monkeypatch.setattr(public_evidence, "freeze_bindings", changed_dependency)
+    with repo.transaction() as tx:
+        assert public_evidence._workflow(tx, pid) == wid
+    assert repo.get("agents", aid)["current_version"] == 2
+    assert repo.get("workflows", wid)["current_version"] == 2
+    assert repo.get("agent_versions", aid + ":1") == old_agent
+    assert repo.get("workflow_versions", wid + ":1") == old_flow
+    with repo.transaction() as tx:
+        public_evidence._workflow(tx, pid)
+    assert repo.get("agents", aid)["current_version"] == 2
+    definition = repo.get("agents", aid)
+    repo.put("agents", {**definition, "instructions": "unapproved replacement instruction"})
+    with repo.transaction() as tx, pytest.raises(s.DomainError) as error:
+        public_evidence._workflow(tx, pid)
+    assert error.value.code == "semantic_profile_changed"
 
 
 def test_public_handoff_pins_exact_sources_and_is_idempotent(fixture):

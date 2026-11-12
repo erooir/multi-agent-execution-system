@@ -23,6 +23,8 @@ class DomainOperation:
     execute: Callable
     dependencies: tuple[str, ...] = field(default=(), kw_only=True)
     packages: tuple[str, ...] = field(default=(), kw_only=True)
+    read_only: bool = field(default=True, kw_only=True)
+    local_preview: bool = field(default=True, kw_only=True)
 
     def spec(self, checksums=None, installed=None):
         from .tool_registry import digest
@@ -55,8 +57,8 @@ class DomainOperation:
             "version": 1,
             "input_schema": schema,
             "output_schema": ToolResult.model_json_schema(),
-            "read_only": True,
-            "local_preview": True,
+            "read_only": self.read_only,
+            "local_preview": self.local_preview,
             "checksum": digest({"id": self.id, "schema": schema, "files": sources, "packages": packages}),
         }
 
@@ -64,8 +66,10 @@ class DomainOperation:
 def operation_catalog():
     from .analysis_tools import TOOLS as analysis
     from .evidence_tools import TOOLS as evidence
+    from .general_tools import TOOLS as general
+    from .script_tool import TOOLS as scripts
 
-    operations = (*evidence, *analysis)
+    operations = (*evidence, *analysis, *general, *scripts)
     if len({op.id for op in operations}) != len(operations) or len({op.name for op in operations}) != len(
         operations
     ):

@@ -43,6 +43,7 @@ class DomainToolSession(ToolSession):
     def _binding(self, operation):
         async def bound(**arguments):
             reader = FrozenSourceReader(self.execution.inputs, self.execution.check, public_only=True)
+            reader.execution = self.execution
             invocation = _Invocation(reader)
             token = _active.set(invocation)
             try:
@@ -58,15 +59,17 @@ class DomainToolSession(ToolSession):
                 result["evidence"] = [
                     {"source_id": ref, "classification": "public"} for ref in sorted(reader.source_refs)
                 ]
+                primary_source = arguments.get("source_id") or next(iter(sorted(reader.source_refs)), None)
                 if (
                     record
                     and record["status"] == "completed"
-                    and arguments["source_id"] in reader.source_refs
+                    and primary_source in reader.source_refs
+                    and result["data"].get("status") not in {"failed", "cancelled", "timeout"}
                 ):
                     citation = {
                         "kind": "derived_result",
                         "tool_call_id": record["id"],
-                        "source_id": arguments["source_id"],
+                        "source_id": primary_source,
                         "result_checksum": record["result_checksum"],
                     }
                     self.derived.append(citation)

@@ -31,12 +31,17 @@ def replace(path, data):
 
 def test_in_place_weight_update_with_identical_mtime_and_length_has_new_hash(tmp_path):
     file = tmp_path / "weights"
-    file.write_bytes(b"v1")
+    file.write_bytes(b"v0")
     stat = file.stat()
     old = providers._fingerprint(file)
-    file.write_bytes(b"v2")
-    os.utime(file, ns=(stat.st_atime_ns, stat.st_mtime_ns))
-    assert providers._fingerprint(file) != old
+    # Consecutive close/reopen writes can also share Windows ChangeTime. No sleep
+    # or forced metadata changes: the provider signature must track actual bytes.
+    for index in range(1, 10):
+        file.write_bytes(f"v{index}".encode())
+        os.utime(file, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        current = providers._fingerprint(file)
+        assert current != old
+        old = current
 
 
 def test_replaced_asr_weights_cannot_use_a_stale_session_or_old_freeze(tmp_path, monkeypatch):

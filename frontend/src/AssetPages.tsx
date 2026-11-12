@@ -28,6 +28,12 @@ import Graph from "./Graph";
 import { AgentDetails, AgentVersions } from "./AssetDetails";
 import { ParameterSummary } from "./ToolParameters";
 import { stageNames } from "./agentPreviewModel";
+import {
+  agentScopeLabel,
+  candidateStatusLabels,
+  isTaskScoped,
+  isRestrictedAgent,
+} from "./agentScopeModel";
 import "./agent-registry.css";
 type Props = {
   projectId: string;
@@ -66,6 +72,7 @@ export function AgentsPage({
     [status, setStatus] = useState("all"),
     [stage, setStage] = useState("all"),
     [strategy, setStrategy] = useState("all"),
+    [scope, setScope] = useState("all"),
     [edit, setEdit] = useState<Item | null | undefined>(),
     [selected, setSelected] = useState<Item | null>(null),
     [versions, setVersions] = useState<Item[]>([]),
@@ -76,7 +83,9 @@ export function AgentsPage({
   const scoped = agents.filter(
     (a) => a.project_id === projectId && a.status !== "destroyed",
   );
-  const published = scoped.filter((a) => a.status === "published");
+  const published = scoped.filter(
+    (a) => a.status === "published" && !isRestrictedAgent(a),
+  );
   const fresh = scoped.find((a) => a.id === selected?.id);
   useEffect(() => {
     if (initialId) {
@@ -107,7 +116,9 @@ export function AgentsPage({
   }, [fresh?.id, fresh?.current_version, fresh?.updated_at]);
   const hasFilters =
     !!search ||
-    [purpose, structure, status, stage, strategy].some((v) => v !== "all");
+    [purpose, structure, status, stage, strategy, scope].some(
+      (v) => v !== "all",
+    );
   function clearFilters() {
     setSearch("");
     setPurpose("all");
@@ -115,12 +126,15 @@ export function AgentsPage({
     setStatus("all");
     setStage("all");
     setStrategy("all");
+    setScope("all");
   }
   const list = scoped.filter(
     (a) =>
       (purpose === "all" || a.purpose === purpose) &&
       (structure === "all" || a.structure === structure) &&
       (status === "all" || a.status === status) &&
+      (scope === "all" ||
+        (scope === "reusable" ? !isRestrictedAgent(a) : a.scope === scope)) &&
       (stage === "all" || (a.case_role || "other") === stage) &&
       (strategy === "all" ||
         (strategy === "dual"
@@ -142,7 +156,7 @@ export function AgentsPage({
       <SectionTitle
         eyebrow="AGENT REGISTRY"
         title="智能体资产"
-        description="按用例岗位和执行方式查找智能体，查看冻结的工具授权、发布版本与运行实例。"
+        description="查看可复用智能体与任务专属智能体的冻结授权、版本、实例和独立评测状态。任务专属智能体通过评测入库后才可跨任务复用。"
         actions={
           canEdit && (
             <button className="primary" onClick={() => setEdit(null)}>
@@ -158,8 +172,12 @@ export function AgentsPage({
           <strong>{scoped.length}</strong>
         </div>
         <div>
-          <span>已发布</span>
+          <span>可复用 · 已发布</span>
           <strong>{published.length}</strong>
+        </div>
+        <div>
+          <span>仅当前任务</span>
+          <strong>{scoped.filter(isTaskScoped).length}</strong>
         </div>
         <div>
           <span>已发布 · 固定流程执行</span>
@@ -206,6 +224,17 @@ export function AgentsPage({
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+        <select
+          aria-label="智能体使用范围"
+          value={scope}
+          onChange={(e) => setScope(e.target.value)}
+        >
+          <option value="all">全部使用范围</option>
+          <option value="reusable">可复用资产</option>
+          <option value="task">仅当前任务</option>
+          <option value="evaluation">仅独立评测</option>
+          <option value="candidate">候选未入库</option>
+        </select>
         <select
           aria-label="发布状态"
           value={status}
@@ -290,6 +319,15 @@ export function AgentsPage({
               <h3>{a.name}</h3>
               <p>{a.description || "尚未填写职责说明"}</p>
               <div className="tags">
+                <span className={isTaskScoped(a) ? "agent-task-tag" : ""}>
+                  {agentScopeLabel(a)}
+                </span>
+                {a.candidate_status && (
+                  <span>
+                    {candidateStatusLabels[a.candidate_status] ||
+                      a.candidate_status}
+                  </span>
+                )}
                 <span
                   className={
                     a.execution_strategy === "tool_agent"
@@ -379,7 +417,7 @@ export function AgentsPage({
             {tab === "definition" && (
               <AgentDetails
                 agent={fresh}
-                canEdit={canEdit}
+                canEdit={canEdit && !isRestrictedAgent(fresh)}
                 offline={offline}
                 initialToolId={
                   fresh.id === initialId ? initialToolId : undefined
@@ -444,53 +482,55 @@ export function AgentsPage({
                 />
               ))}
           </div>
-          {canEdit && fresh.status !== "destroyed" && (
-            <div className="modal-foot wrap">
-              <button
-                onClick={() => setEdit(fresh)}
-                disabled={fresh.status === "retired"}
-              >
-                <Pencil size={16} />
-                编辑定义
-              </button>
-              {(fresh.status === "draft" || fresh.status === "published") && (
+          {canEdit &&
+            fresh.status !== "destroyed" &&
+            !isRestrictedAgent(fresh) && (
+              <div className="modal-foot wrap">
                 <button
-                  className="primary"
-                  onClick={() => setAction({ item: fresh, type: "publish" })}
+                  onClick={() => setEdit(fresh)}
+                  disabled={fresh.status === "retired"}
                 >
-                  发布新版本
+                  <Pencil size={16} />
+                  编辑定义
                 </button>
-              )}
-              {fresh.status === "published" && (
+                {(fresh.status === "draft" || fresh.status === "published") && (
+                  <button
+                    className="primary"
+                    onClick={() => setAction({ item: fresh, type: "publish" })}
+                  >
+                    发布新版本
+                  </button>
+                )}
+                {fresh.status === "published" && (
+                  <button
+                    onClick={() => setAction({ item: fresh, type: "disable" })}
+                  >
+                    停用
+                  </button>
+                )}
+                {fresh.status === "disabled" && (
+                  <button
+                    onClick={() => setAction({ item: fresh, type: "enable" })}
+                  >
+                    重新启用
+                  </button>
+                )}
+                {fresh.status !== "retired" && (
+                  <button
+                    onClick={() => setAction({ item: fresh, type: "retire" })}
+                  >
+                    <Archive size={16} />
+                    退役
+                  </button>
+                )}
                 <button
-                  onClick={() => setAction({ item: fresh, type: "disable" })}
+                  className="danger"
+                  onClick={() => setAction({ item: fresh, type: "destroy" })}
                 >
-                  停用
+                  销毁
                 </button>
-              )}
-              {fresh.status === "disabled" && (
-                <button
-                  onClick={() => setAction({ item: fresh, type: "enable" })}
-                >
-                  重新启用
-                </button>
-              )}
-              {fresh.status !== "retired" && (
-                <button
-                  onClick={() => setAction({ item: fresh, type: "retire" })}
-                >
-                  <Archive size={16} />
-                  退役
-                </button>
-              )}
-              <button
-                className="danger"
-                onClick={() => setAction({ item: fresh, type: "destroy" })}
-              >
-                销毁
-              </button>
-            </div>
-          )}
+              </div>
+            )}
         </Modal>
       )}
       {action && (

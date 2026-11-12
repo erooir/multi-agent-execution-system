@@ -139,7 +139,8 @@
           "image_understand",
           "audio_transcribe",
           "video_analyze",
-          "case_analysis"
+          "case_analysis",
+          "autonomous_analysis"
         ],
         "type": "string"
       },
@@ -211,7 +212,7 @@
       "items": {
         "$ref": "#/$defs/ToolReference"
       },
-      "maxItems": 10,
+      "maxItems": 48,
       "title": "Tool Refs",
       "type": "array"
     },
@@ -219,7 +220,7 @@
       "items": {
         "$ref": "#/$defs/SkillReference"
       },
-      "maxItems": 5,
+      "maxItems": 12,
       "title": "Skill Refs",
       "type": "array"
     },

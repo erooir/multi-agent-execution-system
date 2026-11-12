@@ -16,6 +16,7 @@ from ...platform.db import now
 from ...platform.tool_registry import digest, validate_frozen
 from ...platform.tool_trace import NodeDomainToolSession
 from .. import engine
+from ..narrative_checks import monthly_facts, reconcile_assessment
 
 
 class ArtifactReference(Contract):
@@ -558,6 +559,22 @@ async def run_domain_executor(executor: DomainExecutor, context: ExecutorContext
                 "model_output_invalid", f"模型决策或节点合同校验未通过：{detail[:120]}"
             ) from None
         save_decision(context, decision.model_dump(), executor.decision_model, response)
+        if context.code == "B05":
+            facts = monthly_facts(output["content"])
+            if facts:
+                assessment_review = reconcile_assessment(decision.assessment, facts)
+                output["assessment_review"] = assessment_review
+                if assessment_review["status"] == "corrected":
+                    execution.update(
+                        "model.assessment_corrected",
+                        {
+                            "purpose": purpose,
+                            "action": assessment_review["action"],
+                            "checks": assessment_review["checks"],
+                            "node_id": execution.active_node_id,
+                            "reused_artifact": decision.artifact.model_dump(),
+                        },
+                    )
         execution.update(
             "model.completed", {"purpose": purpose, "request_id": response.get("request_id")}, in_flight=None
         )

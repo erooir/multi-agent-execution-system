@@ -1,16 +1,11 @@
 import { test, expect } from "@playwright/test";
+import { adminSession } from "./admin-session";
 
 test("用例岗位对照显示共享算法和不同权限，当前专员可执行已授权的本地证据工具", async ({
   page,
 }) => {
   test.setTimeout(90_000);
-  const login = await page.request.post("/api/auth/login", {
-    data: {
-      username: process.env.HANGZHI_SMOKE_USERNAME || "admin",
-      password:
-        process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password",
-    },
-  });
+  const login = await adminSession(page.context());
   expect(login.ok()).toBeTruthy();
   const post = async (path: string, data: Record<string, unknown>) => {
     const res = await page.request.post("/api/v2/" + path, { data });

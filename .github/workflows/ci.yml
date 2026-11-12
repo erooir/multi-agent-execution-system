@@ -1,14 +1,14 @@
 name: Platform checks
 on:
   push:
-    branches: [main]
+    branches: [main, codex/autonomous-task-platform]
   pull_request:
 permissions:
   contents: read
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:17.11
@@ -58,12 +58,14 @@ jobs:
         env:
           WORKBENCH_DATA_DIR: /tmp/workbench-browser-ci
           HANGZHI_DATABASE_URL: sqlite:////tmp/workbench-browser-ci/platform-v2.sqlite3
+          HANGZHI_BUDGET_LEDGER_PATH: /tmp/workbench-browser-ci/synthetic-budget.sqlite3
           HANGZHI_ADMIN_PASSWORD: synthetic-browser-password
           HANGZHI_SMOKE_PASSWORD: synthetic-browser-password
           HANGZHI_BROWSER_URL: http://127.0.0.1:8100
           HANGZHI_OFFLINE: "true"
         run: |
           mkdir -p .local
+          uv run --no-sync python -c 'import os; from backend.app.model_gateway import BudgetLedger; BudgetLedger(os.environ["HANGZHI_BUDGET_LEDGER_PATH"])'
           npm --prefix frontend exec -- playwright install --with-deps chromium
           uv run --no-sync uvicorn backend.app.main:app --host 127.0.0.1 --port 8100 > /tmp/browser-api.log 2>&1 &
           api_pid=$!

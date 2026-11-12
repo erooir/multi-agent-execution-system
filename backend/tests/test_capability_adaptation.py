@@ -15,6 +15,7 @@ from backend.app.platform.contracts import (
     ToolParameters,
 )
 from backend.app.platform.db import Repository
+from backend.app.platform.db_schema import AUTONOMY_TABLES, SCHEMA_VERSION
 from backend.tests.conftest import skill_zip
 from backend.tests.test_v2_api_review import application
 
@@ -33,10 +34,11 @@ def test_schema_v1_upgrade_preserves_rows_and_freezes_capability_versions(tmp_pa
     repository = Repository(f"sqlite:///{path.as_posix()}")
     try:
         with sqlite3.connect(path) as connection:
-            assert connection.execute("SELECT version FROM schema_version").fetchone()[0] == 2
+            assert connection.execute("SELECT version FROM schema_version").fetchone()[0] == SCHEMA_VERSION
             assert connection.execute("SELECT id FROM projects").fetchone()[0] == "preserved"
             names = {row[0] for row in connection.execute("SELECT name FROM sqlite_master")}
         assert {"questions", "capability_definitions", "capability_versions"} <= names
+        assert set(AUTONOMY_TABLES) <= names
         version = repository.put(
             "capability_versions",
             {

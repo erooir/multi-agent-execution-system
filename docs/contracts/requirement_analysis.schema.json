@@ -1,0 +1,111 @@
+{
+  "$defs": {
+    "AnalyzedDataRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "description": {
+          "maxLength": 1500,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "formats": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 14,
+          "minItems": 1,
+          "title": "Formats",
+          "type": "array"
+        },
+        "fields": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Fields",
+          "type": "array"
+        },
+        "time_scope": {
+          "default": "由任务目标或资料明确",
+          "maxLength": 300,
+          "title": "Time Scope",
+          "type": "string"
+        },
+        "spatial_scope": {
+          "default": "不适用",
+          "maxLength": 300,
+          "title": "Spatial Scope",
+          "type": "string"
+        },
+        "unit_scope": {
+          "default": "依照来源原始口径，不混用单位",
+          "maxLength": 300,
+          "title": "Unit Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "description",
+        "formats"
+      ],
+      "title": "AnalyzedDataRequirement",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "summary": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    },
+    "needs_data": {
+      "title": "Needs Data",
+      "type": "boolean"
+    },
+    "requirements": {
+      "items": {
+        "$ref": "#/$defs/AnalyzedDataRequirement"
+      },
+      "maxItems": 8,
+      "title": "Requirements",
+      "type": "array"
+    },
+    "assumptions": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 10,
+      "title": "Assumptions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "summary",
+    "needs_data"
+  ],
+  "title": "RequirementAnalysis",
+  "type": "object"
+}

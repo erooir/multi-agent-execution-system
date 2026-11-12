@@ -10,6 +10,7 @@ export const modeName = (mode: string) =>
   mode ||
   "—";
 export const taskTypes: Record<string, string> = {
+  autonomous_analysis: "自主任务分析",
   case_analysis: "用例任务",
   structured_transform: "结构化数据整理",
   source_summary: "来源文本整理",

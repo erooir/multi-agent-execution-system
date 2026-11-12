@@ -6,10 +6,14 @@ from backend.app.platform.contracts import AgentInput
 from backend.app.platform.db import repo
 from backend.app.platform.tool_registry import BASE_TOOL_IDS, catalog, freeze_bindings
 
+STOCK_SKILL_IDS = frozenset({"evidence-analysis", "table-analysis"})
+
 
 def enable(repository, user):
-    available = catalog()
-    stock_skills = {item["id"] for item in available["skills"]}
+    available = catalog(include_readiness=False)
+    # Expanding the product catalog must never expand the legacy template's authorization.
+    stock_skills = STOCK_SKILL_IDS
+    skills = [item for item in available["skills"] if item["id"] in stock_skills]
     changed = []
     for definition in repository.list("agents"):
         if (
@@ -60,7 +64,7 @@ def enable(repository, user):
                 for item in available["tools"]
                 if item["id"] in BASE_TOOL_IDS
             ],
-            skill_refs=[{"skill_id": item["id"], "version": item["version"]} for item in available["skills"]],
+            skill_refs=[{"skill_id": item["id"], "version": item["version"]} for item in skills],
         )
         if (
             definition.get("runtime_bindings") == freeze_bindings(body)

@@ -63,6 +63,8 @@ def create_memory(body, user):
             asset = required("data_assets", source_id, user, repository=tx)
             if asset["project_id"] != body["project_id"]:
                 fail("permission_denied", "不能跨项目引用来源", 403)
+            if asset.get("task_case_id"):
+                fail("task_scoped_source", "任务专用资料不能直接写入项目共享记忆", 403)
             usable_asset(asset)
             if asset.get("modality") not in {"text", "structured"} or asset.get("content") is None:
                 fail("unverified_memory", "不能从未经解析的媒体或空载荷创建事实记忆")
@@ -101,6 +103,8 @@ async def search(body, user):
     result = []
     query = body["query"].casefold()
     for asset in repo.list("data_assets", body["project_id"]):
+        if asset.get("task_case_id"):
+            continue
         try:
             usable_asset(asset)
         except DomainError:

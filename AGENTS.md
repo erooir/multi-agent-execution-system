@@ -10,5 +10,7 @@ Build the production Hangzhi agent management platform on self-hosted Agno Agent
 - Bind to 127.0.0.1 by default. Never expose unbudgeted AgentOS model routes. Disable telemetry and runtime downloads for offline operation.
 - Verify with small synthetic/public-safe data; never send private background materials to models.
 - Every meaningful change requires appropriate verification. Keep docs/IMPLEMENTATION_PLAN.md updated.
-- Work directly on main using normal commits and pushes after archiving old refs. No force pushes or rewritten history.
+- This development starts at main f36f490643da4c7e7fc0ba90daf602c44caa2828 on codex/autonomous-task-platform. Commit and push this branch only. Do not merge, cherry-pick or import the concurrency branch; do not merge any branch without the user's explicit instruction. No force pushes or rewritten history.
+- Implement sequential task execution; concurrency is outside this iteration. Ordinary users supply goals and data, while the platform plans, selects or creates task-scoped agents, executes, reviews and revises automatically.
+- Generated data-processing scripts may run only through the controlled isolated script tool. Document Skills do not grant arbitrary host execution. New task agents require independent evaluation before reuse.
 

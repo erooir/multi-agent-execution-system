@@ -68,26 +68,16 @@ def _fingerprint(path):
     file = Path(path)
     if not file.is_file():
         return None
-    stat = file.stat()
-    changed = stat.st_ctime_ns
     if os.name == "nt":
-        # Windows stat.ctime is the creation time. An in-place update can retain creation time,
-        # inode, size and packaged mtime. Ask the filesystem for its actual change time.
-        import ctypes
-        import msvcrt
-
+        # Neither stat.ctime (creation time) nor FILE_BASIC_INFO.ChangeTime is a
+        # content revision: rapid writes can retain every metadata cache key.
+        # A USN is not sufficient either while another writer keeps a handle open.
+        # Hash the current bytes on Windows, including large model weights. Do not
+        # trade frozen-provider correctness for a metadata-only cache hit.
         with file.open("rb") as handle:
-            info = (ctypes.c_int64 * 5)()  # FILE_BASIC_INFO: 4 FILETIMEs, attributes, padding
-            valid = ctypes.windll.kernel32.GetFileInformationByHandleEx(
-                ctypes.c_void_p(msvcrt.get_osfhandle(handle.fileno())),
-                0,
-                ctypes.byref(info),
-                ctypes.sizeof(info),
-            )
-            if not valid or not info[3]:
-                return hashlib.file_digest(handle, "sha256").hexdigest()
-            changed = info[3]
-    return _hash_file(str(file.resolve()), stat.st_size, stat.st_mtime_ns, changed, stat.st_ino)
+            return hashlib.file_digest(handle, "sha256").hexdigest()
+    stat = file.stat()
+    return _hash_file(str(file.resolve()), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_ino)
 
 
 def _verify(key, sha):
