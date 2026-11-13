@@ -17,6 +17,7 @@ from .tool_registry import freeze_bindings, permissions, validate_frozen
 
 ASSET_DIR = ROOT / ".local" / "platform-assets"
 TOOLS = {
+    "autonomous_analysis",
     "structured_transform",
     "source_summary",
     "text_analysis",
@@ -26,6 +27,15 @@ TOOLS = {
     "case_analysis",
 }
 CAPABILITIES = [
+    {
+        "id": "autonomous_analysis",
+        "name": "自主任务分析",
+        "modalities": ["text", "structured", "image", "audio", "video"],
+        "available": True,
+        "modes": ["cloud"],
+        "tool_id": "autonomous_analysis",
+        "description": "依据用户目标规划顺序步骤，调用授权工具，独立审核并针对问题修订；允许无参考数据的推理任务",
+    },
     {
         "id": "structured_transform",
         "name": "结构化数据整理",
@@ -452,7 +462,11 @@ def create_project(body, user, repository=None):
 
 def seed_templates(tx, project_id):
     """Executable, published tool definitions; no demo tasks or fabricated metrics."""
-    for capability in (item for item in CAPABILITIES if item["available"] and item["id"] != "case_analysis"):
+    for capability in (
+        item
+        for item in CAPABILITIES
+        if item["available"] and item["id"] not in {"case_analysis", "autonomous_analysis"}
+    ):
         agent_id = f"{project_id[:12]}-{capability['id']}"
         workflow_id = f"{project_id[:12]}-flow-{capability['id']}"
         if tx.get("agents", agent_id) or tx.get("workflows", workflow_id):
@@ -471,6 +485,7 @@ def seed_templates(tx, project_id):
 
             available = catalog(project_id, tx)
             base_tool_ids = {item[0] for item in DEFINITIONS}
+            base_tool_names = {item[1] for item in DEFINITIONS}
             agent.update(
                 execution_strategy="tool_agent",
                 tool_refs=[
@@ -479,7 +494,9 @@ def seed_templates(tx, project_id):
                     if item["id"] in base_tool_ids
                 ],
                 skill_refs=[
-                    {"skill_id": item["id"], "version": item["version"]} for item in available["skills"]
+                    {"skill_id": item["id"], "version": item["version"]}
+                    for item in available["skills"]
+                    if not set(item["required_tools"]) - (base_tool_ids | base_tool_names)
                 ],
             )
             agent["runtime_bindings"] = freeze_bindings(agent, tx)
@@ -901,9 +918,11 @@ def compatible_agent(tx, definition, body, inputs, version=None, boundary=None, 
     )
 
 
-def create_task(body, user, repository=None, *, preflight=False):
+def create_task(body, user, repository=None, *, preflight=False, task_case_id=None):
     repository = repository or repo
     body = TaskInput.model_validate(body).model_dump()
+    if body["task_type"] == "autonomous_analysis" and not task_case_id:
+        fail("task_case_required", "自主任务请使用创建任务入口", 422)
     capability = next(item for item in CAPABILITIES if item["id"] == body["task_type"])
     with repository.transaction() as tx:
         project_access(body["project_id"], user, True, tx)
@@ -923,6 +942,8 @@ def create_task(body, user, repository=None, *, preflight=False):
             asset = required("data_assets", asset_id, user, repository=tx)
             if asset["project_id"] != body["project_id"]:
                 fail("permission_denied", "任务不能引用其他项目数据", 403)
+            if asset.get("task_case_id") and asset["task_case_id"] != task_case_id:
+                fail("permission_denied", "资料仅授权给所属任务，不能跨任务引用", 403)
             usable_asset(asset)
             if body["mode"] == "cloud" and asset["classification"] != "public":
                 fail("data_egress_blocked", "云任务仅能处理已明确授权外发的公开资料", 403)
@@ -934,6 +955,7 @@ def create_task(body, user, repository=None, *, preflight=False):
             for asset in tx.list("data_assets", body["project_id"]):
                 if (
                     asset["id"] in existing_ids
+                    or (asset.get("task_case_id") and asset["task_case_id"] != task_case_id)
                     or asset.get("classification") != "public"
                     or asset.get("modality") not in capability["modalities"]
                 ):
@@ -945,9 +967,9 @@ def create_task(body, user, repository=None, *, preflight=False):
                 inputs.append(asset)
             if len(inputs) > 50:
                 fail("knowledge_scope_too_large", "项目公开知识超过50份，请缩小项目资料范围", 422)
-        if not inputs:
+        if not inputs and body["task_type"] != "autonomous_analysis":
             fail("insufficient_data", "请至少选择一份有效资料", 422)
-        if body["task_type"] != "case_analysis" and any(
+        if body["task_type"] not in {"case_analysis", "autonomous_analysis"} and any(
             a.get("media_type")
             in {
                 "application/pdf",
@@ -1010,11 +1032,15 @@ def create_task(body, user, repository=None, *, preflight=False):
             ):
                 fail("workflow_unavailable", "流程未发布、跨项目或与任务类型不匹配")
             workflow = tx.get("workflow_versions", f"{definition['id']}:{definition['current_version']}")
+            if definition.get("task_case_id") and definition["task_case_id"] != task_case_id:
+                fail("permission_denied", "任务级流程尚未通过跨任务复用评测", 403)
         if not workflow:
             candidates = [
                 a
                 for a in tx.list("agents", body["project_id"])
-                if not a.get("explicit_workflow_only") and compatible_agent(tx, a, body, inputs)
+                if not a.get("explicit_workflow_only")
+                and not a.get("task_case_id")
+                and compatible_agent(tx, a, body, inputs)
             ]
             candidates.sort(
                 key=lambda a: (a["purpose"] != "specialized", a["structure"] != "atomic", a["id"])
@@ -1040,6 +1066,9 @@ def create_task(body, user, repository=None, *, preflight=False):
             else:
                 fail("no_compatible_agent", "没有同时满足执行模式、资料类型和工具授权的已发布智能体", 422)
         for node in workflow["nodes"]:
+            definition = tx.get("agents", node["agent_id"])
+            if definition and definition.get("task_case_id") and definition["task_case_id"] != task_case_id:
+                fail("permission_denied", "任务级智能体不能用于其他任务", 403)
             if not compatible_agent(
                 tx, tx.get("agents", node["agent_id"]), body, inputs, node.get("agent_version")
             ):
@@ -1106,6 +1135,7 @@ def create_task(body, user, repository=None, *, preflight=False):
                 "attempt": 0,
                 "revision": 0,
                 "trace_id": task_id,
+                **({"task_case_id": task_case_id} if task_case_id else {}),
                 "created_by": user["id"],
                 "authorization": {key: user[key] for key in ("id", "role", "username") if key in user},
                 "deadline_at": (accepted_at + timedelta(seconds=body["deadline_seconds"])).isoformat(),

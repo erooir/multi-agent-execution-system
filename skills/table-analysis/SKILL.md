@@ -4,7 +4,8 @@ description: 对项目内 JSON、CSV 记录进行筛选、排序、去重和分�
 license: MIT
 allowed-tools: [list_sources, read_source, table_transform, table_aggregate]
 metadata:
-  version: "1.0.2"
+  version: "1.1.0"
+  title: "表格分析"
 ---
 
 # 表格分析
@@ -16,5 +17,7 @@ metadata:
 - 数值字段不完整或类型不正确时报告问题，不能把无效值当成0。
 - 最终 JSON 返回 text、citations、missing_information；计算引用使用 kind=derived_result、tool_call_id、result_checksum、source_id。
 - 最终结果注明筛选口径、分组字段和统计值。可调用多次工具验证不同口径。
+- 按独立检查项复算输出行数、总数、单位与时间覆盖；中文摘要中的数值和类别数量必须与表格一致。
+- 审核失败时依据失败字段改变过滤条件、读取范围或计算步骤；保留前后口径与工具调用证据，不重复宣称原结果通过。
 
 详细边界见 references/tables.md。技能不提供执行脚本或扩大授权的能力。

@@ -178,6 +178,10 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
 });
 
 test("浏览器查看已完成真实云任务的MCP参数、结果和证据", async ({ browser }) => {
+  test.skip(
+    process.env.HANGZHI_BROWSER_CLOUD_SMOKE !== "1",
+    "真实云任务检查需显式启用；离线CI不创建或读取云端验收运行",
+  );
   const context = await browser.newContext({
     storageState: "../.local/browser-auth.json",
     baseURL: process.env.HANGZHI_BROWSER_URL || "http://127.0.0.1:8000",

@@ -5,6 +5,7 @@ import { projectLabel } from "./projects";
 import type { User } from "./types";
 import { Confirm, Empty, ErrorLine } from "./ui";
 import QuestionDesk from "./QuestionDesk";
+import TaskCaseDesk from "./TaskCaseDesk";
 import "./portal.css";
 
 type Project = { id: string; name: string };
@@ -13,7 +14,13 @@ type LoginComponent = ComponentType<{
   onLogin: (user: User) => void;
 }>;
 
-export default function QuestionPortal({ Login }: { Login: LoginComponent }) {
+export default function QuestionPortal({
+  Login,
+  legacy = false,
+}: {
+  Login: LoginComponent;
+  legacy?: boolean;
+}) {
   const [user, setUser] = useState<User | null>(null);
   const [checking, setChecking] = useState(true);
   const [projects, setProjects] = useState<Project[] | null>(null);
@@ -39,9 +46,10 @@ export default function QuestionPortal({ Login }: { Login: LoginComponent }) {
   useEffect(() => {
     if (!user) return;
     const selectionKey = "hangzhi-question-project-" + user.id;
-    let previous = "";
+    let previous =
+      new URLSearchParams(window.location.search).get("project") || "";
     try {
-      previous = sessionStorage.getItem(selectionKey) || "";
+      previous ||= sessionStorage.getItem(selectionKey) || "";
     } catch {}
     const c = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
@@ -103,7 +111,7 @@ export default function QuestionPortal({ Login }: { Login: LoginComponent }) {
             <Network size={21} />
           </span>
           <strong>航智</strong>
-          <span>问答工作台</span>
+          <span>{legacy ? "历史问答" : "任务工作台"}</span>
         </div>
         {projects && projects.length > 0 && (
           <label className="question-project">
@@ -129,6 +137,9 @@ export default function QuestionPortal({ Login }: { Login: LoginComponent }) {
           </label>
         )}
         <div className="question-account">
+          <a className="desk-link" href={legacy ? "/" : "/questions"}>
+            {legacy ? "任务工作台" : "历史问答"}
+          </a>
           {user.role !== "requester" && (
             <a className="desk-link" href="/manage">
               <Settings2 size={16} />
@@ -153,15 +164,23 @@ export default function QuestionPortal({ Login }: { Login: LoginComponent }) {
           </ErrorLine>
         )}
         {projectId && projects?.some((p) => p.id === projectId) ? (
-          <QuestionDesk
-            key={user.id + "/" + projectId}
-            projectId={projectId}
-            canSubmit={user.role !== "reviewer"}
-          />
+          legacy ? (
+            <QuestionDesk
+              key={user.id + "/" + projectId}
+              projectId={projectId}
+              canSubmit={user.role !== "reviewer"}
+            />
+          ) : (
+            <TaskCaseDesk
+              key={user.id + "/" + projectId}
+              projectId={projectId}
+              canSubmit={user.role !== "reviewer"}
+            />
+          )
         ) : projects?.length === 0 ? (
           <Empty
             title="尚未分配项目"
-            description="请联系管理员分配已有资料的项目。项目就绪后即可直接提问。"
+            description="请联系管理员分配项目。项目就绪后即可创建任务并提供所需资料。"
           />
         ) : (
           !error && <p role="status">正在读取可用项目…</p>
@@ -170,7 +189,7 @@ export default function QuestionPortal({ Login }: { Login: LoginComponent }) {
       {logout && (
         <Confirm
           title="退出登录"
-          description="已提交的问题会保留，后台分析可继续执行。"
+          description="已提交的任务会保留，后台分析可继续执行。"
           onClose={() => setLogout(false)}
           onConfirm={async () => {
             await post("/auth/logout", {});

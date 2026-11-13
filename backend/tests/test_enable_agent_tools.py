@@ -49,7 +49,12 @@ def test_cli_migrates_only_stock_generic_scope_and_is_idempotent(db, monkeypatch
     available = catalog()
     refs = {t["id"]: {"tool_id": t["id"], "version": t["version"]} for t in available["tools"]}
     basic = [r for k, r in refs.items() if k in BASE_TOOL_IDS]
-    skills = [{"skill_id": s["id"], "version": s["version"]} for s in available["skills"]]
+    original_skill_ids = {"evidence-analysis", "table-analysis"}
+    skills = [
+        {"skill_id": s["id"], "version": s["version"]}
+        for s in available["skills"]
+        if s["id"] in original_skill_ids
+    ]
     assert len(basic) == 6 and len(refs) > len(basic)
     stock = published(db, "text_analysis", modalities=["text"])
     old_template = published(
@@ -83,6 +88,8 @@ def test_cli_migrates_only_stock_generic_scope_and_is_idempotent(db, monkeypatch
         assert current["current_version"] == 2 and current["execution_strategy"] == "tool_agent"
         assert {r["tool_id"] for r in current["tool_refs"]} == BASE_TOOL_IDS
         assert {t["id"] for t in current["runtime_bindings"]["tools"]} == BASE_TOOL_IDS
+        assert {r["skill_id"] for r in current["skill_refs"]} == original_skill_ids
+        assert {r["id"] for r in current["runtime_bindings"]["skills"]} == original_skill_ids
         assert db.get("agent_versions", aid + ":1") == old
     for custom in [narrow, domain, limited_skills, limited_modalities, local]:
         assert db.get("agents", custom["id"]) == custom

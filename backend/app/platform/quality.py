@@ -29,8 +29,12 @@ def deterministic_quality(request: dict, output: dict, inputs: list[dict], *, sc
     content = output.get("content")
     refs = output.get("source_refs", [])
     check("nonempty_output", content not in (None, "", [], {}), "产物为空", True)
+    data_free = request.get("task_type") == "autonomous_analysis" and not inputs
     check(
-        "source_refs", bool(refs) and all(ref in assets for ref in refs), "产物来源缺失或不属于冻结输入", True
+        "source_refs",
+        (not refs if data_free else bool(refs) and all(ref in assets for ref in refs)),
+        "产物来源缺失、不属于冻结输入，或无资料任务伪造了引用",
+        True,
     )
     policy = request.get("quality", {}) or {}
     if output.get("contract_errors"):
@@ -83,7 +87,7 @@ def deterministic_quality(request: dict, output: dict, inputs: list[dict], *, sc
                 all(all(field in row and row[field] is not None for field in fields) for row in rows),
                 "记录缺少要求的字段",
             )
-    elif task_type in {"source_summary", "text_analysis"}:
+    elif task_type in {"source_summary", "text_analysis", "autonomous_analysis"}:
         if output.get("method") == "extractive":
             fragments = content.get("fragments", []) if isinstance(content, dict) else []
             check("extractive_fragments", bool(fragments), "未找到可提取的来源片段", True)
@@ -130,8 +134,8 @@ def deterministic_quality(request: dict, output: dict, inputs: list[dict], *, sc
                     )
                 return True
 
-            valid = (
-                isinstance(citations, list) and bool(citations) and all(valid_citation(c) for c in citations)
+            valid = isinstance(citations, list) and (
+                not citations if data_free else bool(citations) and all(valid_citation(c) for c in citations)
             )
             check("grounded_citations", valid, "模型引用必须逐字存在于真实输入来源", True)
         check(

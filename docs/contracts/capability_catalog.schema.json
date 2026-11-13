@@ -40,6 +40,11 @@
       },
       "title": "Definitions",
       "type": "array"
+    },
+    "readiness": {
+      "additionalProperties": true,
+      "title": "Readiness",
+      "type": "object"
     }
   },
   "required": [

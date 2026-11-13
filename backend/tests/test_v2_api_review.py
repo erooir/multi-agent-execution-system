@@ -12,6 +12,7 @@ from backend.app import auth
 from backend.app.main import RequestBodyLimitMiddleware, concurrent_write, domain_error
 from backend.app.platform import api, contracts, service
 from backend.app.platform.db import ConcurrentWrite, Repository, schema
+from backend.app.platform.db_schema import SCHEMA_VERSION
 from backend.tests import test_v2_platform as platform_fixtures
 from backend.tests.test_v2_platform import ADMIN, asset, project, run, task_body
 
@@ -126,7 +127,7 @@ def test_concurrent_database_cold_start(tmp_path):
         repositories = list(pool.map(lambda _: Repository(url), range(8)))
     for repository in repositories:
         with repository.engine.connect() as connection:
-            assert connection.execute(select(schema.c.version)).scalars().all() == [2]
+            assert connection.execute(select(schema.c.version)).scalars().all() == [SCHEMA_VERSION]
         repository.engine.dispose()
 
 

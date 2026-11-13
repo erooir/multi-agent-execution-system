@@ -16,7 +16,7 @@ from backend.app.identity_records import DMIdentityStore
 from backend.app.platform import service
 from backend.app.platform.dameng import database_url, identity_metadata, json_scalar
 from backend.app.platform.db import LeaseLost, Repository
-from backend.app.platform.db_schema import CAPABILITY_TABLES, SCHEMA_VERSION, schema, tables
+from backend.app.platform.db_schema import AUTONOMY_TABLES, CAPABILITY_TABLES, SCHEMA_VERSION, schema, tables
 from scripts.dm_database import prepare_schema
 
 
@@ -292,7 +292,8 @@ def test_sqlite_filters_hydrate_only_matching_task_and_agent(tmp_path, monkeypat
         db.engine.dispose()
 
 
-def test_real_dm_v1_to_v2_upgrade_is_additive_and_idempotent(real_dm):
+@pytest.mark.parametrize("previous_version", [1, 2])
+def test_real_dm_upgrade_is_additive_and_idempotent(real_dm, previous_version):
     repository = real_dm
     actor = {"id": "synthetic-dm-user", "role": "admin"}
     project = service.create_project(
@@ -300,9 +301,10 @@ def test_real_dm_v1_to_v2_upgrade_is_additive_and_idempotent(real_dm):
     )
     before = (len(repository.list("projects")), len(repository.list("tasks")))
     with repository.engine.begin() as connection:
-        for name in sorted(CAPABILITY_TABLES):
+        missing = AUTONOMY_TABLES | (CAPABILITY_TABLES if previous_version == 1 else set())
+        for name in sorted(missing):
             tables[name].drop(connection, checkfirst=True)
-        connection.execute(schema.update().values(version=1))
+        connection.execute(schema.update().values(version=previous_version))
     engine = create_engine(repository.engine.url, hide_parameters=True)
     try:
         prepare_schema(engine)

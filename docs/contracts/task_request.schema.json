@@ -58,7 +58,8 @@
         "image_understand",
         "audio_transcribe",
         "video_analyze",
-        "case_analysis"
+        "case_analysis",
+        "autonomous_analysis"
       ],
       "title": "Task Type",
       "type": "string"

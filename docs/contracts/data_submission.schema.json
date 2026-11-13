@@ -1,0 +1,44 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "input_refs": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Input Refs",
+      "type": "array"
+    },
+    "requirement_ids": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Requirement Ids",
+      "type": "array"
+    },
+    "idempotency_key": {
+      "maxLength": 140,
+      "minLength": 1,
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "public_egress_authorized": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Public Egress Authorized"
+    }
+  },
+  "required": [
+    "idempotency_key"
+  ],
+  "title": "DataSubmissionInput",
+  "type": "object"
+}

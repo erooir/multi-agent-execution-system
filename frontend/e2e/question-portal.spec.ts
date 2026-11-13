@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { adminSession } from "./admin-session";
 
 test("普通用户只提交一个问题，平台在已有资料上自动构建流程并交付答复", async ({
   page,
@@ -9,13 +10,7 @@ test("普通用户只提交一个问题，平台在已有资料上自动构建�
   const manager = await browser.newContext({ baseURL });
   const stamp = Date.now();
   try {
-    const login = await manager.request.post("/api/auth/login", {
-      data: {
-        username: process.env.HANGZHI_SMOKE_USERNAME || "admin",
-        password:
-          process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password",
-      },
-    });
+    const login = await adminSession(manager);
     expect(login.ok()).toBeTruthy();
     const register = await page.request.post("/api/auth/register", {
       data: {
@@ -84,7 +79,7 @@ test("普通用户只提交一个问题，平台在已有资料上自动构建�
         calls.push(new URL(req.url()).pathname);
     });
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/");
+    await page.goto("/questions");
     await expect(page.getByLabel("当前项目")).toHaveValue(project.id);
     await expect(page.getByRole("link", { name: "管理工作台" })).toHaveCount(0);
     const question =
@@ -141,7 +136,7 @@ test("普通用户只提交一个问题，平台在已有资料上自动构建�
       expect((await page.request.get("/api/v2/" + path)).status()).toBe(403);
     await page.goto("/manage");
     await expect(page).toHaveURL(new URL("/", baseURL).href);
-    await expect(page.getByLabel("你的问题")).toBeVisible();
+    await expect(page.getByLabel("任务目标")).toBeVisible();
   } finally {
     await manager.close();
   }

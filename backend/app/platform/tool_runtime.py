@@ -22,6 +22,33 @@ from .native_capabilities import create_native_toolkit, load_native_skills
 from .quality import text_of
 from .tool_registry import digest, validate_frozen
 
+SANDBOX_DIAGNOSTICS = {
+    "sandbox_syntax_invalid": "Python 语法无效；修正代码语法后以新版本执行。",
+    "sandbox_import_denied": "脚本包含不允许的网络、进程或动态依赖；使用已配置的 Python 标准库和授权文件。",
+    "sandbox_dynamic_code_denied": "不允许 eval、exec、compile 或动态导入入口；改成明确的数据处理逻辑。",
+    "sandbox_code_limit": "脚本超过长度限制或为空；精简为本任务所需的有界处理。",
+    "sandbox_input_limit": "输入份数、大小或时间参数超限；缩小明确的数据批次，不能静默漏算。",
+    "sandbox_duplicate_source": "来源 ID 重复；每个授权来源只列一次。",
+    "sandbox_timeout": "脚本达到执行时限并被停止；根据数据规模优化算法或明确分批，不重复同一代码。",
+    "sandbox_output_limit": "输出超过限额；减少调试输出或生成必要的汇总，完整性要求不能降低。",
+    "sandbox_output_type_denied": "输出包含不允许的类型、符号链接或硬链接；写入普通 JSON/CSV/TXT/Markdown/PNG 文件。",
+    "sandbox_output_path_denied": "输出路径不合规；仅在 /outputs 内使用普通相对文件名。",
+    "sandbox_output_invalid": "输出文件结构不合规；按允许文件类型和数量重新生成。",
+    "sandbox_image_invalid": "PNG 输出无法通过解码或像素限制；重新生成合规图片。",
+    "sandbox_unavailable": "隔离执行器未配置；报告能力缺口或使用其他已授权工具，禁止在宿主执行。",
+    "sandbox_engine_unavailable": "隔离引擎检查失败；不能把脚本标为已执行或改用宿主执行。",
+    "sandbox_rootless_cgroup_required": "隔离引擎未满足 rootless/systemd/cgroup v2 要求，已拒绝执行。",
+    "sandbox_resource_limits_unavailable": "实际内核配额未通过校验，已拒绝执行。",
+    "sandbox_image_unavailable": "固定镜像不可用，已拒绝自动下载和执行。",
+    "sandbox_container_failed": "隔离容器未完成运行；结果不可采信。",
+    "sandbox_harness_failed": "隔离入口检查或输出收集失败；结果不可采信。",
+    "sandbox_protocol_invalid": "隔离结果协议不完整；结果不可采信。",
+    "sandbox_exit_status_mismatch": "隔离进程退出状态与返回结果不一致；结果不可采信。",
+    "sandbox_task_context_required": "脚本必须通过已授权任务执行，不支持脱离任务的试用。",
+    "sandbox_invalid_configuration": "隔离执行器配置无效；请求部署方修正，禁止宿主执行。",
+    "sandbox_path_not_supported": "隔离输入目录无法映射；请求部署方修正，禁止读取其他宿主路径。",
+}
+
 
 class ToolSession:
     def __init__(self, execution, agent, revision, permissions, *, instance_id=None):
@@ -217,7 +244,7 @@ class ToolSession:
                 "case_record_contract",
                 "case_product_contract",
                 "case_review_contract",
-            }
+            } | SANDBOX_DIAGNOSTICS.keys()
             code = (
                 str(exc)
                 if str(exc) in safe_codes
@@ -227,7 +254,10 @@ class ToolSession:
             )
             record.update(status="failed", error_code=code)
             return ToolResult(
-                data={"error_code": code, "message": "工具未完成，请检查参数、授权和外部服务状态"}
+                data={
+                    "error_code": code,
+                    "message": SANDBOX_DIAGNOSTICS.get(code, "工具未完成，请检查参数、授权和外部服务状态"),
+                }
             ).model_dump()
         finally:
             record["duration_ms"] = int((time.monotonic() - started) * 1000)
@@ -342,7 +372,7 @@ class ToolSession:
             }
 
         handlers = {
-            "list_sources": lambda: list_sources(),
+            "list_sources": lambda _params: list_sources(),
             "read_source": read_source,
             "search_sources": search_sources,
             "locate_evidence": locate_evidence,

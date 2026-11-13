@@ -181,12 +181,16 @@
 }
 .answer-products {
   margin: 0.75rem 0;
+  min-width: 0;
+  max-width: 100%;
 }
 .answer-product {
   border: 1px solid var(--line);
   border-radius: 0.5rem;
   margin: 0.5rem 0;
   padding: 0.55rem 0.7rem;
+  min-width: 0;
+  max-width: 100%;
 }
 .answer-product > summary,
 .question-response details > summary {
@@ -194,11 +198,32 @@
 }
 .answer-table-scroll {
   overflow: auto;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   max-height: 19rem;
   margin-top: 0.5rem;
+  overscroll-behavior-x: contain;
 }
 .answer-table-scroll table {
   width: 100%;
+  min-width: 36rem;
+  table-layout: auto;
+}
+.answer-table-scroll table:has(th:nth-child(5)) {
+  min-width: 900px;
+}
+.answer-table-scroll table:has(th:nth-child(5)) :is(th, td):not(:last-child) {
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.answer-table-scroll table:has(th:nth-child(5)) :is(th, td):last-child {
+  min-width: 16rem;
+  max-width: 26rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 .answer-table-scroll caption {
   text-align: left;

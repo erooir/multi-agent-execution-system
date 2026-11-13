@@ -7,6 +7,7 @@ from backend.app.platform.contracts import (
     AgentInput,
     AgentTextResult,
     AssetInput,
+    AutonomousTextResult,
     CapabilityCatalog,
     HttpToolInput,
     ImageUnderstandingResult,
@@ -20,6 +21,14 @@ from backend.app.platform.contracts import (
     ToolCallRecord,
     ToolResult,
     WorkflowInput,
+)
+from backend.app.platform.task_case_contracts import (
+    CandidateEvaluationInput,
+    DataSubmissionInput,
+    ExecutionPlan,
+    InlineSubmissionInput,
+    RequirementAnalysis,
+    TaskCaseInput,
 )
 
 
@@ -37,12 +46,19 @@ def main():
         "capability_catalog": CapabilityCatalog,
         "task_preflight": TaskPreflight,
         "agent_text_result": AgentTextResult,
+        "autonomous_text_result": AutonomousTextResult,
         "image_understanding_result": ImageUnderstandingResult,
         "ocr_result": OcrResult,
         "http_tool_input": HttpToolInput,
         "mcp_server_input": McpServerInput,
         "native_toolkit_input": NativeToolkitInput,
         "model_quality_review": ModelQualityReview,
+        "task_case": TaskCaseInput,
+        "data_submission": DataSubmissionInput,
+        "customer_data_submission": InlineSubmissionInput,
+        "execution_plan": ExecutionPlan,
+        "requirement_analysis": RequirementAnalysis,
+        "candidate_evaluation": CandidateEvaluationInput,
     }.items():
         (output / f"{name}.schema.json").write_text(
             json.dumps(model.model_json_schema(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

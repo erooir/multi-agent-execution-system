@@ -103,7 +103,10 @@ def _skill_specs(requested=None):
         skills.append(
             {
                 "id": skill.name,
-                "name": "证据分析" if skill.name == "evidence-analysis" else "表格分析",
+                "name": (skill.metadata or {}).get("title")
+                or {"evidence-analysis": "证据分析", "table-analysis": "表格分析"}.get(
+                    skill.name, skill.name
+                ),
                 "description": skill.description,
                 "version": (skill.metadata or {}).get("version", "1.0.0"),
                 "checksum": digest(files),
@@ -238,13 +241,15 @@ def _external_items(definition, version):
     raise ValueError("capability_kind_unsupported")
 
 
-def catalog(project_id=None, repository=None):
+def catalog(project_id=None, repository=None, *, include_readiness=True):
     result = {
         "tools": _tool_specs(),
         "skills": _skill_specs(),
         "mcp_servers": _mcp_servers(),
         "definitions": [],
     }
+    if include_readiness:
+        result["readiness"] = capability_readiness(result)
     if project_id is None:
         return result
     repository = repository or _repository()
@@ -262,6 +267,68 @@ def catalog(project_id=None, repository=None):
     return result
 
 
+def capability_readiness(catalogue):
+    """Operational readiness is separate from immutable capability definitions."""
+    import importlib.metadata
+    import os
+    import time
+
+    from ..casework.provider_versions import binary
+    from .domain_tool import operation_catalog
+    from .script_sandbox import _prefix, _verify_engine, configuration
+
+    operations = operation_catalog()
+    tool_states = {}
+    for tool in catalogue["tools"]:
+        reasons = []
+        op = operations.get(tool["id"])
+        for package in op.packages if op else ():
+            try:
+                importlib.metadata.version(package)
+            except importlib.metadata.PackageNotFoundError:
+                reasons.append("缺少依赖 " + package)
+        if tool["id"] in {"media.probe", "audio.transcribe", "video.sample_frames"} and not binary("ffprobe"):
+            reasons.append("未配置本地 ffprobe")
+        if tool["id"] == "audio.transcribe":
+            if not binary("ffmpeg"):
+                reasons.append("未配置本地 ffmpeg")
+            model = Path(os.getenv("HANGZHI_ASR_MODEL_DIR", "/not-configured"))
+            if not all(
+                (model / filename).is_file() for filename in ("model.bin", "config.json", "tokenizer.json")
+            ):
+                reasons.append("未配置完整的本地语音模型")
+        if tool["id"] == "script.execute":
+            config = configuration()
+            if not config["ready"]:
+                reasons.append("未启用带固定镜像摘要的 Podman 隔离执行器")
+            else:
+                try:
+                    _verify_engine(tuple(_prefix(config)), config["image"], int(time.monotonic() / 30))
+                except ValueError as exc:
+                    reasons.append("隔离执行器检查未通过：" + str(exc))
+        tool_states[tool["id"]] = {
+            "available": not reasons,
+            "status": "unavailable" if reasons else "ready",
+            "reason": "；".join(reasons) if reasons else "本机依赖检查通过，实际任务仍须通过授权及输入校验",
+        }
+    names = {tool["name"]: tool["id"] for tool in catalogue["tools"]}
+    skill_states = {}
+    for skill in catalogue["skills"]:
+        missing = [
+            name
+            for name in skill["required_tools"]
+            if not tool_states.get(names.get(name, name), {}).get("available")
+        ]
+        skill_states[skill["id"]] = {
+            "available": not missing,
+            "status": "unavailable" if missing else "ready",
+            "reason": "依赖未就绪：" + "、".join(missing)
+            if missing
+            else "依赖工具已就绪；仍需为智能体逐项授权",
+        }
+    return {"tools": tool_states, "skills": skill_states}
+
+
 def _repository():
     from .db import repo
 
@@ -269,7 +336,11 @@ def _repository():
 
 
 def freeze_bindings(agent, repository=None):
-    available = catalog(agent.get("project_id"), repository) if repository is not None else catalog()
+    available = (
+        catalog(agent.get("project_id"), repository, include_readiness=False)
+        if repository is not None
+        else catalog(include_readiness=False)
+    )
     tools, skills = [], []
     for key, id_key, target in (("tool_refs", "tool_id", tools), ("skill_refs", "skill_id", skills)):
         pool = available["tools" if key == "tool_refs" else "skills"]

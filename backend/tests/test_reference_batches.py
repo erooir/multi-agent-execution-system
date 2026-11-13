@@ -119,7 +119,14 @@ async def test_frozen_reference_survives_registry_rotation_and_projects_are_isol
     assert not any(c["passed"] for c in checks if c["name"] != "trusted_reference_sources")
 
 
-def test_operator_only_registration_checks_duplicates_archive_and_corruption(registry):
+def test_operator_only_registration_checks_duplicates_archive_and_corruption(registry, tmp_path, monkeypatch):
+    # Do not depend on whether this checkout shares its real asset directory via a
+    # Windows junction. This branch exercises the upload-directory exclusion;
+    # link exclusion is checked separately below, before any file is read.
+    isolated_root = tmp_path / "checkout"
+    (isolated_root / ".local/platform-assets").mkdir(parents=True)
+    monkeypatch.setattr(batches, "ROOT", isolated_root)
+    monkeypatch.setattr("scripts.register_reference_batches.ROOT", isolated_root)
     content = ["public"]
     pub = batch(None, content)
     private = batch("p", ["private"], version="private-v1")
@@ -144,6 +151,19 @@ def test_operator_only_registration_checks_duplicates_archive_and_corruption(reg
     ):
         with pytest.raises(ValueError, match="上传资产"):
             action()
+
+
+@pytest.mark.parametrize("link_check", ["is_symlink", "is_junction"])
+def test_reference_registration_rejects_linked_parent_before_reading(tmp_path, monkeypatch, link_check):
+    from pathlib import Path
+
+    from scripts.register_reference_batches import _allowed_directory
+
+    linked_parent = tmp_path / "untrusted-link"
+    original = getattr(Path, link_check)
+    monkeypatch.setattr(Path, link_check, lambda self: self == linked_parent or original(self))
+    with pytest.raises(ValueError, match="符号链接或目录联接"):
+        _allowed_directory(linked_parent / "reference-batches.json")
 
 
 def test_custom_manifest_enrolls_only_independently_verified_local_files(tmp_path, registry):

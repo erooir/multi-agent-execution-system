@@ -14,6 +14,7 @@ TaskType = Literal[
     "audio_transcribe",
     "video_analyze",
     "case_analysis",
+    "autonomous_analysis",
 ]
 
 
@@ -150,6 +151,12 @@ class AgentTextResult(Contract):
     missing_information: list[str] = Field(default_factory=list, max_length=100)
 
 
+class AutonomousTextResult(AgentTextResult):
+    citations: list[SourceCitation | DerivedCitation | ExternalCitation] = Field(
+        default_factory=list, max_length=100
+    )
+
+
 class ImageRegionEvidence(Contract):
     model_config = ConfigDict(extra="ignore")
     source_id: str
@@ -269,6 +276,7 @@ class CapabilityCatalog(Contract):
     skills: list[dict[str, Any]]
     mcp_servers: list[dict[str, Any]]
     definitions: list[dict[str, Any]] = Field(default_factory=list)
+    readiness: dict[str, Any] = Field(default_factory=dict)
 
 
 class TaskPreflight(Contract):
@@ -289,6 +297,9 @@ class QuestionCitation(Contract):
     source: str
     location: str
     excerpt: str
+    source_id: str | None = None
+    page: int | None = Field(default=None, ge=1)
+    quote_truncated: bool = False
 
 
 class AnswerTable(Contract):
@@ -341,8 +352,8 @@ class AgentInput(Contract):
     members: list[Member] = Field(default_factory=list, max_length=20)
     parameters: dict[str, Any] = Field(default_factory=dict)
     execution_strategy: Literal["fixed", "tool_agent"] = "fixed"
-    tool_refs: list[ToolReference] = Field(default_factory=list, max_length=10)
-    skill_refs: list[SkillReference] = Field(default_factory=list, max_length=5)
+    tool_refs: list[ToolReference] = Field(default_factory=list, max_length=48)
+    skill_refs: list[SkillReference] = Field(default_factory=list, max_length=12)
     executor_bindings: dict[Literal["local", "cloud"], ExecutorBinding] = Field(default_factory=dict)
 
 
@@ -386,7 +397,7 @@ class ModelQualityReview(Contract):
     verdict: Literal["passed", "failed"]
     issues: list[str]
     evidence_refs: list[str] = Field(
-        min_length=1, description="只填写 allowed_evidence_refs 中的资料ID，不填写工具调用ID或说明文字"
+        description="只填写 allowed_evidence_refs 中的资料ID；无资料推理任务可为空，不填写工具调用ID或说明文字"
     )
     suggested_changes: list[str]
 

@@ -1,3 +1,4 @@
+from ..narrative_checks import monthly_facts
 from .base import ReviewExecutor, compact
 
 
@@ -36,6 +37,7 @@ class IndependentReviewExecutor(ReviewExecutor):
             "reading_notes": content["reading_notes"],
             "reference_batch": content.get("reference_batch"),
             "metrics": output["metrics"],
+            "monthly_facts": monthly_facts(content) if context.code == "B05" else None,
         }
 
     def previous(self, context):

@@ -98,7 +98,13 @@ def _profile_signature(stage, code):
 def _implementation(stage, code):
     cls = executor_class(stage, code)
     sources = {}
-    for source in {inspect.getsourcefile(cls), inspect.getsourcefile(ExecutorContext)}:
+    from .. import narrative_checks
+
+    for source in {
+        inspect.getsourcefile(cls),
+        inspect.getsourcefile(ExecutorContext),
+        narrative_checks.__file__,
+    }:
         path = Path(source).resolve()
         sources[path.name] = path.read_text(encoding="utf-8").replace("\r\n", "\n")
     return digest(

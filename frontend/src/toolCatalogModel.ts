@@ -5,6 +5,8 @@ export const toolGroups = {
   mcp: "MCP 表格",
   evidence: "文档与媒体证据",
   analysis: "统计与空间分析",
+  media: "多模态读取",
+  scripts: "隔离脚本处理",
   other: "其他工具",
 };
 
@@ -13,6 +15,11 @@ export function toolGroup(tool: Item): keyof typeof toolGroups {
   const namespace = tool.id.split(".")[0];
   if (namespace === "data") return "sources";
   if (namespace === "evidence") return "evidence";
+  if (
+    ["document", "image", "pdf", "audio", "video", "media"].includes(namespace)
+  )
+    return "media";
+  if (namespace === "script") return "scripts";
   if (["table", "stats", "series", "geo", "raster"].includes(namespace))
     return "analysis";
   return "other";

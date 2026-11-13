@@ -230,6 +230,1005 @@
         }
       }
     },
+    "/api/v2/task-cases/{case_id}/candidates": {
+      "post": {
+        "tags": [
+          "User tasks"
+        ],
+        "summary": "Create Candidate",
+        "operationId": "create_candidate_api_v2_task_cases__case_id__candidates_post",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/task-cases": {
+      "post": {
+        "tags": [
+          "User tasks"
+        ],
+        "summary": "Create",
+        "operationId": "create_api_v2_task_cases_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskCaseInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "User tasks"
+        ],
+        "summary": "History",
+        "operationId": "history_api_v2_task_cases_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/task-cases/{case_id}": {
+      "get": {
+        "tags": [
+          "User tasks"
+        ],
+        "summary": "Detail",
+        "operationId": "detail_api_v2_task_cases__case_id__get",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "User tasks"
+        ],
+        "summary": "Delete",
+        "operationId": "delete_api_v2_task_cases__case_id__delete",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/task-cases/{case_id}/runs/{task_id}": {
+      "get": {
+        "tags": [
+          "User tasks"
+        ],
+        "summary": "Task Run Detail",
+        "operationId": "task_run_detail_api_v2_task_cases__case_id__runs__task_id__get",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          },
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/task-cases/{case_id}/submissions": {
+      "post": {
+        "tags": [
+          "User tasks"
+        ],
+        "summary": "Submit",
+        "operationId": "submit_api_v2_task_cases__case_id__submissions_post",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DataSubmissionInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/task-cases/{case_id}/upload": {
+      "post": {
+        "tags": [
+          "User tasks"
+        ],
+        "summary": "Upload",
+        "operationId": "upload_api_v2_task_cases__case_id__upload_post",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_api_v2_task_cases__case_id__upload_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/task-cases/{case_id}/start": {
+      "post": {
+        "tags": [
+          "User tasks"
+        ],
+        "summary": "Start",
+        "operationId": "start_api_v2_task_cases__case_id__start_post",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/task-cases/{case_id}/cancel": {
+      "post": {
+        "tags": [
+          "User tasks"
+        ],
+        "summary": "Cancel",
+        "operationId": "cancel_api_v2_task_cases__case_id__cancel_post",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/task-cases/{case_id}/ingest-tokens": {
+      "post": {
+        "tags": [
+          "User tasks"
+        ],
+        "summary": "Token",
+        "operationId": "token_api_v2_task_cases__case_id__ingest_tokens_post",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestTokenInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/task-cases/{case_id}/ingest-tokens/{token_id}": {
+      "delete": {
+        "tags": [
+          "User tasks"
+        ],
+        "summary": "Revoke Token",
+        "operationId": "revoke_token_api_v2_task_cases__case_id__ingest_tokens__token_id__delete",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          },
+          {
+            "name": "token_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/task-cases/{case_id}/ingest": {
+      "post": {
+        "tags": [
+          "User tasks"
+        ],
+        "summary": "Ingest",
+        "operationId": "ingest_api_v2_task_cases__case_id__ingest_post",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InlineSubmissionInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/task-cases/{case_id}/ingest/upload": {
+      "post": {
+        "tags": [
+          "User tasks"
+        ],
+        "summary": "Ingest Upload",
+        "operationId": "ingest_upload_api_v2_task_cases__case_id__ingest_upload_post",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_ingest_upload_api_v2_task_cases__case_id__ingest_upload_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/task-cases/{case_id}/result/download": {
+      "get": {
+        "tags": [
+          "User tasks"
+        ],
+        "summary": "Download",
+        "operationId": "download_api_v2_task_cases__case_id__result_download_get",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/task-cases/{case_id}/sources/{asset_id}/download": {
+      "get": {
+        "tags": [
+          "User tasks"
+        ],
+        "summary": "Source Download",
+        "operationId": "source_download_api_v2_task_cases__case_id__sources__asset_id__download_get",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          },
+          {
+            "name": "asset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Asset Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/task-cases/{case_id}/artifacts/{artifact_id}/download": {
+      "get": {
+        "tags": [
+          "User tasks"
+        ],
+        "summary": "Artifact Download",
+        "operationId": "artifact_download_api_v2_task_cases__case_id__artifacts__artifact_id__download_get",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Artifact Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/task-cases/{case_id}/sandbox-runs/{run_id}/outputs/{index}": {
+      "get": {
+        "tags": [
+          "User tasks"
+        ],
+        "summary": "Script Output",
+        "operationId": "script_output_api_v2_task_cases__case_id__sandbox_runs__run_id__outputs__index__get",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          },
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Index"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/agent-candidates": {
+      "get": {
+        "tags": [
+          "Agent evaluations"
+        ],
+        "summary": "Candidate History",
+        "operationId": "candidate_history_api_v2_agent_candidates_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/agent-candidates/{candidate_id}": {
+      "get": {
+        "tags": [
+          "Agent evaluations"
+        ],
+        "summary": "Candidate Detail",
+        "operationId": "candidate_detail_api_v2_agent_candidates__candidate_id__get",
+        "parameters": [
+          {
+            "name": "candidate_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Candidate Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/agent-candidates/{candidate_id}/evaluate": {
+      "post": {
+        "tags": [
+          "Agent evaluations"
+        ],
+        "summary": "Evaluate Candidate",
+        "operationId": "evaluate_candidate_api_v2_agent_candidates__candidate_id__evaluate_post",
+        "parameters": [
+          {
+            "name": "candidate_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Candidate Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CandidateEvaluationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/agent-candidates/{candidate_id}/promote": {
+      "post": {
+        "tags": [
+          "Agent evaluations"
+        ],
+        "summary": "Promote Candidate",
+        "operationId": "promote_candidate_api_v2_agent_candidates__candidate_id__promote_post",
+        "parameters": [
+          {
+            "name": "candidate_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Candidate Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/health": {
       "get": {
         "summary": "Health",
@@ -3005,7 +4004,8 @@
                 "image_understand",
                 "audio_transcribe",
                 "video_analyze",
-                "case_analysis"
+                "case_analysis",
+                "autonomous_analysis"
               ]
             },
             "type": "array",
@@ -3077,7 +4077,7 @@
               "$ref": "#/components/schemas/ToolReference"
             },
             "type": "array",
-            "maxItems": 10,
+            "maxItems": 48,
             "title": "Tool Refs"
           },
           "skill_refs": {
@@ -3085,7 +4085,7 @@
               "$ref": "#/components/schemas/SkillReference"
             },
             "type": "array",
-            "maxItems": 5,
+            "maxItems": 12,
             "title": "Skill Refs"
           },
           "executor_bindings": {
@@ -3291,6 +4291,35 @@
         ],
         "title": "Body_import_skill_api_v2_capability_definitions_skills_import_post"
       },
+      "Body_ingest_upload_api_v2_task_cases__case_id__ingest_upload_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "classification": {
+            "type": "string",
+            "title": "Classification",
+            "default": "local"
+          },
+          "requirement_id": {
+            "type": "string",
+            "title": "Requirement Id",
+            "default": ""
+          },
+          "idempotency_key": {
+            "type": "string",
+            "title": "Idempotency Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "idempotency_key"
+        ],
+        "title": "Body_ingest_upload_api_v2_task_cases__case_id__ingest_upload_post"
+      },
       "Body_upload_api_v2_data_assets_upload_post": {
         "properties": {
           "file": {
@@ -3350,6 +4379,61 @@
         ],
         "title": "Body_upload_api_v2_data_assets_upload_post"
       },
+      "Body_upload_api_v2_task_cases__case_id__upload_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "classification": {
+            "type": "string",
+            "title": "Classification",
+            "default": "local"
+          },
+          "requirement_id": {
+            "type": "string",
+            "title": "Requirement Id",
+            "default": ""
+          },
+          "idempotency_key": {
+            "type": "string",
+            "title": "Idempotency Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "idempotency_key"
+        ],
+        "title": "Body_upload_api_v2_task_cases__case_id__upload_post"
+      },
+      "CandidateEvaluationInput": {
+        "properties": {
+          "task_case_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "minItems": 2,
+            "title": "Task Case Ids"
+          },
+          "max_cost_cny": {
+            "type": "number",
+            "maximum": 10.0,
+            "minimum": 0.2,
+            "title": "Max Cost Cny",
+            "default": 4
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "task_case_ids"
+        ],
+        "title": "CandidateEvaluationInput"
+      },
       "CapabilityCatalog": {
         "properties": {
           "capabilities": {
@@ -3391,6 +4475,11 @@
             },
             "type": "array",
             "title": "Definitions"
+          },
+          "readiness": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Readiness"
           }
         },
         "additionalProperties": false,
@@ -3444,6 +4533,49 @@
           "name"
         ],
         "title": "ConnectorInput"
+      },
+      "DataSubmissionInput": {
+        "properties": {
+          "input_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Input Refs"
+          },
+          "requirement_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Requirement Ids"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "maxLength": 140,
+            "minLength": 1,
+            "title": "Idempotency Key"
+          },
+          "public_egress_authorized": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Egress Authorized"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "idempotency_key"
+        ],
+        "title": "DataSubmissionInput"
       },
       "ExecutorBinding": {
         "properties": {
@@ -3632,6 +4764,111 @@
           "sample_task_ids"
         ],
         "title": "ImprovementInput"
+      },
+      "IngestTokenInput": {
+        "properties": {
+          "expires_hours": {
+            "type": "integer",
+            "maximum": 168.0,
+            "minimum": 1.0,
+            "title": "Expires Hours",
+            "default": 24
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "IngestTokenInput"
+      },
+      "InlineSubmissionInput": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 150,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "items": {},
+                "type": "array"
+              }
+            ],
+            "title": "Content"
+          },
+          "media_type": {
+            "type": "string",
+            "enum": [
+              "text/plain",
+              "text/csv",
+              "application/json"
+            ],
+            "title": "Media Type",
+            "default": "application/json"
+          },
+          "classification": {
+            "type": "string",
+            "enum": [
+              "local",
+              "public"
+            ],
+            "title": "Classification",
+            "default": "local"
+          },
+          "source_id": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Source Id"
+          },
+          "source_version": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Source Version",
+            "default": "1"
+          },
+          "provenance": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Provenance"
+          },
+          "requirement_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirement Id"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "maxLength": 140,
+            "minLength": 1,
+            "title": "Idempotency Key"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "content",
+          "source_id",
+          "provenance",
+          "idempotency_key"
+        ],
+        "title": "InlineSubmissionInput"
       },
       "KnowledgeQuery": {
         "properties": {
@@ -4237,6 +5474,34 @@
           "excerpt": {
             "type": "string",
             "title": "Excerpt"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "quote_truncated": {
+            "type": "boolean",
+            "title": "Quote Truncated",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -4427,6 +5692,79 @@
         ],
         "title": "SkillReference"
       },
+      "TaskCaseInput": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Project Id"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Title",
+            "default": ""
+          },
+          "goal": {
+            "type": "string",
+            "maxLength": 7000,
+            "minLength": 3,
+            "title": "Goal"
+          },
+          "output_requirements": {
+            "type": "string",
+            "maxLength": 1000,
+            "title": "Output Requirements",
+            "default": ""
+          },
+          "data_requirement": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "none",
+              "required"
+            ],
+            "title": "Data Requirement",
+            "default": "auto"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "cloud",
+              "local"
+            ],
+            "title": "Mode",
+            "default": "cloud"
+          },
+          "max_cost_cny": {
+            "type": "number",
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Max Cost Cny",
+            "default": 2
+          },
+          "public_egress_authorized": {
+            "type": "boolean",
+            "title": "Public Egress Authorized",
+            "default": false
+          },
+          "idempotency_key": {
+            "type": "string",
+            "maxLength": 140,
+            "minLength": 1,
+            "title": "Idempotency Key"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_id",
+          "goal",
+          "idempotency_key"
+        ],
+        "title": "TaskCaseInput"
+      },
       "TaskCounts": {
         "properties": {
           "total": {
@@ -4485,7 +5823,8 @@
               "image_understand",
               "audio_transcribe",
               "video_analyze",
-              "case_analysis"
+              "case_analysis",
+              "autonomous_analysis"
             ],
             "title": "Task Type"
           },
@@ -5023,7 +6362,8 @@
               "image_understand",
               "audio_transcribe",
               "video_analyze",
-              "case_analysis"
+              "case_analysis",
+              "autonomous_analysis"
             ],
             "title": "Task Type"
           },

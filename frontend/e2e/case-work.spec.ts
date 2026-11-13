@@ -55,7 +55,9 @@ test("用例任务：真实提交、三节点审核、来源证据与智能体�
   const card = page.locator(".case-grid .panel").filter({ hasText: "G03" });
   await card.getByRole("button", { name: "创建用例任务" }).click();
   const dlg = page.getByRole("dialog");
-  await expect(dlg.getByLabel("分析用例")).toHaveValue("G03");
+  await expect(dlg.getByRole("combobox", { name: /^分析用例/ })).toHaveValue(
+    "G03",
+  );
   await dlg.getByLabel("验收范围").selectOption("sample");
   await dlg.getByRole("checkbox", { name: /合成逐年观测/ }).check();
   await dlg.getByRole("button", { name: "检查匹配与授权" }).click();

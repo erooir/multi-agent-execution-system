@@ -486,16 +486,26 @@ function TaskDetail({
         actions={
           canEdit && (
             <>
-              <button
-                onClick={() =>
-                  onCopy({
-                    ...task.request,
-                    name: `${task.name || task.request.name}（重试）`,
-                  })
-                }
-              >
-                复制为新任务
-              </button>
+              {(task.request?.task_type || task.task_type) ===
+              "autonomous_analysis" ? (
+                <a
+                  className="button"
+                  href={`/?project=${encodeURIComponent(task.project_id)}`}
+                >
+                  前往任务工作台新建
+                </a>
+              ) : (
+                <button
+                  onClick={() =>
+                    onCopy({
+                      ...task.request,
+                      name: `${task.name || task.request.name}（重试）`,
+                    })
+                  }
+                >
+                  复制为新任务
+                </button>
+              )}
               {!terminal.has(task.status) && (
                 <button
                   className="danger"

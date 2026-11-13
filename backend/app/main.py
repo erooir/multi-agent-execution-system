@@ -34,7 +34,11 @@ class RequestBodyLimitMiddleware:
             declared = int(headers.get(b"content-length", b"0"))
         except ValueError:
             declared = -1
-        limit = 129_000_000 if scope.get("path") == "/api/v2/data-assets/upload" else self.max_bytes
+        path = scope.get("path", "")
+        is_upload = path == "/api/v2/data-assets/upload" or (
+            path.startswith("/api/v2/task-cases/") and path.endswith("/upload")
+        )
+        limit = 129_000_000 if is_upload else self.max_bytes
         if declared < 0 or declared > limit:
             return await self.reject(scope, receive, send, 400 if declared < 0 else 413)
         total = 0

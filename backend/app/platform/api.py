@@ -32,6 +32,12 @@ edit = Depends(auth.require_roles("admin", "operator"))
 question_write = Depends(auth.require_roles("requester", "operator", "admin"))
 admin = Depends(auth.require_roles("admin"))
 
+from .task_case_api import candidate_router
+from .task_case_api import router as task_case_router
+
+router.include_router(task_case_router)
+router.include_router(candidate_router)
+
 
 @identity.post("/auth/login")
 async def login(body: dict, request: Request, response: Response):

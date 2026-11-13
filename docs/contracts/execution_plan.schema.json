@@ -1,0 +1,98 @@
+{
+  "$defs": {
+    "PlanningStep": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "instructions": {
+          "maxLength": 3000,
+          "minLength": 1,
+          "title": "Instructions",
+          "type": "string"
+        },
+        "tool_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Tool Ids",
+          "type": "array"
+        },
+        "skill_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 5,
+          "title": "Skill Ids",
+          "type": "array"
+        },
+        "success_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Success Criteria",
+          "type": "array"
+        },
+        "reuse_agent_id": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reuse Agent Id"
+        }
+      },
+      "required": [
+        "label",
+        "instructions",
+        "success_criteria"
+      ],
+      "title": "PlanningStep",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "rationale": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Rationale",
+      "type": "string"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/PlanningStep"
+      },
+      "maxItems": 4,
+      "minItems": 1,
+      "title": "Steps",
+      "type": "array"
+    },
+    "missing_data": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 10,
+      "title": "Missing Data",
+      "type": "array"
+    }
+  },
+  "required": [
+    "rationale",
+    "steps"
+  ],
+  "title": "ExecutionPlan",
+  "type": "object"
+}

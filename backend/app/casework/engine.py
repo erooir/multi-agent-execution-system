@@ -211,6 +211,8 @@ def _execute(stage, profile, inputs, previous, read_bytes, feedback, revision, r
     from .translation import localize
 
     readings, notes = localize(candidate["evidence"]) if code[0] != "G" else ([], [])
+    from .narrative_checks import monthly_delivery_summary
+
     # Scope-specific language requirements cannot be silently waived for a reference run.
     if (
         notes
@@ -244,6 +246,7 @@ def _execute(stage, profile, inputs, previous, read_bytes, feedback, revision, r
             "review": checks,
             "reading_aids": readings,
             "reading_notes": notes,
+            **({"summary": monthly_delivery_summary(candidate["products"])} if code == "B05" else {}),
         },
         "metrics": {"evidence_count": len(candidate["evidence"]), "gap_count": len(set(gaps))},
     }

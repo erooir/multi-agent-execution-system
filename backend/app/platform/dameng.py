@@ -13,11 +13,8 @@ from sqlalchemy import (
     MetaData,
     String,
     Table,
-    false,
     func,
-    inspect,
     literal_column,
-    select,
 )
 from sqlalchemy.engine import make_url
 from sqlalchemy.types import TypeDecorator
@@ -94,53 +91,18 @@ def json_scalar(engine, column, *keys):
 
 
 def prepare_schema(engine):
-    """Explicit single-process deployment step, under a dedicated application user.
+    """Compatibility entry point for the single explicit, additive migration command."""
+    from scripts.dm_database import prepare_schema as migrate
 
-    DM DDL can commit implicitly. Never race API/Worker DDL or adopt a partially
-    initialized/unrelated schema. An interrupted first bootstrap needs DBA inspection.
-    """
-    from .db_schema import metadata, schema
-
-    if engine.dialect.name != "dm":
-        raise ValueError("只允许初始化达梦schema")
-    with engine.begin() as connection:
-        existing = {name.lower() for name in inspect(connection).get_table_names()}
-        if existing:
-            expected = set(metadata.tables) | set(identity_metadata.tables)
-            # The supervised question portal adds one isolated table to an existing v1 installation.
-            # This is the only recognized incremental schema. Never guess how to fix a partial deployment.
-            if existing == expected - {"questions"}:
-                assert_schema(connection, before_questions=True)
-                metadata.tables["questions"].create(connection)
-                assert_schema(connection)
-                return
-            if existing != expected:
-                raise RuntimeError("达梦schema必须为空或为完整平台schema；拒绝自动接管或修复")
-            assert_schema(connection)
-            return
-        metadata.create_all(connection)
-        identity_metadata.create_all(connection)
-        connection.execute(identity_guard.insert().values(id=1))
-        connection.execute(schema.insert().values(version=1))
+    return migrate(engine)
 
 
 def assert_schema(connection, *, before_questions=False):
-    from .db_schema import metadata, schema
+    from .db import assert_dm_schema
 
-    inspector = inspect(connection)
-    expected = set(metadata.tables) | set(identity_metadata.tables)
     if before_questions:
-        expected.remove("questions")
-    if {name.lower() for name in inspector.get_table_names()} != expected:
-        raise RuntimeError("达梦平台业务表不完整；请使用受控 init 升级现有 schema")
-    if not before_questions:
-        # Verify the application columns as their owner. DM column reflection may require SYS privileges.
-        connection.execute(select(metadata.tables["questions"]).where(false()))
-
-    if connection.execute(select(schema.c.version)).scalars().all() != [1]:
-        raise RuntimeError("达梦平台schema版本不匹配")
-    if connection.execute(select(identity_guard.c.id)).scalars().all() != [1]:
-        raise RuntimeError("达梦身份写入锁未正确初始化")
+        raise RuntimeError("Legacy pre-question schema requires the explicit migration command")
+    return assert_dm_schema(connection)
 
 
 def ensure_initialized(engine):

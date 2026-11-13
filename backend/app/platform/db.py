@@ -123,9 +123,9 @@ class Repository:
             try:
                 metadata.create_all(conn)
                 versions = conn.execute(select(schema.c.version)).scalars().all()
-                if versions and versions not in ([1], [SCHEMA_VERSION]):
+                if versions and versions not in ([1], [2], [SCHEMA_VERSION]):
                     raise RuntimeError("Unsupported platform schema; run an explicit migration")
-                if versions == [1]:
+                if versions in ([1], [2]):
                     conn.execute(schema.update().values(version=SCHEMA_VERSION))
                 elif not versions:
                     conn.execute(schema.insert().values(version=SCHEMA_VERSION))

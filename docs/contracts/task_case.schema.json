@@ -1,0 +1,73 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "project_id": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Project Id",
+      "type": "string"
+    },
+    "title": {
+      "default": "",
+      "maxLength": 100,
+      "title": "Title",
+      "type": "string"
+    },
+    "goal": {
+      "maxLength": 7000,
+      "minLength": 3,
+      "title": "Goal",
+      "type": "string"
+    },
+    "output_requirements": {
+      "default": "",
+      "maxLength": 1000,
+      "title": "Output Requirements",
+      "type": "string"
+    },
+    "data_requirement": {
+      "default": "auto",
+      "enum": [
+        "auto",
+        "none",
+        "required"
+      ],
+      "title": "Data Requirement",
+      "type": "string"
+    },
+    "mode": {
+      "default": "cloud",
+      "enum": [
+        "cloud",
+        "local"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "max_cost_cny": {
+      "default": 2,
+      "maximum": 10,
+      "minimum": 0,
+      "title": "Max Cost Cny",
+      "type": "number"
+    },
+    "public_egress_authorized": {
+      "default": false,
+      "title": "Public Egress Authorized",
+      "type": "boolean"
+    },
+    "idempotency_key": {
+      "maxLength": 140,
+      "minLength": 1,
+      "title": "Idempotency Key",
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "goal",
+    "idempotency_key"
+  ],
+  "title": "TaskCaseInput",
+  "type": "object"
+}

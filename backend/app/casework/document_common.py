@@ -66,6 +66,16 @@ def tokens(text):
     return set(re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]", norm(text)))
 
 
+def bounded_excerpt(text, limit=600):
+    """Prefer a complete sentence while keeping the excerpt an exact source prefix."""
+    if len(text) <= limit:
+        return text
+    prefix = text[:limit]
+    boundaries = [m.end() for m in re.finditer(r"[。！？；]|[.!?;](?=\s)|\n\n", prefix)]
+    end = next((n for n in reversed(boundaries) if n >= limit // 2), limit)
+    return prefix[:end].rstrip()
+
+
 @dataclass
 class Run:
     records: list[dict]
@@ -109,7 +119,8 @@ class Run:
         if not structured and quote not in raw:
             raise ValueError("证据摘录未出现在所引输入记录")
         # A field-only citation is a serialization of the source row, not a literal quote.
-        quote = quote[:600]
+        full_quote = quote
+        quote = bounded_excerpt(quote)
         key = (
             r["source_id"],
             str(r["source_version"]),
@@ -126,6 +137,7 @@ class Run:
                     "source_version": r["source_version"],
                     "location": dict(r["location"]),
                     "quote": quote,
+                    "quote_truncated": quote != full_quote,
                     "kind": "record" if structured else "verbatim",
                 }
             )
@@ -133,7 +145,12 @@ class Run:
 
     def excerpt(self, r, quote=None, **extra):
         text = quote if quote is not None else r.get("text", "")
-        return {"text": text[:600], **extra, "evidence_ids": [self.cite(r, quote)]}
+        return {
+            "text": bounded_excerpt(text),
+            "text_truncated": len(text) > 600,
+            **extra,
+            "evidence_ids": [self.cite(r, quote)],
+        }
 
     def find(self, patterns, limit=4):
         found = []

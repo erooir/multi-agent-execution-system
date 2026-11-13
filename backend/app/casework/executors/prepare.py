@@ -1,3 +1,4 @@
+from ..narrative_checks import monthly_facts
 from .base import PrepareExecutor, compact
 
 
@@ -46,6 +47,7 @@ class SourcePreparationExecutor(PrepareExecutor):
                 {"source_id": key[0], "source_version": key[1], **value} for key, value in by_source.items()
             ],
             "record_count": len(content["records"]),
+            "monthly_facts": monthly_facts(content) if context.code == "B05" else None,
             "gaps": content["gaps"],
             "metrics": output["metrics"],
         }
