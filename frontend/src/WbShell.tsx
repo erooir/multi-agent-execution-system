@@ -8,6 +8,7 @@ import {
 import {
   Activity,
   ArrowRight,
+  Bot,
   BookOpen,
   Boxes,
   ChevronRight,
@@ -486,14 +487,23 @@ export default function WbShell({
             <ChevronRight size={14} />
           </button>
           <div className="wb-menu-sep" />
-          <a className="wb-menu-row" href={isManage ? "/" : "/manage"}>
-            <Activity size={16} />
-            <span>{isManage ? "任务工作台" : "管理工作台"}</span>
-            <ArrowRight size={14} />
-          </a>
-          <a className="wb-menu-row" href={isLegacy ? "/" : "/questions"}>
-            <MessageSquare size={16} />
-            <span>{isLegacy ? "任务工作台" : "历史问答"}</span>
+          {!isManage && (
+            <a className="wb-menu-row" href="/manage">
+              <Activity size={16} />
+              <span>管理工作台</span>
+              <ArrowRight size={14} />
+            </a>
+          )}
+          {!isLegacy && (
+            <a className="wb-menu-row" href="/questions">
+              <MessageSquare size={16} />
+              <span>历史问答</span>
+              <ArrowRight size={14} />
+            </a>
+          )}
+          <a className="wb-menu-row" href="/manage?view=agents">
+            <Bot size={16} />
+            <span>智能体资产</span>
             <ArrowRight size={14} />
           </a>
           <div className="wb-menu-sep" />
