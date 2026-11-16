@@ -7,6 +7,7 @@ import {
   type AnswerMap,
   type AnswerTable,
 } from "./QuestionProducts";
+import type { WbDeskCommand, WbDeskState, WbTask } from "./WbShell";
 import "./question-desk.css";
 
 type Question = {
@@ -77,6 +78,8 @@ function storedChoice(key: string) {
 export default function QuestionDesk(props: {
   projectId: string;
   canSubmit: boolean;
+  onState?: (state: WbDeskState) => void;
+  command?: WbDeskCommand | null;
 }) {
   return <ProjectQuestions key={props.projectId} {...props} />;
 }
@@ -84,9 +87,13 @@ export default function QuestionDesk(props: {
 function ProjectQuestions({
   projectId,
   canSubmit,
+  onState,
+  command,
 }: {
   projectId: string;
   canSubmit: boolean;
+  onState?: (state: WbDeskState) => void;
+  command?: WbDeskCommand | null;
 }) {
   const selectionKey = "hangzhi.question.selection." + projectId;
   const [text, setText] = useState("");
@@ -103,6 +110,7 @@ function ProjectQuestions({
   const submission = useRef<{ text: string; key: string } | null>(null);
   const submitting = useRef(false);
   const listSequence = useRef(0);
+  const lastCommand = useRef(0);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -110,6 +118,32 @@ function ProjectQuestions({
       mounted.current = false;
     };
   }, []);
+
+  // Publish the existing question history to the WorkBuddy-style sidebar.
+  useEffect(() => {
+    onState?.({
+      items: questions.map(
+        (q): WbTask => ({
+          id: q.id,
+          title: q.question,
+          status: q.status,
+          statusLabel: stateOf(q),
+          createdAt: q.created_at,
+          active: active.has(q.status),
+        }),
+      ),
+      selected,
+      loading,
+      error: listError,
+    });
+  }, [questions, selected, loading, listError, onState]);
+
+  useEffect(() => {
+    if (!command || command.seq === lastCommand.current) return;
+    lastCommand.current = command.seq;
+    if (command.kind === "select" && command.id) setSelected(command.id);
+    else if (command.kind === "refresh") setListTick((v) => v + 1);
+  }, [command]);
 
   useEffect(() => {
     if (!projectId) return;

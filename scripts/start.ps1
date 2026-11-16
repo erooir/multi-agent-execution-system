@@ -60,7 +60,7 @@ if (-not $env:HANGZHI_BUDGET_LEDGER_PATH) {
 }
 $env:HANGZHI_BUDGET_LEDGER_PATH = [System.IO.Path]::GetFullPath($env:HANGZHI_BUDGET_LEDGER_PATH)
 if (-not $Offline) {
-    & $pythonExecutable -c 'from backend.app.model_gateway import model_gateway; model_gateway.budget(); print("Historical budget ledger verified.")'
+    & $pythonExecutable -c 'from backend.app.model_gateway import model_gateway; model_gateway.budget(); print(''Historical budget ledger verified.'')'
     if ($LASTEXITCODE -ne 0) { throw 'Historical budget ledger unavailable; restore the configured original before online startup.' }
 }
 $profile = $env:HANGZHI_DATABASE_URL + '|' + $env:HANGZHI_OFFLINE + '|' + $env:HANGZHI_AUTO_IMPROVE + '|' + $env:HANGZHI_QUESTION_PUBLIC_EGRESS + '|' + $env:HANGZHI_BUDGET_LEDGER_PATH

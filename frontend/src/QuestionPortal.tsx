@@ -1,11 +1,18 @@
-import { useEffect, useState, type ComponentType } from "react";
-import { LogOut, Network, Settings2 } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentType,
+} from "react";
+import { RefreshCw, Settings2 } from "lucide-react";
 import { api, ApiError, post } from "./api";
 import { projectLabel } from "./projects";
 import type { User } from "./types";
 import { Confirm, Empty, ErrorLine } from "./ui";
 import QuestionDesk from "./QuestionDesk";
 import TaskCaseDesk from "./TaskCaseDesk";
+import WbShell, { type WbDeskCommand, type WbDeskState } from "./WbShell";
 import "./portal.css";
 
 type Project = { id: string; name: string };
@@ -13,6 +20,13 @@ type LoginComponent = ComponentType<{
   initialError: string;
   onLogin: (user: User) => void;
 }>;
+
+const EMPTY_DESK: WbDeskState = {
+  items: [],
+  selected: "",
+  loading: true,
+  error: "",
+};
 
 export default function QuestionPortal({
   Login,
@@ -28,6 +42,18 @@ export default function QuestionPortal({
   const [error, setError] = useState("");
   const [logout, setLogout] = useState(false);
   const [retry, setRetry] = useState(0);
+  const [desk, setDesk] = useState<WbDeskState>(EMPTY_DESK);
+  const [command, setCommand] = useState<WbDeskCommand | null>(null);
+  const commandSeq = useRef(0);
+  const onDeskState = useCallback((state: WbDeskState) => setDesk(state), []);
+  const sendCommand = useCallback(
+    (kind: WbDeskCommand["kind"], id?: string) => {
+      commandSeq.current += 1;
+      setCommand({ seq: commandSeq.current, kind, id });
+    },
+    [],
+  );
+
   useEffect(() => {
     const c = new AbortController();
     api<User>("/auth/me", { signal: c.signal })
@@ -85,6 +111,11 @@ export default function QuestionPortal({
       clearTimeout(timer);
     };
   }, [user?.id, retry]);
+  useEffect(() => {
+    setDesk(EMPTY_DESK);
+    setCommand(null);
+  }, [projectId, legacy]);
+
   if (checking)
     return (
       <div className="full-loading" role="status">
@@ -103,89 +134,96 @@ export default function QuestionPortal({
         }}
       />
     );
+
+  const changeProject = (id: string) => {
+    setProjectId(id);
+    setDesk(EMPTY_DESK);
+    try {
+      sessionStorage.setItem("hangzhi-question-project-" + user.id, id);
+    } catch {}
+  };
+  const headerRight = (
+    <>
+      <a className="desk-link" href={legacy ? "/" : "/questions"}>
+        {legacy ? "任务工作台" : "历史问答"}
+      </a>
+      {user.role !== "requester" && (
+        <a className="desk-link" href="/manage">
+          <Settings2 size={15} />
+          管理工作台
+        </a>
+      )}
+      <button
+        className="icon-button"
+        aria-label="刷新记录"
+        title="刷新任务记录"
+        onClick={() => sendCommand("refresh")}
+      >
+        <RefreshCw size={17} />
+      </button>
+    </>
+  );
+
   return (
-    <div className="question-portal">
-      <header className="question-top">
-        <div className="question-brand">
-          <span className="brand-mark">
-            <Network size={21} />
-          </span>
-          <strong>航智</strong>
-          <span>{legacy ? "历史问答" : "任务工作台"}</span>
-        </div>
-        {projects && projects.length > 0 && (
-          <label className="question-project">
-            当前项目
-            <select
-              value={projectId}
-              onChange={(e) => {
-                setProjectId(e.target.value);
-                try {
-                  sessionStorage.setItem(
-                    "hangzhi-question-project-" + user.id,
-                    e.target.value,
-                  );
-                } catch {}
-              }}
-            >
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {projectLabel(p, projects)}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        <div className="question-account">
-          <a className="desk-link" href={legacy ? "/" : "/questions"}>
-            {legacy ? "任务工作台" : "历史问答"}
-          </a>
-          {user.role !== "requester" && (
-            <a className="desk-link" href="/manage">
-              <Settings2 size={16} />
-              管理工作台
-            </a>
-          )}
-          <button
-            aria-label="退出登录"
-            title={user.name || user.username}
-            onClick={() => setLogout(true)}
-          >
-            <LogOut size={16} />
-            退出
-          </button>
-        </div>
-      </header>
-      <main className="question-main">
-        {error && (
-          <ErrorLine>
-            {error}{" "}
-            <button onClick={() => setRetry((n) => n + 1)}>重新连接</button>
-          </ErrorLine>
-        )}
-        {projectId && projects?.some((p) => p.id === projectId) ? (
-          legacy ? (
-            <QuestionDesk
-              key={user.id + "/" + projectId}
-              projectId={projectId}
-              canSubmit={user.role !== "reviewer"}
-            />
-          ) : (
-            <TaskCaseDesk
-              key={user.id + "/" + projectId}
-              projectId={projectId}
-              canSubmit={user.role !== "reviewer"}
-            />
-          )
-        ) : projects?.length === 0 ? (
-          <Empty
-            title="尚未分配项目"
-            description="请联系管理员分配项目。项目就绪后即可创建任务并提供所需资料。"
+    <WbShell
+      user={user}
+      projects={projects || []}
+      projectId={projectId}
+      projectLabel={projectLabel}
+      onProjectChange={changeProject}
+      title={legacy ? "历史问答" : "任务工作台"}
+      tasks={desk.items}
+      selectedTaskId={desk.selected}
+      onSelectTask={(id) => sendCommand("select", id)}
+      onNewTask={() => {
+        if (legacy) window.location.href = "/";
+        else sendCommand("compose");
+      }}
+      onRefreshTasks={() => sendCommand("refresh")}
+      tasksLoading={desk.loading}
+      tasksError={desk.error || error}
+      onLogout={() => setLogout(true)}
+      headerRight={headerRight}
+      footer={
+        <>
+          <span>航智 · AI 工作空间</span>
+          <span>持久任务 · 独立版本 · 可追溯交付</span>
+        </>
+      }
+    >
+      {error && (
+        <ErrorLine>
+          {error}{" "}
+          <button onClick={() => setRetry((n) => n + 1)}>重新连接</button>
+        </ErrorLine>
+      )}
+      {projectId && projects?.some((p) => p.id === projectId) ? (
+        legacy ? (
+          <QuestionDesk
+            key={user.id + "/" + projectId}
+            projectId={projectId}
+            canSubmit={user.role !== "reviewer"}
+            onState={onDeskState}
+            command={command}
           />
         ) : (
-          !error && <p role="status">正在读取可用项目…</p>
-        )}
-      </main>
+          <TaskCaseDesk
+            key={user.id + "/" + projectId}
+            projectId={projectId}
+            canSubmit={user.role !== "reviewer"}
+            onState={onDeskState}
+            command={command}
+            chromeInSidebar
+          />
+        )
+      ) : projects?.length === 0 ? (
+        <Empty
+          title="尚未分配项目"
+          description="请联系管理员分配项目。项目就绪后即可创建任务并提供所需资料。"
+        />
+      ) : (
+        !error && <p role="status">正在读取可用项目…</p>
+      )}
       {logout && (
         <Confirm
           title="退出登录"
@@ -201,6 +239,6 @@ export default function QuestionPortal({
           }}
         />
       )}
-    </div>
+    </WbShell>
   );
 }

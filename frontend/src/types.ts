@@ -26,6 +26,9 @@ export interface Bootstrap {
 }
 export type Page =
   | "overview"
+  | "hub"
+  | "workdesk"
+  | "library"
   | "casework"
   | "agents"
   | "tools"

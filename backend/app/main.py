@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import mimetypes
 import os
 import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 os.environ["AGNO_TELEMETRY"] = "false"
+
+# Windows registries may map .js to text/plain, which makes browsers refuse ES module scripts.
+mimetypes.init()
+mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("text/javascript", ".mjs")
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
