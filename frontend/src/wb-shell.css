@@ -1981,3 +1981,225 @@ code {
   font-size: 12px;
   color: var(--wb-bad);
 }
+
+/* ---- Center card details: reuse the original page dialogs ---- */
+/* A native <dialog> opened with showModal() stays visible even when all of its
+   sibling page sections are hidden, so the detail is the real original modal. */
+.hub-native-dialog > *:not(dialog) {
+  display: none !important;
+}
+.hub-native-dialog dialog.modal {
+  width: min(880px, calc(100vw - 48px));
+  max-height: 86dvh;
+  border: 0;
+  border-radius: 18px;
+  box-shadow: 0 32px 90px #18222645;
+  overflow: hidden;
+}
+.hub-native-dialog dialog.modal::backdrop {
+  background: #14242169;
+  backdrop-filter: blur(3px);
+}
+.hub-native-dialog .modal-head {
+  background: linear-gradient(100deg, #e8faf4, #f2f7ff 60%, #f7f4ff);
+  border-bottom: 1px solid #e5efec;
+}
+.hub-native-dialog .modal-head h2 {
+  color: #152c28;
+  letter-spacing: -0.3px;
+}
+.hub-native-dialog .modal-body {
+  background: #fff;
+}
+.hub-native-dialog .modal-foot {
+  background: #fbfdfc;
+  border-top-color: #edf2f0;
+}
+
+/* Skill cards: the original tool-catalog detail panel becomes the dialog. */
+.hub-native-tool {
+  position: fixed;
+  inset: 0;
+  z-index: 125;
+}
+.hub-native-backdrop {
+  position: absolute;
+  inset: 0;
+  background: #14242169;
+  backdrop-filter: blur(3px);
+}
+.hub-native-close {
+  position: absolute;
+  top: 22px;
+  right: 26px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 20px;
+  background: #fff;
+  color: #5c6a6d;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 6px 18px #18222626;
+  cursor: pointer;
+}
+.hub-native-close:hover {
+  color: #0d8f79;
+}
+.hub-native-tool .tool-catalog > *:not(.catalog-layout) {
+  display: none !important;
+}
+.hub-native-tool .catalog-layout {
+  display: block !important;
+}
+.hub-native-tool .catalog-layout > *:not(.catalog-detail) {
+  display: none !important;
+}
+.hub-native-tool .catalog-detail {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(720px, calc(100vw - 48px));
+  max-height: 82dvh;
+  overflow: auto;
+  margin: 0;
+  padding: 24px 26px;
+  border: 0;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 30px 80px #18222645, inset 0 4px 0 #12bfa0;
+  z-index: 2;
+}
+
+/* Shared polish for hub-owned dialogs (details and create forms). */
+.hub-modal {
+  border-radius: 18px;
+  box-shadow: 0 30px 80px #1822263d;
+}
+.hub-modal-head {
+  background: linear-gradient(100deg, #e8faf4, #f4f8ff 70%, #f8f5ff);
+  border-bottom-color: #e8f0ee;
+}
+.hub-detail-modal {
+  width: min(700px, 100%);
+}
+.hub-detail-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(135deg, #12bfa0, #0d8f79);
+}
+.hub-detail-body {
+  max-height: 66vh;
+  overflow: auto;
+}
+.hub-detail-lead {
+  margin: 0 0 14px;
+  color: #5c6a6d;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.hub-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.hub-detail-grid > div {
+  background: #f6faf9;
+  border: 1px solid #e8f0ee;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.hub-detail-grid span {
+  display: block;
+  font-size: 11px;
+  color: #8b989a;
+  margin-bottom: 4px;
+}
+.hub-detail-grid strong {
+  font-size: 12.5px;
+  color: #26383a;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 620px) {
+  .hub-detail-grid {
+    grid-template-columns: 1fr;
+  }
+  .hub-native-tool .catalog-detail {
+    padding: 20px;
+  }
+}
+
+/* ---- Expert page: secondary category filter row ---- */
+.hub-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+}
+.hub-filter-scroll {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+.hub-filter-scroll::-webkit-scrollbar {
+  display: none;
+}
+.hub-filter-scroll button {
+  flex: none;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #8b8f96;
+  font-size: 13px;
+  padding: 6px 2px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: none;
+}
+.hub-filter-scroll button:hover {
+  background: transparent;
+  color: #1b1c20;
+}
+.hub-filter-scroll button.is-active {
+  background: #e4f6f0;
+  color: #0d8f79;
+  font-weight: 700;
+  padding: 6px 13px;
+}
+.hub-filter-scroll button.is-active:hover {
+  background: #d7f1e9;
+  color: #0b7a68;
+}
+.hub-filter-more {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #f3f5f5;
+  color: #8b8f96;
+  cursor: pointer;
+}
+.hub-filter-more:hover {
+  background: #e9f8f4;
+  color: #0d8f79;
+}

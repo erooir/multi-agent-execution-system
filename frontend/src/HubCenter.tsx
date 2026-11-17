@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   ArrowRight,
   Bot,
@@ -16,8 +16,11 @@ import {
 } from "lucide-react";
 import { api, post } from "./api";
 import { statusNames, taskTypes } from "./domain";
-import type { Item } from "./types";
+import type { Item, Mutation } from "./types";
 import type { HubKind } from "./WbShell";
+import { AgentsPage, WorkflowsPage } from "./AssetPages";
+import ToolCatalog from "./ToolCatalog";
+import { JsonView } from "./ui";
 
 type HubItem = {
   id: string;
@@ -89,6 +92,12 @@ export default function HubCenter({
   agents,
   capabilities,
   workflows = [],
+  assets = [],
+  canEdit = false,
+  mutate,
+  onTask,
+  onAgent,
+  offline = false,
   query = "",
   onOpenFullPage,
   onCreated,
@@ -99,6 +108,12 @@ export default function HubCenter({
   agents: Item[];
   capabilities: Item[];
   workflows?: Item[];
+  assets?: Item[];
+  canEdit?: boolean;
+  mutate: Mutation;
+  onTask: (id: string) => void;
+  onAgent: (id: string, toolId?: string) => void;
+  offline?: boolean;
   connectors?: Item[];
   query?: string;
   onOpenFullPage?: (page: string) => void;
@@ -114,7 +129,11 @@ export default function HubCenter({
   const [category, setCategory] = useState<
     "all" | "secondary" | "workflow"
   >("all");
+  const [filterGroup, setFilterGroup] = useState("全部");
+  const filterScrollRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<HubItem | null>(null);
+  // Re-mount the native detail dialog when the same card is opened again.
+  const [detailSeq, setDetailSeq] = useState(0);
   const [catalogTick, setCatalogTick] = useState(0);
   const [creating, setCreating] = useState(false);
   const [createBusy, setCreateBusy] = useState(false);
@@ -154,11 +173,20 @@ export default function HubCenter({
 
   useEffect(() => {
     setCategory("all");
+    setFilterGroup("全部");
     setSort("default");
     setSelected(null);
     setCreating(false);
     setCreateError("");
   }, [kind]);
+
+  function switchCategory(next: "all" | "secondary" | "workflow") {
+    // The detail view mounts the original page component; leaving it mounted
+    // while switching tabs would re-open the last card's dialog on return.
+    setSelected(null);
+    setCategory(next);
+    setFilterGroup("全部");
+  }
 
   const { items, categories } = useMemo(() => {
     if (kind === "expert" && category === "workflow") {
@@ -347,13 +375,42 @@ export default function HubCenter({
     };
   }, [kind, agents, capabilities, workflows, catalog, category]);
 
+  // Secondary filter row (expert page only), built from real asset fields.
+  const isWorkflowView = kind === "expert" && category === "workflow";
+  const filterGroups = useMemo(() => {
+    if (kind !== "expert") return [];
+    const values = isWorkflowView
+      ? items.map((item) =>
+          (item.extra?.nodes || []).length > 1 ? "多节点流程" : "单节点流程",
+        )
+      : items.flatMap((item) => [item.group, ...item.tags]);
+    return [
+      "全部",
+      ...Array.from(new Set(values.filter(Boolean).map(String))).slice(0, 12),
+    ];
+  }, [kind, isWorkflowView, items]);
+
+  function inFilterGroup(item: HubItem) {
+    if (filterGroup === "全部") return true;
+    if (isWorkflowView) {
+      return (
+        ((item.extra?.nodes || []).length > 1
+          ? "多节点流程"
+          : "单节点流程") === filterGroup
+      );
+    }
+    return item.group === filterGroup || item.tags.includes(filterGroup);
+  }
+
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     let rows = items.filter(
       (item) =>
-        (category === "all" ||
-          category === "workflow" ||
-          item.bucket === "secondary") &&
+        (category === "workflow" ||
+          (category === "secondary"
+            ? item.bucket === "secondary"
+            : item.bucket === "primary")) &&
+        inFilterGroup(item) &&
         (!q ||
           [item.name, item.desc, item.techId || "", ...item.tags].some((v) =>
             v.toLowerCase().includes(q),
@@ -365,7 +422,7 @@ export default function HubCenter({
         String(b.createdAt || "").localeCompare(String(a.createdAt || "")),
       );
     return rows;
-  }, [items, query, category, sort]);
+  }, [items, query, category, sort, filterGroup]);
 
   const meta = TAB_META[kind];
   const isWorkflow = kind === "expert" && category === "workflow";
@@ -383,9 +440,13 @@ export default function HubCenter({
       : kind === "skill"
         ? "导入技能包"
         : "登记 MCP 服务";
+  const openDetail = (item: HubItem) => {
+    setSelected(item);
+    setDetailSeq((n) => n + 1);
+  };
   const openById = (id: string, fallbackName?: string) => {
     const found = items.find((item) => item.id === id);
-    setSelected(
+    openDetail(
       found || {
         id,
         name: fallbackName || pretty(id),
@@ -536,7 +597,7 @@ export default function HubCenter({
           <div className="hub-section-tabs">
             <button
               className={category === "all" ? "is-active" : ""}
-              onClick={() => setCategory("all")}
+              onClick={() => switchCategory("all")}
             >
               {meta.primary}
             </button>
@@ -547,7 +608,7 @@ export default function HubCenter({
                   : ""
               }
               onClick={() =>
-                setCategory(kind === "expert" ? "workflow" : "secondary")
+                switchCategory(kind === "expert" ? "workflow" : "secondary")
               }
             >
               {meta.secondary}
@@ -588,6 +649,35 @@ export default function HubCenter({
         </div>
       </div>
 
+      {kind === "expert" && filterGroups.length > 1 && (
+        <div className="hub-filter-row">
+          <div className="hub-filter-scroll" ref={filterScrollRef}>
+            {filterGroups.map((name) => (
+              <button
+                key={name}
+                className={filterGroup === name ? "is-active" : ""}
+                aria-pressed={filterGroup === name}
+                onClick={() => setFilterGroup(name)}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+          <button
+            className="hub-filter-more"
+            aria-label="查看更多分类"
+            onClick={() =>
+              filterScrollRef.current?.scrollBy({
+                left: 240,
+                behavior: "smooth",
+              })
+            }
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      )}
+
       <div className="hub-list-rule" />
 
       {visible.length ? (
@@ -596,7 +686,7 @@ export default function HubCenter({
             <button
               key={item.id + "-" + index}
               className="hub-card"
-              onClick={() => setSelected(item)}
+              onClick={() => openDetail(item)}
             >
               <span className={`hub-card-avatar tone-${index % 4}`}>
                 {item.name.slice(0, 1)}
@@ -624,68 +714,71 @@ export default function HubCenter({
       )}
 
       {selected && (
-        <div
-          className="hub-modal-backdrop"
-          onClick={() => setSelected(null)}
-          role="presentation"
-        >
-          <div
-            className="hub-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={selected.name}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="hub-modal-head">
-              <span className={`hub-card-avatar tone-${selected.bucket === "secondary" ? 1 : 0}`}>
-                {selected.name.slice(0, 1)}
-              </span>
-              <div>
-                <h2>{selected.name}</h2>
-                {selected.techId && selected.techId !== selected.name && (
-                  <small>技术标识：{selected.techId}</small>
-                )}
-              </div>
+        <>
+          {kind === "expert" && category !== "workflow" && (
+            <div className="hub-native-dialog">
+              <AgentsPage
+                key={`agent-${selected.id}-${detailSeq}`}
+                projectId={projectId}
+                agents={agents}
+                capabilities={capabilities}
+                canEdit={canEdit}
+                mutate={mutate}
+                notify={notify || (() => {})}
+                onTask={onTask}
+                workflows={workflows}
+                assets={assets}
+                initialId={selected.id}
+                offline={offline}
+              />
+            </div>
+          )}
+          {kind === "expert" && category === "workflow" && (
+            <div className="hub-native-dialog">
+              <WorkflowsPage
+                key={`flow-${selected.id}-${detailSeq}`}
+                projectId={projectId}
+                workflows={workflows}
+                agents={agents}
+                canEdit={canEdit}
+                mutate={mutate}
+                notify={notify || (() => {})}
+                initialId={selected.id}
+              />
+            </div>
+          )}
+          {kind === "skill" && (
+            <div className="hub-native-tool">
+              <div
+                className="hub-native-backdrop"
+                onClick={() => setSelected(null)}
+                role="presentation"
+              />
               <button
-                className="hub-modal-close"
+                className="hub-native-close"
                 aria-label="关闭详情"
                 onClick={() => setSelected(null)}
               >
-                <X size={18} />
+                <X size={15} />
+                关闭详情
               </button>
+              <ToolCatalog
+                key={`tool-${selected.id}-${detailSeq}`}
+                projectId={projectId}
+                agents={agents}
+                canEdit={canEdit}
+                onAgent={onAgent}
+                initialId={selected.id}
+                initialKind={
+                  selected.bucket === "secondary" ? "skills" : "tools"
+                }
+              />
             </div>
-            <div className="hub-modal-body">
-              <p>{selected.desc || "暂无说明"}</p>
-              <div className="hub-modal-rows">
-                <div>
-                  <span>分类</span>
-                  <strong>{selected.group || "—"}</strong>
-                </div>
-                <div>
-                  <span>状态</span>
-                  <strong>{selected.meta || "—"}</strong>
-                </div>
-                <div>
-                  <span>标签</span>
-                  <strong>
-                    {selected.tags.length ? selected.tags.join(" · ") : "—"}
-                  </strong>
-                </div>
-              </div>
-            </div>
-            <div className="hub-modal-foot">
-              <button onClick={() => setSelected(null)}>关闭</button>
-              {onOpenFullPage && (
-                <button
-                  className="is-primary"
-                  onClick={() => onOpenFullPage(managePage)}
-                >
-                  在管理页查看 <ArrowRight size={14} />
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+          )}
+          {kind === "connector" && (
+            <McpDetail item={selected} onClose={() => setSelected(null)} />
+          )}
+        </>
       )}
 
       {creating && (
@@ -909,6 +1002,86 @@ export default function HubCenter({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* Connector cards show the real MCP server catalog entry. There is no separate
+   definition-version dialog for these rows, so the full raw record is shown. */
+function McpDetail({
+  item,
+  onClose,
+}: {
+  item: HubItem;
+  onClose: () => void;
+}) {
+  const raw = item.extra || {};
+  const fields: [string, string][] = [
+    ["服务标识", String(raw.id || item.techId || item.id)],
+    ["中文名称", item.name],
+    [
+      "传输方式",
+      raw.transport === "stdio"
+        ? "本地进程（stdio）"
+        : String(raw.transport || "—"),
+    ],
+    ["目录版本", raw.version != null ? `v${raw.version}` : "—"],
+    [
+      "运行时契约版本",
+      raw.runtime_contract_version != null
+        ? `v${raw.runtime_contract_version}`
+        : "—",
+    ],
+    ["部署位置", raw.external ? "外部服务" : "本项目本地"],
+    ["版本校验值", String(raw.checksum || "—")],
+  ];
+  return (
+    <div
+      className="hub-modal-backdrop"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className="hub-modal hub-detail-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={item.name}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="hub-modal-head">
+          <span className="hub-detail-icon">
+            <Plug size={19} />
+          </span>
+          <div>
+            <h2>{item.name}</h2>
+            <small>MCP 服务 · 完整目录条目</small>
+          </div>
+          <button
+            className="hub-modal-close"
+            aria-label="关闭详情"
+            onClick={onClose}
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="hub-modal-body hub-detail-body">
+          <p className="hub-detail-lead">
+            {item.desc || "本项目已登记的 MCP 服务，工具调用受版本与授权约束。"}
+          </p>
+          <div className="hub-detail-grid">
+            {fields.map(([label, value]) => (
+              <div key={label}>
+                <span>{label}</span>
+                <strong>{value}</strong>
+              </div>
+            ))}
+          </div>
+          <JsonView value={raw} label="完整目录条目（接口原始数据）" />
+        </div>
+        <div className="hub-modal-foot">
+          <button onClick={onClose}>关闭</button>
+        </div>
+      </div>
     </div>
   );
 }

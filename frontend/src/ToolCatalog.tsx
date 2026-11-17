@@ -40,6 +40,8 @@ type Props = {
   agents: Item[];
   canEdit: boolean;
   onAgent: (id: string, toolId?: string) => void;
+  initialId?: string;
+  initialKind?: CatalogKind;
 };
 
 const baseParameters: Record<string, string> = {
@@ -58,6 +60,8 @@ export default function ToolCatalog({
   agents,
   canEdit,
   onAgent,
+  initialId,
+  initialKind,
 }: Props) {
   const [response, setResponse] = useState<{
     project: string;
@@ -70,6 +74,12 @@ export default function ToolCatalog({
   const [group, setGroup] = useState("");
   const [onlyGranted, setOnlyGranted] = useState(false);
   const [selectedId, setSelectedId] = useState("");
+  // Deep link from the expert/skill/connector center: preselect one catalog entry.
+  useEffect(() => {
+    if (!initialId) return;
+    if (initialKind) setKind(initialKind);
+    setSelectedId(initialId);
+  }, [initialId, initialKind]);
   useEffect(() => {
     const controller = new AbortController();
     setResponse(undefined);

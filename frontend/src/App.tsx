@@ -620,6 +620,12 @@ function ManagementApp() {
                   connectors={scoped("connectors")}
                   query={hubQuery}
                   workflows={workflows}
+                  assets={assets}
+                  canEdit={canEdit}
+                  mutate={mutate}
+                  onTask={openTask}
+                  onAgent={openAgent}
+                  offline={!!data.system.offline}
                   onOpenFullPage={(target) => go(target as Page)}
                   onCreated={() => void refresh().catch(() => {})}
                   notify={notify}
