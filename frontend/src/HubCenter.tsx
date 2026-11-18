@@ -21,6 +21,11 @@ import type { HubKind } from "./WbShell";
 import { AgentsPage, WorkflowsPage } from "./AssetPages";
 import ToolCatalog from "./ToolCatalog";
 import { JsonView } from "./ui";
+import HubIcon, {
+  iconHue,
+  kindHue,
+  type HubIconKind,
+} from "./HubIcons";
 
 type HubItem = {
   id: string;
@@ -76,6 +81,32 @@ const FIELD_LABELS: Record<string, string> = {
 const MCP_LABELS: Record<string, string> = {
   "project-tables": "项目表格服务",
 };
+/* The three summary cards reuse the same illustration set as the item cards. */
+const HERO_ICON_KIND = new Map<LucideIcon, HubIconKind>([
+  [Bot, "agent"],
+  [Sparkles, "agent"],
+  [Workflow, "flow"],
+  [Layers3, "flow"],
+  [Wrench, "tool"],
+  [Boxes, "skill"],
+  [Plug, "mcp"],
+  [Database, "mcp"],
+]);
+/* 48 evenly spaced hue slots: one per item, chosen from a stable hash and
+   de-duplicated within the list, so colours stay distinct and well spread. */
+const HUE_SLOTS = 48;
+const MIN_SLOT_GAP = 14; /* >=105 degrees between neighbours */
+const slotHue = (id: string) =>
+  Math.round(((iconHue(id) % HUE_SLOTS) * 360) / HUE_SLOTS);
+function itemIconKind(
+  item: HubItem,
+  kind: HubKind,
+  category: string,
+): HubIconKind {
+  if (kind === "expert") return category === "workflow" ? "flow" : "agent";
+  if (kind === "skill") return item.bucket === "secondary" ? "skill" : "tool";
+  return "mcp";
+}
 const pretty = (value: string) =>
   taskTypes[value] || FIELD_LABELS[value] || MCP_LABELS[value] || value;
 
@@ -424,6 +455,39 @@ export default function HubCenter({
     return rows;
   }, [items, query, category, sort, filterGroup]);
 
+  /* 48 evenly spaced hue slots, one per item. A stable hash picks the slot;
+     neighbours must be at least ~105 degrees apart so the list never reads
+     as "all green". Gaps relax only if the palette runs out of room. */
+  const hues = useMemo(() => {
+    const used = new Set<number>();
+    let previous = -1;
+    return visible.map((item) => {
+      let slot = iconHue(item.id) % HUE_SLOTS;
+      let chosen = -1;
+      for (const gap of [MIN_SLOT_GAP, 10, 6, 0]) {
+        for (let guard = 0; guard < HUE_SLOTS; guard += 1) {
+          const distance =
+            previous < 0
+              ? HUE_SLOTS
+              : Math.min(
+                  (slot - previous + HUE_SLOTS) % HUE_SLOTS,
+                  (previous - slot + HUE_SLOTS) % HUE_SLOTS,
+                );
+          if (!used.has(slot) && distance >= gap) {
+            chosen = slot;
+            break;
+          }
+          slot = (slot + 1) % HUE_SLOTS;
+        }
+        if (chosen >= 0) break;
+      }
+      if (chosen < 0) chosen = slot;
+      used.add(chosen);
+      previous = chosen;
+      return Math.round((chosen * 360) / HUE_SLOTS);
+    });
+  }, [visible]);
+
   const meta = TAB_META[kind];
   const isWorkflow = kind === "expert" && category === "workflow";
   const managePage = isWorkflow
@@ -562,7 +626,7 @@ export default function HubCenter({
       {categories.length > 0 && (
         <div className="hub-hero-row">
           {categories.map((cat) => {
-            const Icon = cat.icon;
+            const heroKind = HERO_ICON_KIND.get(cat.icon) || "agent";
             return (
               <div key={cat.title} className={`hub-hero tone-${cat.tone}`}>
                 <div className="hub-hero-top">
@@ -570,7 +634,7 @@ export default function HubCenter({
                     <strong>{cat.title}</strong>
                     <span>{cat.count} 项</span>
                   </div>
-                  <Icon size={36} />
+                  <HubIcon kind={heroKind} hue={kindHue(heroKind)} size={36} />
                 </div>
                 <div className="hub-hero-links">
                   {cat.links.length ? (
@@ -688,9 +752,11 @@ export default function HubCenter({
               className="hub-card"
               onClick={() => openDetail(item)}
             >
-              <span className={`hub-card-avatar tone-${index % 4}`}>
-                {item.name.slice(0, 1)}
-              </span>
+              <HubIcon
+                kind={itemIconKind(item, kind, category)}
+                hue={hues[index]}
+                size={48}
+              />
               <span className="hub-card-body">
                 <strong>{item.name}</strong>
                 <span className="hub-card-desc">{item.desc || "—"}</span>
@@ -1049,9 +1115,7 @@ function McpDetail({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="hub-modal-head">
-          <span className="hub-detail-icon">
-            <Plug size={19} />
-          </span>
+          <HubIcon kind="mcp" hue={slotHue(item.id)} size={38} />
           <div>
             <h2>{item.name}</h2>
             <small>MCP 服务 · 完整目录条目</small>

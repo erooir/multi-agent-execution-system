@@ -166,7 +166,9 @@ function ManagementApp() {
         ? (tab as "knowledge" | "data" | "discover")
         : "knowledge";
     }),
-    [taskId, setTaskId] = useState<string | null>(null),
+    [taskId, setTaskId] = useState<string | null>(() =>
+      new URLSearchParams(window.location.search).get("task"),
+    ),
     [agentId, setAgentId] = useState<string | null>(null),
     [agentTool, setAgentTool] = useState<string | null>(null),
     [caseTab, setCaseTab] = useState<CaseTab>("catalog"),
