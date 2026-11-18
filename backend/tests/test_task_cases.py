@@ -1074,8 +1074,9 @@ async def test_missing_data_countercheck_uses_profiles_and_preserves_real_blocke
         if genuine_gap
         else "请说明提供资料中revenue和cost对应的利润口径，金额为人民币元，统计当前记录即可"
     )
-    case = create(db, p, goal=goal)
-    source = asset(db, p, [{"revenue": 10, "cost": 4}])
+    source_key = "fixture-upstream-logical-key"
+    case = create(db, p, goal=goal, source_ids=[source_key])
+    source = asset(db, p, [{"revenue": 10, "cost": 4}], source_id=source_key)
     task_cases.submit(
         case["id"],
         {
@@ -1091,6 +1092,10 @@ async def test_missing_data_countercheck_uses_profiles_and_preserves_real_blocke
 
     async def complete(prompt, *, purpose, **kwargs):
         calls.append((purpose, kwargs["run_id"]))
+        if purpose in {"task_case_requirements", "task_case_planning"}:
+            assert json.loads(prompt)["declared_source_count"] == 1 and source_key not in prompt
+            assert "上游系统通过接口推送" in kwargs["system"] and "通过接口回传缺口" in kwargs["system"]
+            assert "不要要求终端用户上传文件" in kwargs["system"]
         if purpose == "task_case_requirements":
             data = {
                 "summary": "需要参考记录",

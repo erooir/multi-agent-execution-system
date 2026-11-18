@@ -219,7 +219,7 @@ export default function QuestionPortal({
       ) : projects?.length === 0 ? (
         <Empty
           title="尚未分配项目"
-          description="请联系管理员分配项目。项目就绪后即可创建任务并提供所需资料。"
+          description="请联系管理员分配项目。项目就绪后即可创建任务，平台会根据任务从上游接入所需资料。"
         />
       ) : (
         !error && <p role="status">正在读取可用项目…</p>

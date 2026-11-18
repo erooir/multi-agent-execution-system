@@ -618,7 +618,7 @@ def start(case_id, user, repository):
 
             return view(tx, begin(tx, row, user), user)
         if row["missing"] or missing_source_ids(tx, row):
-            s.fail("insufficient_data", "请提供资料需求中缺少的参考数据", 422)
+            s.fail("insufficient_data", "必需资料尚未到齐，平台将继续检索或等待上游接口推送", 422)
         worker = _principal(user)
         code = row.get("matched_case_id")
         flow_id = None
