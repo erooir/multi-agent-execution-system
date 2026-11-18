@@ -50,7 +50,7 @@ test("uploaded FormData leaves multipart boundary to the browser", async () => {
     return new Response("{}");
   };
   try {
-    await api("/v2/data-assets/upload", {
+    await api("/v2/upstream/data-assets/files", {
       method: "POST",
       body: new FormData(),
     });

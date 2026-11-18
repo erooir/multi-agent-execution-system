@@ -336,7 +336,14 @@ class ExecutorBinding(Contract):
     implementation: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class ManagementProfile(Contract):
+    business: Literal["science", "historical", "public_sources", "general"]
+    creation_method: Literal["interview", "manual"] = "manual"
+    reason: str = Field(min_length=2, max_length=500)
+
+
 class AgentInput(Contract):
+    management_profile: ManagementProfile | None = None
     project_id: str
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=2000)
@@ -509,6 +516,8 @@ class ConnectorInput(Contract):
     project_id: str
     name: str = Field(min_length=1, max_length=100)
     kind: Literal["local_assets", "http_knowledge"] = "local_assets"
+    automatic_intake: bool = False
+    allow_public_results: bool = False
     base_url: str = Field(default="", max_length=500)
     description: str = Field(default="", max_length=2000)
 

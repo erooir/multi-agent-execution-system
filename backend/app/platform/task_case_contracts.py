@@ -12,6 +12,14 @@ class TaskCaseInput(Contract):
     title: str = Field(default="", max_length=100)
     goal: str = Field(min_length=3, max_length=7000)
     output_requirements: str = Field(default="", max_length=1000)
+    source_ids: list[str] = Field(default_factory=list, max_length=32)
+
+    @model_validator(mode="after")
+    def valid_source_ids(self):
+        if any(not key.strip() or len(key) > 200 for key in self.source_ids):
+            raise ValueError("invalid_source_id")
+        return self
+
     data_requirement: Literal["auto", "none", "required"] = "auto"
     mode: Literal["cloud", "local"] = "cloud"
     max_cost_cny: float = Field(default=2, ge=0, le=10, allow_inf_nan=False)

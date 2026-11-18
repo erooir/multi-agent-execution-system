@@ -1,3 +1,4 @@
+import { currentGroup, workspacePage } from "./workspace-navigation";
 import { test, expect, type Page } from "@playwright/test";
 
 // Synthetic API contracts only: these tests never create a real task or charge.
@@ -137,11 +138,11 @@ async function management(page: Page) {
     return json({ detail: { message: "No synthetic fixture" } }, 404);
   });
   await page.goto("/manage");
-  await expect(page.getByLabel("当前项目")).toHaveValue(projectId);
-  await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "任务中心", exact: true })
-    .click();
+  await expect(currentGroup(page)).toHaveAttribute(
+    "data-project-id",
+    projectId,
+  );
+  await workspacePage(page, "任务中心");
   return mutations;
 }
 
@@ -149,7 +150,10 @@ test("旧手工和计划仅提供支持的类型，普通任务仍走原接口�
   page,
 }) => {
   const mutations = await management(page);
-  await page.getByRole("button", { name: "新建任务", exact: true }).click();
+  await page
+    .getByRole("main")
+    .getByRole("button", { name: "新建任务", exact: true })
+    .click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByLabel("任务类型")).toHaveValue(
     "structured_transform",
@@ -162,7 +166,9 @@ test("旧手工和计划仅提供支持的类型，普通任务仍走原接口�
   ).toHaveAttribute("href", entry);
   await dialog.getByLabel("任务名称", { exact: true }).fill("普通手工任务");
   await dialog.getByLabel("任务目标", { exact: true }).fill("整理合成表格");
-  await dialog.getByRole("checkbox", { name: /合成表格/ }).check();
+  await expect(
+    dialog.getByText(/输入由平台从有效项目来源中检索/),
+  ).toBeVisible();
   await dialog.getByRole("button", { name: "提交并自动执行" }).click();
   await expect(
     page.getByRole("heading", { name: "普通手工任务", exact: true }),
@@ -174,8 +180,8 @@ test("旧手工和计划仅提供支持的类型，普通任务仍走原接口�
   expect(mutations[1].body).toMatchObject({
     project_id: projectId,
     task_type: "structured_transform",
-    input_refs: ["asset"],
   });
+  expect(mutations[1].body).not.toHaveProperty("input_refs");
 
   await page.getByRole("button", { name: "返回任务列表", exact: true }).click();
   await page.getByRole("button", { name: "创建计划", exact: true }).click();
@@ -187,7 +193,9 @@ test("旧手工和计划仅提供支持的类型，普通任务仍走原接口�
   ).toHaveAttribute("href", entry);
   await dialog.getByLabel("任务名称", { exact: true }).fill("普通计划任务");
   await dialog.getByLabel("任务目标", { exact: true }).fill("定期整理合成表格");
-  await dialog.getByRole("checkbox", { name: /合成表格/ }).check();
+  await expect(
+    dialog.getByText(/输入由平台从有效项目来源中检索/),
+  ).toBeVisible();
   await dialog.getByRole("button", { name: "创建计划", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   expect(mutations.map((item) => item.path)).toEqual([
@@ -206,7 +214,10 @@ test("自主任务详情转入同项目工作台，不复制到旧提交接口�
   page,
 }) => {
   const mutations = await management(page);
-  await page.getByRole("button", { name: "自主任务记录", exact: true }).click();
+  await page
+    .getByRole("main")
+    .getByRole("button", { name: "自主任务记录", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "自主任务记录", exact: true }),
   ).toBeVisible();
@@ -218,7 +229,10 @@ test("自主任务详情转入同项目工作台，不复制到旧提交接口�
   await expect(link).toHaveAttribute("href", entry);
   await link.click();
   await expect(page).toHaveURL(new RegExp("/\\?project=" + projectId + "$"));
-  await expect(page.getByLabel("当前项目")).toHaveValue(projectId);
+  await expect(currentGroup(page)).toHaveAttribute(
+    "data-project-id",
+    projectId,
+  );
   await expect(
     page.getByRole("button", { name: "新建任务", exact: true }),
   ).toBeVisible();
@@ -227,7 +241,10 @@ test("自主任务详情转入同项目工作台，不复制到旧提交接口�
 
 test("普通任务复制保留类型和资料，仍可通过旧提交接口创建", async ({ page }) => {
   const mutations = await management(page);
-  await page.getByRole("button", { name: "普通任务记录", exact: true }).click();
+  await page
+    .getByRole("main")
+    .getByRole("button", { name: "普通任务记录", exact: true })
+    .click();
   await page.getByRole("button", { name: "复制为新任务", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByLabel("任务类型")).toHaveValue(
@@ -236,9 +253,7 @@ test("普通任务复制保留类型和资料，仍可通过旧提交接口创�
   await expect(dialog.getByLabel("任务名称", { exact: true })).toHaveValue(
     "普通任务记录（重试）",
   );
-  await expect(
-    dialog.getByRole("checkbox", { name: /合成表格/ }),
-  ).toBeChecked();
+  await expect(dialog.getByText(/复制历史任务时沿用其输入引用/)).toBeVisible();
   await dialog.getByRole("button", { name: "提交并自动执行" }).click();
   await expect(
     page.getByRole("heading", { name: "普通任务记录（重试）", exact: true }),

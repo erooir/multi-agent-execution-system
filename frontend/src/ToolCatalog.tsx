@@ -68,6 +68,8 @@ export default function ToolCatalog({
     catalog?: Catalog;
     error?: string;
   }>();
+  const [usage,setUsage] = useState<Item[] | null>(null);
+  const [usageError,setUsageError] = useState("");
   const [revision, setRevision] = useState(0);
   const [kind, setKind] = useState<CatalogKind>("tools");
   const [query, setQuery] = useState("");
@@ -97,6 +99,12 @@ export default function ToolCatalog({
       });
     return () => controller.abort();
   }, [projectId, revision]);
+  useEffect(()=>{
+    const c = new AbortController(); setUsage(null); setUsageError("");
+    api<Item>("/v2/capabilities/usage?project_id="+encodeURIComponent(projectId),{signal:c.signal})
+      .then(r=>{if(!c.signal.aborted)setUsage(r.items);}).catch(e=>{if(!c.signal.aborted)setUsageError(e.message);});
+    return ()=>c.abort();
+  },[projectId,revision]);
   const current = response?.project === projectId ? response : undefined;
   const catalog = current?.catalog;
   const tools = catalog?.tools || [];
@@ -119,6 +127,7 @@ export default function ToolCatalog({
       ),
   );
   const selected = visible.find((item) => item.id === selectedId) || visible[0];
+  const actual = usage?.find(r => r.id===selected?.id && String(r.version)===String(selected?.version) && (r.kind==="skill") === (kind==="skills"));
   const holders = selected ? grants.get(selected.id) || [] : [];
   const readiness = selected
     ? catalog?.readiness?.[kind]?.[selected.id]
@@ -138,7 +147,7 @@ export default function ToolCatalog({
       <SectionTitle
         eyebrow="项目能力"
         title="工具箱"
-        description="查找工具，查看参数和当前项目中有权调用该版本的智能体。"
+        description="工具执行具体操作，文档技能包提供步骤和参考知识。选择一个版本可查看项目授权和实际使用次数。"
       />
       {current?.error ? (
         <div role="alert" className="error-line">
@@ -276,6 +285,8 @@ export default function ToolCatalog({
                   <code>{selected.id}</code>
                   <span>v{selected.version}</span>
                 </p>
+                <p className="muted" aria-live="polite">{usageError ? "调用统计暂不可用" : !usage ? "正在读取调用统计…" :
+                  "近7天该版本" + (kind==="skills" ? "读取" : "调用") + " " + (actual?.started ?? 0) + " 次，完成 " + (actual?.completed ?? 0) + " 次，失败 " + (actual?.failed ?? 0) + " 次，结果不确定 " + (actual?.uncertain ?? 0) + " 次"}</p>
                 {readiness && (
                   <div
                     className={

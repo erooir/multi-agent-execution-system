@@ -1,7 +1,9 @@
 import { test, expect } from "@playwright/test";
 import { writeFileSync } from "node:fs";
 
-test("云端浏览器：公开文件上传后无人值守完成证据分析", async ({ page }) => {
+test("云端浏览器：公开资料通过上游 API 接入后无人值守完成证据分析", async ({
+  page,
+}) => {
   test.skip(
     process.env.HANGZHI_BROWSER_CLOUD_SMOKE !== "1",
     "仅由 tools/smoke.py 在开发预算预留后启动",
@@ -14,43 +16,37 @@ test("云端浏览器：公开文件上传后无人值守完成证据分析", as
     .getByLabel("密码", { exact: true })
     .fill(process.env.HANGZHI_SMOKE_PASSWORD!);
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  await page.getByLabel("当前项目").selectOption({ label: "本轮真实验收" });
-  await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "我的资料", exact: true })
-    .click();
-  await page.getByRole("button", { name: "登记 / 上传数据" }).click();
-  let dialog = page.getByRole("dialog");
-  await dialog.getByRole("button", { name: "上传文件", exact: true }).click();
-  await dialog.getByLabel("选择文件").setInputFiles({
-    name: `${name}.txt`,
-    mimeType: "text/plain",
-    buffer: Buffer.from(
-      "公开合成记录：星航项目负责人是李华，2026年10月启动，目标是验证无人值守资料分析。交付日期未确定。",
-    ),
+  const project = (
+    await (await page.request.get("/api/v2/projects")).json()
+  ).find((p: any) => p.name === "本轮真实验收");
+  expect(project?.id).toBeTruthy();
+  const source = await page.request.post("/api/v2/data-assets", {
+    data: {
+      project_id: project.id,
+      name,
+      source_id: name,
+      source_version: "1",
+      modality: "text",
+      media_type: "text/plain",
+      classification: "public",
+      content:
+        "公开合成记录：星航项目负责人是李华，2026年10月启动，目标是验证无人值守资料分析。交付日期未确定。",
+      provenance: "脚本生成的公开合成资料，允许本次真实模型验收外发。",
+    },
   });
-  await dialog
-    .getByLabel("来源标识", { exact: true })
-    .fill(`synthetic:browser-cloud:${name}`);
-  await dialog
-    .getByRole("combobox", { name: "数据范围", exact: true })
-    .selectOption("public");
-  await dialog
-    .getByLabel("来源及授权说明", { exact: true })
-    .fill("脚本生成的公开合成资料，允许本次真实模型验收外发。");
-  await dialog.getByRole("button", { name: "验证并登记" }).click();
-  await expect(dialog).not.toBeVisible();
+  expect(source.ok()).toBeTruthy();
+  await page.goto("/manage?view=tasks");
+  await page.locator(".wb-group-row").filter({ hasText: project.name }).click();
   await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "任务中心", exact: true })
+    .locator("main")
+    .getByRole("button", { name: "新建任务", exact: true })
     .click();
-  await page.getByRole("button", { name: "新建任务", exact: true }).click();
-  dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("dialog");
   await dialog.getByLabel("任务名称", { exact: true }).fill(name);
   await dialog
     .getByLabel("任务目标", { exact: true })
     .fill(
-      "使用证据分析技能，提取负责人、启动时间与目标并总结，引用原文；交付日期未知请明确说明。",
+      `使用证据分析技能，分析来源 ${name}，提取负责人、启动时间与目标并总结，引用原文；交付日期未知请明确说明。`,
     );
   await dialog
     .getByRole("combobox", { name: "任务类型", exact: true })
@@ -58,7 +54,6 @@ test("云端浏览器：公开文件上传后无人值守完成证据分析", as
   await dialog
     .getByRole("combobox", { name: "执行模式", exact: true })
     .selectOption("cloud");
-  await dialog.getByRole("checkbox", { name: new RegExp(name) }).check();
   const accepted = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/v2/tasks") &&

@@ -19,6 +19,7 @@ import { statusNames, taskTypes } from "./domain";
 import type { Item, Mutation } from "./types";
 import type { HubKind } from "./WbShell";
 import { AgentsPage, WorkflowsPage } from "./AssetPages";
+import ExpertInterview, { businessLabel } from "./ExpertInterview";
 import ToolCatalog from "./ToolCatalog";
 import { JsonView } from "./ui";
 
@@ -93,6 +94,7 @@ export default function HubCenter({
   capabilities,
   workflows = [],
   assets = [],
+  isAdmin = false,
   canEdit = false,
   mutate,
   onTask,
@@ -109,6 +111,7 @@ export default function HubCenter({
   capabilities: Item[];
   workflows?: Item[];
   assets?: Item[];
+  isAdmin?: boolean;
   canEdit?: boolean;
   mutate: Mutation;
   onTask: (id: string) => void;
@@ -130,6 +133,7 @@ export default function HubCenter({
     "all" | "secondary" | "workflow"
   >("all");
   const [filterGroup, setFilterGroup] = useState("全部");
+  const [groupBy,setGroupBy] = useState("business");
   const filterScrollRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<HubItem | null>(null);
   // Re-mount the native detail dialog when the same card is opened again.
@@ -424,6 +428,13 @@ export default function HubCenter({
     return rows;
   }, [items, query, category, sort, filterGroup]);
 
+  const isExpertList = kind === "expert" && !isWorkflowView;
+  const groups: Record<string, HubItem[]> = {};
+  for (const item of visible) {
+    const agent = item.extra || {};
+    const label = !isExpertList ? "all" : groupBy === "business" ? businessLabel(agent) : pretty(agent.structure || "未分类");
+    (groups[label] ||= []).push(item);
+  }
   const meta = TAB_META[kind];
   const isWorkflow = kind === "expert" && category === "workflow";
   const managePage = isWorkflow
@@ -465,6 +476,8 @@ export default function HubCenter({
     setCreateForm({
       name: "",
       description: "",
+      task_type: capabilities[0]?.id || "structured_transform",
+      agent_id: agents[0]?.id || "",
       capability: capabilities[0]?.id || "structured_transform",
       transport: "stdio",
       url: "",
@@ -499,30 +512,6 @@ export default function HubCenter({
           ],
         });
         notify?.("流程已创建");
-      } else if (kind === "expert") {
-        const cap = capabilities.find(
-          (c) => c.id === createForm.capability,
-        );
-        await post("/v2/agents", {
-          project_id: projectId,
-          name: createForm.name,
-          description: createForm.description || "",
-          purpose: "general",
-          structure: "atomic",
-          capabilities: [createForm.capability],
-          modalities: Array.isArray(cap?.modalities)
-            ? cap.modalities
-            : ["structured"],
-          tool_ids: [],
-          instructions: "",
-          model_policy: "local",
-          execution_strategy: "fixed",
-          tool_refs: [],
-          skill_refs: [],
-          members: [],
-          parameters: {},
-        });
-        notify?.("智能体已创建");
       } else if (kind === "connector") {
         await post("/v2/capability-definitions/mcp", {
           project_id: projectId,
@@ -627,10 +616,10 @@ export default function HubCenter({
           >
             管理
           </button>
-          <button className="hub-add" onClick={openCreate}>
+          {(kind==="connector" ? isAdmin : canEdit) && <button className="hub-add" onClick={openCreate}>
             <Plus size={14} />
             {addLabel}
-          </button>
+          </button>}
           <div className="hub-sort">
             {(["default", "hot", "new"] as const).map((value) => (
               <button
@@ -641,7 +630,7 @@ export default function HubCenter({
                 {value === "default"
                   ? "综合"
                   : value === "hot"
-                    ? "最热"
+                    ? "推荐顺序"
                     : "最新"}
               </button>
             ))}
@@ -680,9 +669,15 @@ export default function HubCenter({
 
       <div className="hub-list-rule" />
 
-      {visible.length ? (
-        <div className="hub-card-grid">
-          {visible.map((item, index) => (
+      {isExpertList && <label className="expert-group-select">智能体视图
+        <select value={groupBy} onChange={e=>setGroupBy(e.target.value)}>
+          <option value="business">按业务方向</option><option value="structure">按智能体类型</option>
+        </select></label>}
+      {visible.length ? Object.entries(groups).map(([group,rows])=>(
+        <section key={group} className="expert-group">
+          {isExpertList && <h3>{group} <small>({rows.length})</small></h3>}
+          <div className="hub-card-grid">
+          {rows.map((item, index) => (
             <button
               key={item.id + "-" + index}
               className="hub-card"
@@ -708,10 +703,9 @@ export default function HubCenter({
               </span>
             </button>
           ))}
-        </div>
-      ) : (
-        <div className="hub-empty">没有匹配的条目，换个关键词或分类试试。</div>
-      )}
+          </div>
+        </section>
+      )) : <div className="hub-empty">没有匹配的条目，换个关键词或分类试试。</div>}
 
       {selected && (
         <>
@@ -781,7 +775,9 @@ export default function HubCenter({
         </>
       )}
 
-      {creating && (
+      {creating && isExpertList && <ExpertInterview projectId={projectId} onClose={()=>setCreating(false)}
+        onSaved={()=>{setCreating(false); onCreated?.(); notify?.("智能体草稿已保存");}}/>}
+      {creating && !isExpertList && (
         <div
           className="hub-modal-backdrop"
           onClick={() => setCreating(false)}

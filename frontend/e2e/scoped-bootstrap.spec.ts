@@ -1,3 +1,4 @@
+import { group, currentGroup, workspacePage } from "./workspace-navigation";
 import { test, expect } from "@playwright/test";
 import { adminSession } from "./admin-session";
 
@@ -42,17 +43,14 @@ test("工作台只刷新当前项目，迟到的项目响应不能切回旧项�
     );
   };
   await page.goto("/manage");
-  const picker = page.getByLabel("当前项目");
-  await expect(picker.locator('option[value="' + b.id + '"]')).toBeAttached();
-  if ((await picker.inputValue()) !== b.id) {
+
+  await expect(group(page, b.id)).toBeAttached();
+  if ((await currentGroup(page).getAttribute("data-project-id")) !== b.id) {
     const refreshed = page.waitForResponse((r) => scoped(r.url(), b.id));
-    await picker.selectOption(b.id);
+    await group(page, b.id).click();
     expect((await refreshed).ok()).toBeTruthy();
   }
-  await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "我的资料" })
-    .click();
+  await workspacePage(page, "我的资料");
   await expect(page.getByText(b.name, { exact: true })).toBeVisible();
   let release!: () => void,
     captured!: () => void,
@@ -80,10 +78,10 @@ test("工作台只刷新当前项目，迟到的项目响应不能切回旧项�
     completed();
   });
   try {
-    await picker.selectOption(a.id);
+    await group(page, a.id).click();
     await seen;
     const newResponse = page.waitForResponse((r) => scoped(r.url(), b.id));
-    await picker.selectOption(b.id);
+    await group(page, b.id).click();
     expect((await newResponse).ok()).toBeTruthy();
     release();
     await done;
@@ -95,7 +93,7 @@ test("工作台只刷新当前项目，迟到的项目响应不能切回旧项�
           ),
         ),
     );
-    await expect(picker).toHaveValue(b.id);
+    await expect(currentGroup(page)).toHaveAttribute("data-project-id", b.id);
     await expect(page.getByText(b.name, { exact: true })).toBeVisible();
     await expect(page.getByText(a.name, { exact: true })).toHaveCount(0);
     expect(requested.length).toBeGreaterThan(2);

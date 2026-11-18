@@ -1,13 +1,11 @@
+import { group, workspacePage } from "./workspace-navigation";
 import { test, expect, type Page } from "@playwright/test";
 import { adminSession } from "./admin-session";
 
 async function openTools(page: Page, projectId: string) {
   await page.goto("/manage");
-  await page.getByLabel("当前项目").selectOption(projectId);
-  await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "工具箱", exact: true })
-    .click();
+  await group(page, projectId).click();
+  await workspacePage(page, "工具箱");
   await expect(
     page.getByRole("heading", { name: "工具箱", exact: true }),
   ).toBeVisible();

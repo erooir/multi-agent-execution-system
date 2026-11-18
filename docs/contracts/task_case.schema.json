@@ -25,6 +25,14 @@
       "title": "Output Requirements",
       "type": "string"
     },
+    "source_ids": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 32,
+      "title": "Source Ids",
+      "type": "array"
+    },
     "data_requirement": {
       "default": "auto",
       "enum": [

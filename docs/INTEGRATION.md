@@ -29,7 +29,7 @@
 成功任务可鉴权下载 `GET /api/v2/tasks/{id}/semantic-evidence/report`（UTF-8纯文本）。报告给出来源编号、版本、逐字摘录的字符区间或计算记录校验标识。区间针对**已登记的文本表示**；若输入为原件节选，须另外保留原件哈希、页码和提取/规范化方法。报告是模型的辅助解释，不改变原用例终态、确定性复算或覆盖范围。未通过审核、资料撤回、过期、重新分类或变更时，不提供该报告。
 
 ## 数据
-使用data_asset.schema.json，必填project_id/name/modality/content/source_id/provenance。source_version默认1；classification默认local。原始媒体通过/data-assets/upload的multipart file上传，另附project_id/source_id/provenance等元数据。文件路径不是外部可指定的content_ref。缺字段返回422，越权403，已撤回或过期409，过大413。
+使用data_asset.schema.json，必填project_id/name/modality/content/source_id/provenance。source_version默认1；classification默认local。原始媒体通过/upstream/data-assets/files的multipart file上传，另附project_id/source_id/provenance等元数据。文件路径不是外部可指定的content_ref。缺字段返回422，越权403，已撤回或过期409，过大413。
 
 JSON/CSV使用UTF-8，结构化内容是对象数组或records对象。媒体必须声明真实模态，不把未处理的媒体伪装成文本。文本或结构化输入由程序校验，供应方应给出合法、缺字段、过期、撤回与重复样例。原始材料不自动获得云端处理授权。
 

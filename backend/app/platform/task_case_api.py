@@ -14,7 +14,6 @@ from . import task_cases as cases
 from .db import repo
 from .task_case_contracts import (
     CandidateEvaluationInput,
-    DataSubmissionInput,
     IngestTokenInput,
     InlineSubmissionInput,
     TaskCaseInput,
@@ -90,8 +89,9 @@ def task_run_detail(case_id: str, task_id: str, user: dict = signed_in):
         task = tx.get("tasks", task_id)
         if not task or task.get("task_case_id") != case_id:
             s.fail("not_found", "执行记录不可用", 404)
-        for source in task["snapshot"]["inputs"]:
-            s.verify_frozen_asset(source, tx.get("data_assets", source["id"]))
+        _, _, withheld = cases.case_source_context(tx, case)
+        if withheld:
+            s.fail("source_unavailable", "输入资料不可用，执行详情已屏蔽", 409)
         return {
             "id": task_id,
             "phase": task.get("task_case_phase", "execution"),
@@ -107,33 +107,18 @@ def task_run_detail(case_id: str, task_id: str, user: dict = signed_in):
         }
 
 
-@router.post("/{case_id}/submissions")
-def submit(case_id: str, body: DataSubmissionInput, user: dict = signed_in):
-    return cases.submit(case_id, body, user, repo)
-
-
-@router.post("/{case_id}/upload", status_code=201)
-async def upload(
-    case_id: str,
-    file: UploadFile = uploaded_file,
-    classification: str = Form("local"),
-    requirement_id: str = Form(""),
-    idempotency_key: str = Form(...),
-    user: dict = signed_in,
-):
-    cases.required(repo, case_id, user, write=True)
-    if classification not in {"local", "public"} or not 1 <= len(idempotency_key) <= 130:
-        s.fail("invalid_submission", "分类或提交标识无效", 422)
-    return cases.upload(
-        case_id,
-        file.filename or "upload",
-        await file.read(128_000_001),
-        classification,
-        requirement_id or None,
-        idempotency_key,
-        user,
-        repo,
-    )
+@router.post("/{case_id}/authorize-cloud")
+def authorize_cloud(case_id: str, user: dict = signed_in):
+    with repo.transaction() as tx:
+        row = cases.required(tx, case_id, user, write=True)
+        cases._editable(tx, row)
+        if row["mode"] != "cloud":
+            s.fail("mode_mismatch", "任务使用本地模式", 409)
+        if not row["public_egress_authorized"]:
+            row["public_egress_authorized"] = True
+            tx.put("task_cases", row)
+            s.audit(tx, row["project_id"], "task_case.cloud_consent", case_id, user)
+        return cases.start(case_id, user, tx)
 
 
 @router.post("/{case_id}/start", status_code=202)
@@ -164,10 +149,11 @@ def revoke_token(case_id: str, token_id: str, user: dict = signed_in):
 
 @router.post("/{case_id}/ingest", status_code=201)
 def ingest(case_id: str, body: InlineSubmissionInput, authorization: str = Header("")):
-    user = cases.ingest_identity(
-        case_id, authorization.removeprefix("Bearer ") if authorization.startswith("Bearer ") else "", repo
-    )
-    result = cases.ingest_inline(case_id, body, user, repo)
+    token = authorization.removeprefix("Bearer ") if authorization.startswith("Bearer ") else ""
+    with repo.transaction() as tx:
+        tx.get("task_cases", case_id, for_update=True)
+        user = cases.ingest_identity(case_id, token, tx)
+        result = cases.ingest_inline(case_id, body, user, tx)
     # Customer credentials grant submission only, never a read into task answers.
     return {"task_case_id": case_id, "status": result["status"], "submission_accepted": True}
 
@@ -178,25 +164,41 @@ async def ingest_upload(
     file: UploadFile = uploaded_file,
     classification: str = Form("local"),
     requirement_id: str = Form(""),
+    source_id: str | None = Form(None, min_length=1, max_length=200),
+    source_version: str | None = Form(None, min_length=1, max_length=100),
+    provenance: str | None = Form(None, min_length=1, max_length=1000),
     idempotency_key: str = Form(...),
     authorization: str = Header(""),
 ):
-    user = cases.ingest_identity(
-        case_id, authorization.removeprefix("Bearer ") if authorization.startswith("Bearer ") else "", repo
-    )
+    token = authorization.removeprefix("Bearer ") if authorization.startswith("Bearer ") else ""
+    cases.ingest_identity(case_id, token, repo)
     if classification not in {"local", "public"} or not 1 <= len(idempotency_key) <= 130:
         s.fail("invalid_submission", "分类或提交标识无效", 422)
-    result = cases.upload(
-        case_id,
-        file.filename or "upload",
-        await file.read(128_000_001),
-        classification,
-        requirement_id or None,
-        idempotency_key,
-        user,
-        repo,
-    )
+    content = await file.read(128_000_001)
+    with repo.transaction() as tx:
+        tx.get("task_cases", case_id, for_update=True)
+        user = cases.ingest_identity(case_id, token, tx)
+        result = cases.upload(
+            case_id,
+            file.filename or "upload",
+            content,
+            classification,
+            requirement_id or None,
+            idempotency_key,
+            user,
+            tx,
+            source_id=source_id,
+            source_version=source_version,
+            provenance=provenance,
+        )
     return {"task_case_id": case_id, "status": result["status"], "submission_accepted": True}
+
+
+@router.get("/{case_id}/outcome")
+def outcome(case_id: str, user: dict = signed_in):
+    """Upper applications receive delivery, provenance and gaps without management traces."""
+    detail = cases.get(case_id, user, repo)
+    return {k: detail.get(k) for k in ("id", "status", "result", "missing", "content_withheld")}
 
 
 @router.get("/{case_id}/result/download")

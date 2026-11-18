@@ -53,7 +53,7 @@ def verify(url, output):
                 for label, data in media_samples(code).items():
                     r = (
                         c.post(
-                            "/api/v2/data-assets/upload",
+                            "/api/v2/upstream/data-assets/files",
                             data={"project_id": pid, "source_id": label, "provenance": "synthetic pixels"},
                             files={"file": (label + ".png", data, "image/png")},
                         )

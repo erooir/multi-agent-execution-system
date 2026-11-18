@@ -47,6 +47,8 @@ export function KnowledgePage({
   const [connector, setConnector] = useState({
       name: "",
       kind: "local_assets",
+      automatic_intake: false,
+      allow_public_results: false,
       base_url: "",
       description: "",
     }),
@@ -257,6 +259,32 @@ export function KnowledgePage({
                   placeholder="http://internal-service/knowledge"
                 />
               </Field>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={connector.automatic_intake}
+                  onChange={(e) =>
+                    setConnector({
+                      ...connector,
+                      automatic_intake: e.target.checked,
+                    })
+                  }
+                />
+                允许任务按需向此服务发送检索条件
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={connector.allow_public_results}
+                  onChange={(e) =>
+                    setConnector({
+                      ...connector,
+                      allow_public_results: e.target.checked,
+                    })
+                  }
+                />
+                信任此来源逐条声明的公开分类（云端仍需任务授权）
+              </label>
               <p className="note">
                 登记接口不代表完成对接；实际状态由服务端适配器验证。凭据只在服务端配置。
               </p>

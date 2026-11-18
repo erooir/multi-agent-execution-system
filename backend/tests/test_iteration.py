@@ -12,7 +12,7 @@ from backend.app.platform import runtime
 from backend.app.platform.db import Repository
 from backend.app.platform.mcp_runtime import connect_mcp, create_builtin_mcp
 from backend.app.platform.quality import deterministic_quality
-from backend.app.platform.tool_registry import catalog, freeze_bindings, permissions
+from backend.app.platform.tool_registry import catalog, digest, freeze_bindings, permissions
 from backend.app.platform.tool_runtime import ToolSession
 from backend.tests.test_v2_runtime import execute, seed
 
@@ -198,6 +198,58 @@ async def test_tool_agent_real_skill_and_mcp_are_used_in_formal_runtime(tool_rep
     assert [call["kind"] for call in calls] == ["skill", "mcp"]
     assert all(call["status"] == "completed" for call in calls)
     assert result["result"]["artifacts"][0]["quality_status"] == "passed"
+
+
+@pytest.mark.asyncio
+async def test_builtin_source_defaults_preserve_arguments_and_access(tool_repository):
+    content = "合成记录" * 600
+    task = seed(tool_repository, task_type="text_analysis", mode="cloud", content=content)
+    inputs = task["snapshot"]["inputs"]
+    for index in range(2, 12):
+        inputs.append(tool_repository.put("data_assets", {**inputs[0], "id": f"input-{index}"}))
+    tool_repository.put("data_assets", {**inputs[0], "id": "other-project-input", "project_id": "other"})
+    tool_repository.put("tasks", task)
+    claimed = tool_repository.claim("fixture-worker")
+    execution = runtime.Execution(tool_repository, claimed, "fixture-worker", claimed["lease_token"])
+    execution.active_node_id = "n1"
+    agent = tool_agent(claimed["snapshot"]["agents"][0])
+    allowed = {
+        ref
+        for ref in permissions(agent)
+        if ref.startswith(("tool:data.read_source@", "tool:data.search_sources@"))
+    }
+    session = await ToolSession(execution, agent, 0, allowed).initialize()
+    bindings = session.bindings()
+    try:
+        hits = (await bindings["search_sources"](query="合成"))["data"]["hits"]
+        assert [hit["source_id"] for hit in hits] == [source["id"] for source in inputs[:10]]
+        limited = (await bindings["search_sources"](query="合成", limit=1))["data"]["hits"]
+        assert limited == hits[:1]
+        excerpt = (await bindings["read_source"](source_id="input-1"))["data"]
+        assert (excerpt["start"], excerpt["end"], excerpt["source_text"]) == (0, 2000, content[:2000])
+        tail = (await bindings["read_source"](source_id="input-1", start=2000))["data"]
+        assert tail["source_text"] == content[2000:]
+        head = (await bindings["read_source"](source_id="input-1", length=3))["data"]
+        assert head["source_text"] == content[:3]
+        denied = await bindings["read_source"](source_id="other-project-input")
+        assert denied["data"]["error_code"] == "tool_source_denied"
+        assert "other-project-input" not in session.sources_read
+        invalid = await bindings["search_sources"](query="合成", limit=0)
+        assert invalid["data"]["error_code"] == "tool_input_invalid"
+
+        recorded = execution.current()
+        audit = recorded["tool_calls"]
+        assert [call["status"] for call in audit] == ["completed"] * 5 + ["failed", "failed"]
+        for call, supplied in zip(
+            audit[:3],
+            ({"query": "合成"}, {"query": "合成", "limit": 1}, {"source_id": "input-1"}),
+            strict=True,
+        ):
+            assert call["argument_names"] == sorted(supplied)
+            assert call["arguments_checksum"] == digest(supplied)
+            assert recorded["tool_checkpoints"][call["id"]]["arguments"] == supplied
+    finally:
+        await session.close()
 
 
 @pytest.mark.asyncio

@@ -30,6 +30,14 @@ export type TaskCase = {
   output_requirements?: string;
   status: string;
   requirements?: DataRequirement[];
+  intake?: {
+    status: string;
+    checked_at?: string;
+    attempts?: number;
+    bound_asset_count?: number;
+    connector_ids?: string[];
+    errors?: string[];
+  };
   available_assets?: TaskAsset[];
   profiles?: {
     asset_id: string;
@@ -101,7 +109,7 @@ export type TaskCase = {
 
 export const taskCaseStatus: Record<string, string> = {
   analyzing_requirements: "正在分析资料需求",
-  awaiting_data: "待补充资料",
+  awaiting_data: "等待上游资料",
   ready: "资料就绪",
   accepted: "已受理",
   planning: "正在规划",

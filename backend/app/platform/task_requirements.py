@@ -280,7 +280,7 @@ def quality(output):
 
 
 def complete(tx, task, outputs):
-    from .task_cases import _available, start
+    from .task_cases import _available, refresh_missing, start
 
     row = tx.get("task_cases", task["task_case_id"], for_update=True)
     if row["task_id"] != task["id"] or task["status"] != "succeeded":
@@ -294,10 +294,7 @@ def complete(tx, task, outputs):
     if not analysis["needs_data"]:
         row["matched_case_id"] = None
     row["requirements"] = refresh(row, _available(tx, row))
-    row["missing"] = [
-        r["description"] for r in row["requirements"] if r["required"] and r["status"] != "provided"
-    ]
-    row["status"] = "awaiting_data" if row["missing"] else "ready"
+    refresh_missing(tx, row)
     tx.put("task_cases", row)
     plan = {
         "id": task["id"] + ":requirements",

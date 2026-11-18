@@ -20,8 +20,6 @@ import {
   ShieldCheck,
   Sparkles,
   Trash2,
-  Upload,
-  X,
 } from "lucide-react";
 import { api, ApiError, post, remove } from "./api";
 import { time, statusNames } from "./domain";
@@ -101,16 +99,14 @@ export default function TaskCaseDesk({
   // Publish the existing list to the WorkBuddy-style sidebar. No extra request.
   useEffect(() => {
     onState?.({
-      items: tasks.map(
-        (t): WbTask => ({
-          id: t.id,
-          title: taskCaseHeading(t),
-          status: t.status,
-          statusLabel: taskCaseStatus[t.status] || t.status,
-          createdAt: t.created_at,
-          active: taskCaseActive.has(t.status),
-        }),
-      ),
+      items: tasks.map((t): WbTask => ({
+        id: t.id,
+        title: taskCaseHeading(t),
+        status: t.status,
+        statusLabel: taskCaseStatus[t.status] || t.status,
+        createdAt: t.created_at,
+        active: taskCaseActive.has(t.status),
+      })),
       selected: composing ? "" : selected,
       loading,
       error: listError,
@@ -290,49 +286,51 @@ export default function TaskCaseDesk({
       >
         {!chromeInSidebar && (
           <aside className="taskcase-history" aria-label="任务列表">
-          <div className="taskcase-row">
-            <h2>
-              任务记录 <small>{tasks.length}</small>
-            </h2>
-            <button
-              className="icon"
-              aria-label="刷新任务"
-              onClick={() => setTick((n) => n + 1)}
-            >
-              <RefreshCw size={16} />
-            </button>
-          </div>
-          {loading ? (
-            <p role="status">正在读取任务…</p>
-          ) : tasks.length ? (
-            <ul>
-              {tasks.map((t) => (
-                <li key={t.id}>
-                  <button
-                    className={
-                      !composing && selected === t.id ? "selected" : ""
-                    }
-                    aria-current={
-                      !composing && selected === t.id ? "true" : undefined
-                    }
-                    onClick={() => {
-                      setSelected(t.id);
-                      setComposing(false);
-                    }}
-                  >
-                    <strong title={taskCaseHeading(t)}>
-                      {taskCaseHeading(t)}
-                    </strong>
-                    <State status={t.status} />
-                    <small>{time(t.created_at)}</small>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="taskcase-muted">还没有任务。从右侧创建第一个任务。</p>
-          )}
-        </aside>
+            <div className="taskcase-row">
+              <h2>
+                任务记录 <small>{tasks.length}</small>
+              </h2>
+              <button
+                className="icon"
+                aria-label="刷新任务"
+                onClick={() => setTick((n) => n + 1)}
+              >
+                <RefreshCw size={16} />
+              </button>
+            </div>
+            {loading ? (
+              <p role="status">正在读取任务…</p>
+            ) : tasks.length ? (
+              <ul>
+                {tasks.map((t) => (
+                  <li key={t.id}>
+                    <button
+                      className={
+                        !composing && selected === t.id ? "selected" : ""
+                      }
+                      aria-current={
+                        !composing && selected === t.id ? "true" : undefined
+                      }
+                      onClick={() => {
+                        setSelected(t.id);
+                        setComposing(false);
+                      }}
+                    >
+                      <strong title={taskCaseHeading(t)}>
+                        {taskCaseHeading(t)}
+                      </strong>
+                      <State status={t.status} />
+                      <small>{time(t.created_at)}</small>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="taskcase-muted">
+                还没有任务。从右侧创建第一个任务。
+              </p>
+            )}
+          </aside>
         )}
         <div className="taskcase-content">
           {composing || (!loading && !tasks.length && canSubmit) ? (
@@ -630,7 +628,7 @@ function TaskDetail({
         )}
         {canSubmit && resumable && (
           <p className="taskcase-notice">
-            本轮记录已保留。你可以补充资料后继续同一任务，也可以沿用已有资料再次执行。新一轮与历史运行共享本任务累计费用上限，不会重置已发生费用。
+            本轮执行和费用记录已保留。上游系统可以按缺口提交新的依据，平台核验后继续执行。
           </p>
         )}
       </section>
@@ -696,7 +694,7 @@ function TaskDetail({
       {deleting && (
         <Confirm
           title="删除这项任务记录"
-          description="删除后，本任务将从任务记录中移除，上游提交入口也会失效。已上传资料、执行与审核记录及历史费用仍保留。"
+          description="删除后，本任务将从任务记录中移除，上游提交入口也会失效。已接入资料、执行与审核记录及历史费用仍保留。"
           danger
           confirm="删除记录"
           onClose={() => setDeleting(false)}
@@ -735,91 +733,9 @@ function Requirements({
   editable: boolean;
   onChange: (task: TaskCase) => void;
 }) {
-  const [selected, setSelected] = useState<string[]>([]);
-  const [files, setFiles] = useState<File[]>([]);
-  const [isPublic, setIsPublic] = useState(false);
-  const [consent, setConsent] = useState(task.public_egress_authorized);
-  const [busy, setBusy] = useState(false);
-  const [stage, setStage] = useState("");
-  const [error, setError] = useState("");
-  const [requirementId, setRequirementId] = useState("");
-  const input = useRef<HTMLInputElement>(null);
-  const savedUploads = useRef(new Map<File, string>());
-  const pendingSubmission = useRef<{ fingerprint: string; key: string } | null>(
-    null,
-  );
-  const assets = task.available_assets || [];
-  const submitted = new Set(
-    (task.submissions || []).flatMap((s) => s.input_refs),
-  );
   const requirements = task.requirements || [];
-  const resumable = taskCaseResumable.has(task.status);
-  const blockedLocal =
-    task.mode === "cloud" &&
-    ((files.length > 0 && !isPublic) ||
-      selected.some(
-        (id) => assets.find((a) => a.id === id)?.classification !== "public",
-      ));
-
-  async function deliver() {
-    if (busy) return;
-    setBusy(true);
-    setError("");
-    try {
-      let latest = task;
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        setStage(`正在上传 ${i + 1}/${files.length}：${file.name}`);
-        let key = savedUploads.current.get(file);
-        if (!key) {
-          key = crypto.randomUUID();
-          savedUploads.current.set(file, key);
-        }
-        const data = new FormData();
-        data.set("file", file);
-        data.set("classification", isPublic ? "public" : "local");
-        data.set("idempotency_key", key);
-        if (requirementId) data.set("requirement_id", requirementId);
-        latest = await api<TaskCase>(path(task.id) + "/upload", {
-          method: "POST",
-          body: data,
-        });
-      }
-      setStage("正在校验资料与授权…");
-      const body = {
-        input_refs: selected,
-        requirement_ids: requirementId ? [requirementId] : [],
-        public_egress_authorized: consent,
-      };
-      // A continuation is a new intent even if it reuses the same inputs. Retain
-      // its key for network retries, but never replay a prior run's receipt.
-      const fingerprint = JSON.stringify({
-        ...body,
-        continuation: resumable
-          ? `${task.status}:${task.task_id || task.updated_at}`
-          : task.task_id || "intake",
-      });
-      if (pendingSubmission.current?.fingerprint !== fingerprint)
-        pendingSubmission.current = { fingerprint, key: crypto.randomUUID() };
-      latest = await post(path(task.id) + "/submissions", {
-        ...body,
-        idempotency_key: pendingSubmission.current.key,
-      });
-      setFiles([]);
-      setSelected([]);
-      if (input.current) input.current.value = "";
-      if (taskCaseCanStart(latest)) {
-        setStage("正在生成执行计划…");
-        latest = await post(path(task.id) + "/start");
-      }
-      onChange(latest);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-      setStage("");
-    }
-  }
+  const [consenting, setConsenting] = useState(false);
+  const [error, setError] = useState("");
   return (
     <section className="taskcase-card">
       <div className="taskcase-card-heading">
@@ -827,13 +743,11 @@ function Requirements({
           <FileText size={21} />
         </span>
         <div>
-          <h2>{resumable ? "补充资料并继续" : "这项任务需要的资料"}</h2>
+          <h2>资料接入与检索</h2>
           <p>
-            {resumable
-              ? "已提交的资料继续保留。补充新的依据或重新执行后，平台会创建新的运行记录，原有审核与费用仍然可追溯。"
-              : requirements.length
-                ? "平台根据任务目标整理了以下需求。可上传原文件，也可使用项目中已有的授权资料。"
-                : "平台判断这项任务无需上传参考资料，可以直接执行。"}
+            {requirements.length
+              ? "平台按任务需求检索项目来源。缺少的资料由上游系统通过本任务接口提供。"
+              : "任务可按需求分析结果直接执行。"}
           </p>
         </div>
       </div>
@@ -849,9 +763,9 @@ function Requirements({
                     : r.status === "provided"
                       ? "资料已读取"
                       : r.status === "available"
-                        ? "有可选资料"
+                        ? "已发现候选来源"
                         : r.required
-                          ? "待提供"
+                          ? "待上游提供"
                           : "可选"}
                 </span>
               </div>
@@ -926,153 +840,36 @@ function Requirements({
           </ul>
         </details>
       )}
+      {task.intake?.checked_at && (
+        <p>
+          上次检索 {time(task.intake.checked_at)} · 已关联{" "}
+          {task.intake.bound_asset_count || 0} 项 · 已检查{" "}
+          {task.intake.connector_ids?.length || 0} 个上游接口
+          {task.intake.errors?.length
+            ? " · 部分来源未获准使用或响应未通过校验"
+            : ""}
+        </p>
+      )}
       {editable && (
         <>
-          {!!assets.length && (
-            <fieldset className="taskcase-asset-list">
-              <legend>选择已有资料</legend>
-              {assets.map((asset) => (
-                <label key={asset.id} className="taskcase-check">
-                  <input
-                    type="checkbox"
-                    checked={
-                      submitted.has(asset.id) || selected.includes(asset.id)
-                    }
-                    disabled={busy || submitted.has(asset.id)}
-                    onChange={(e) =>
-                      setSelected((ids) =>
-                        e.target.checked
-                          ? [...ids, asset.id]
-                          : ids.filter((id) => id !== asset.id),
-                      )
-                    }
-                  />
-                  <span>
-                    <strong>{asset.name}</strong>
-                    <small>
-                      {bytesLabel(asset.bytes)}
-                      {asset.bytes !== undefined ? " · " : ""}
-                      {asset.classification === "public"
-                        ? "公开资料"
-                        : "仅本地"}
-                      {submitted.has(asset.id) ? " · 已提交" : ""}
-                    </small>
-                  </span>
-                </label>
-              ))}
-            </fieldset>
-          )}
-          <div className="taskcase-upload">
-            <label className="taskcase-upload-trigger">
-              <Upload size={23} />
-              <strong>上传任务资料</strong>
-              <span>保留原始格式；具体所需内容见上方需求。</span>
-              <input
-                ref={input}
-                aria-label="上传任务资料"
-                type="file"
-                multiple
-                disabled={busy}
-                onChange={(e) => setFiles(Array.from(e.target.files || []))}
-              />
-            </label>
-            {!!files.length && (
-              <>
-                <ul className="taskcase-files">
-                  {files.map((file, i) => (
-                    <li key={`${file.name}-${i}`}>
-                      <span>
-                        {file.name}
-                        <small>{bytesLabel(file.size)}</small>
-                      </span>
-                      <button
-                        type="button"
-                        aria-label={`移除 ${file.name}`}
-                        disabled={busy}
-                        onClick={() =>
-                          setFiles((old) => old.filter((_, j) => i !== j))
-                        }
-                      >
-                        <X size={15} />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                {requirements.length > 1 && (
-                  <label>
-                    对应资料需求
-                    <select
-                      value={requirementId}
-                      onChange={(e) => setRequirementId(e.target.value)}
-                    >
-                      <option value="">由平台根据资料判断</option>
-                      {requirements.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.title}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-                <label className="taskcase-check">
-                  <input
-                    type="checkbox"
-                    checked={isPublic}
-                    disabled={busy}
-                    onChange={(e) => setIsPublic(e.target.checked)}
-                  />
-                  <span>
-                    这些文件是允许用于本任务的公开资料
-                    <small>
-                      未勾选的文件仅限本地处理；上传不等于授权云端使用。
-                    </small>
-                  </span>
-                </label>
-              </>
-            )}
-          </div>
-          {task.mode === "cloud" && (
-            <label className="taskcase-check taskcase-consent">
-              <input
-                type="checkbox"
-                checked={consent}
-                disabled={busy}
-                onChange={(e) => setConsent(e.target.checked)}
-              />
-              <span>
-                授权本任务通过统一网关使用云模型处理任务说明及所选公开资料
-              </span>
-            </label>
-          )}
-          {blockedLocal && (
-            <p className="taskcase-notice">
-              本任务使用云模型。请选择已授权的公开资料，或创建仅本地处理的任务。
-            </p>
+          {task.mode === "cloud" && !task.public_egress_authorized && (
+            <button
+              disabled={consenting}
+              onClick={async () => {
+                setConsenting(true);
+                try {
+                  onChange(await post(path(task.id) + "/authorize-cloud"));
+                } catch (e) {
+                  setError((e as Error).message);
+                } finally {
+                  setConsenting(false);
+                }
+              }}
+            >
+              授权云端处理任务及公开来源
+            </button>
           )}
           {error && <ErrorLine>{error}</ErrorLine>}
-          <div className="taskcase-form-footer">
-            {stage && <span role="status">{stage}</span>}
-            <button
-              className="primary"
-              disabled={
-                busy || blockedLocal || (task.mode === "cloud" && !consent)
-              }
-              onClick={() => void deliver()}
-            >
-              {busy ? (
-                <LoaderCircle size={16} className="taskcase-spin" />
-              ) : (
-                <ArrowRight size={16} />
-              )}
-              {resumable
-                ? files.length || selected.length
-                  ? "补充资料并继续此任务"
-                  : "沿用已提交资料继续"
-                : task.status === "ready" && !files.length && !selected.length
-                  ? "开始分析"
-                  : "提交资料并开始分析"}
-            </button>
-          </div>
           <DataApi task={task} />
         </>
       )}

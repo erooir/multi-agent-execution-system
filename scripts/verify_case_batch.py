@@ -324,7 +324,7 @@ def main():
                         a = api(
                             client,
                             "POST",
-                            "/v2/data-assets/upload",
+                            "/v2/upstream/data-assets/files",
                             data=form,
                             files={"file": (name, raw, MIME[src.suffix.lower()])},
                         ).json()

@@ -1,17 +1,13 @@
+import { adminSession } from "./admin-session";
+import { group, workspacePage } from "./workspace-navigation";
 import { test, expect } from "@playwright/test";
 
 test("用例任务：真实提交、三节点审核、来源证据与智能体监测", async ({
   page,
 }) => {
+  expect((await adminSession(page.context())).ok()).toBeTruthy();
   await page.goto("/manage");
-  await page
-    .getByLabel("用户名", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_USERNAME || "admin");
-  await page
-    .getByLabel("密码", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password");
-  await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page.getByLabel("当前项目")).toBeVisible();
+  await expect(page.locator(".wb-main")).toBeVisible();
   const name = "用例验收-" + Date.now();
   const p = await page.request.post("/api/v2/projects", { data: { name } });
   expect(p.ok()).toBeTruthy();
@@ -38,28 +34,25 @@ test("用例任务：真实提交、三节点审核、来源证据与智能体�
       modality: "structured",
       media_type: "application/json",
       content: { records: fields },
-      source_id: "test-observation",
+      source_id: "G03:test-observation",
       provenance: "synthetic",
       classification: "local",
     },
   });
   expect(a.ok()).toBeTruthy();
   await page.reload();
-  await page.getByLabel("当前项目").selectOption(id);
-  await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "场景分析" })
-    .click();
+  await group(page, id).click();
+  await workspacePage(page, "场景分析");
   await page.getByRole("button", { name: "发布本项目用例岗位与流程" }).click();
-  await page.getByRole("button", { name: "地理与时序", exact: true }).click();
-  const card = page.locator(".case-grid .panel").filter({ hasText: "G03" });
+  await page.getByRole("button", { name: /^地理与时序/ }).click();
+  const card = page.locator(".cc-card").filter({ hasText: "G03" });
   await card.getByRole("button", { name: "创建用例任务" }).click();
   const dlg = page.getByRole("dialog");
   await expect(dlg.getByRole("combobox", { name: /^分析用例/ })).toHaveValue(
     "G03",
   );
   await dlg.getByLabel("验收范围").selectOption("sample");
-  await dlg.getByRole("checkbox", { name: /合成逐年观测/ }).check();
+  await expect(dlg.getByText(/输入由平台从有效项目来源中检索/)).toBeVisible();
   await dlg.getByRole("button", { name: "检查匹配与授权" }).click();
   await expect(dlg.getByRole("status")).toContainText("预检查通过");
   const accepted = page.waitForResponse(
@@ -79,15 +72,20 @@ test("用例任务：真实提交、三节点审核、来源证据与智能体�
   expect(detail.artifacts).toHaveLength(1);
   expect(detail.artifacts[0].content.products.anomaly.difference).toBe(-3);
   expect(detail.quality_verdict.passed).toBe(true);
-  await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "场景分析" })
-    .click();
+  await workspacePage(page, "场景分析");
   await page.getByRole("button", { name: "智能体运行监测" }).click();
   const monitored = page
     .locator("tbody tr")
     .filter({ hasText: "独立证据核查员" });
-  await expect(monitored).toContainText("1 / 0");
+  await expect(
+    monitored.getByRole("cell", { name: "1 / 1", exact: true }),
+  ).toBeVisible();
+  await expect(
+    monitored.getByRole("cell", { name: "空闲", exact: true }),
+  ).toBeVisible();
+  await expect(
+    monitored.getByRole("cell", { name: "0 / 0", exact: true }),
+  ).toBeVisible();
   await monitored.getByRole("button", { name: /review/ }).click();
   await expect(page.locator(".task-strip .badge")).toHaveText("成功");
   const finding = detail.artifacts[0].content.tool_findings.find(

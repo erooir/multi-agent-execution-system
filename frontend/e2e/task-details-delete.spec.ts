@@ -1,16 +1,12 @@
+import { adminSession } from "./admin-session";
+import { group, workspacePage } from "./workspace-navigation";
 import { test, expect } from "@playwright/test";
 
 test("任务详情、步骤弹窗与终态任务删除", async ({ page }) => {
   const name = `任务详情验收-${Date.now()}`;
+  expect((await adminSession(page.context())).ok()).toBeTruthy();
   await page.goto("/manage");
-  await page
-    .getByLabel("用户名", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_USERNAME || "admin");
-  await page
-    .getByLabel("密码", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password");
-  await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page.getByLabel("当前项目")).toBeVisible();
+  await expect(page.locator(".wb-main")).toBeVisible();
   const p = await page.request.post("/api/v2/projects", {
     data: { name, description: "合成任务详情与删除验收" },
   });
@@ -52,12 +48,12 @@ test("任务详情、步骤弹窗与终态任务删除", async ({ page }) => {
     )
     .toBe("succeeded");
   await page.reload();
-  await page.getByLabel("当前项目").selectOption(project.id);
+  await group(page, project.id).click();
+  await workspacePage(page, "任务中心");
   await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "任务中心", exact: true })
+    .getByRole("main")
+    .getByRole("button", { name, exact: true })
     .click();
-  await page.getByRole("button", { name, exact: true }).click();
   await expect(page.locator(".task-summary")).toContainText(
     "整理合成记录并保留名称与数值",
   );
@@ -101,7 +97,9 @@ test("任务详情、步骤弹窗与终态任务删除", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "任务中心", exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name, exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("main").getByRole("button", { name, exact: true }),
+  ).toHaveCount(0);
   expect((await page.request.get(`/api/v2/tasks/${task.id}`)).status()).toBe(
     404,
   );

@@ -130,52 +130,7 @@ async def search(body, user):
     for connector in repo.list("connectors", body["project_id"]):
         if connector["kind"] != "http_knowledge":
             continue
-        host = urlsplit(connector["base_url"]).hostname
-        if host not in os.environ.get("HANGZHI_KNOWLEDGE_HOSTS", "").split(",") or not offline_host_allowed(
-            host
-        ):
-            continue
-        try:
-            async with httpx.AsyncClient(timeout=10, follow_redirects=False, trust_env=False) as client:  # noqa: SIM117
-                async with client.stream(
-                    "POST",
-                    connector["base_url"].rstrip("/") + "/search",
-                    json={"query": body["query"], "limit": body["limit"], "project_id": body["project_id"]},
-                ) as response:
-                    response.raise_for_status()
-                    raw = b""
-                    async for part in response.aiter_bytes():
-                        raw += part
-                        if len(raw) > 1_000_000:
-                            fail("connector_response_too_large", "知识服务响应超过1MB")
-                    import json
-
-                    payload = json.loads(raw)
-            if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
-                raise TypeError("Expected items array")
-            for item in payload["items"][: body["limit"]]:
-                if not isinstance(item, dict) or not all(
-                    isinstance(item.get(k), str)
-                    for k in ("id", "text", "source_id", "source_version", "provenance")
-                ):
-                    raise ValueError("Missing source contract fields")
-                if item.get("project_id", body["project_id"]) != body["project_id"]:
-                    raise ValueError("Upstream returned a different project")
-                result.append(
-                    {k: item[k] for k in ("id", "text", "source_id", "source_version", "provenance")}
-                    | {"connector_id": connector["id"], "retrieved_at": now()}
-                )
-            _connector_status(connector, "ready", None)
-        except (httpx.HTTPError, ValueError, TypeError, DomainError):
-            _connector_status(connector, "unavailable", "upstream_contract_or_connection_failed")
-            result.append(
-                {
-                    "connector_id": connector["id"],
-                    "error_code": "upstream_contract_or_connection_failed",
-                    "text": "",
-                    "name": connector["name"],
-                }
-            )
+        result.extend(await connector_results(connector, body, repo))
     # A slow upstream response must not expose local data revoked while waiting.
     project_access(body["project_id"], user, repository=repo)
     filtered = []
@@ -192,8 +147,75 @@ async def search(body, user):
     return filtered[: body["limit"]]
 
 
-def _connector_status(connector, status, error):
-    with repo.transaction() as tx:
+async def connector_results(connector, body, repository, *, task_intake=False):
+    """Call only a configured origin; a task import also requires explicit project attribution."""
+    items = []
+    host = urlsplit(connector["base_url"]).hostname
+    if host not in os.environ.get("HANGZHI_KNOWLEDGE_HOSTS", "").split(",") or not offline_host_allowed(host):
+        return (
+            [{"connector_id": connector["id"], "error_code": "connector_not_authorized"}]
+            if task_intake
+            else []
+        )
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=False, trust_env=False) as client:  # noqa: SIM117
+            async with client.stream(
+                "POST",
+                connector["base_url"].rstrip("/") + "/search",
+                json={
+                    "query": body["query"],
+                    "limit": body["limit"],
+                    "project_id": body["project_id"],
+                    **({"source_ids": body["source_ids"]} if task_intake and body.get("source_ids") else {}),
+                },
+            ) as response:
+                response.raise_for_status()
+                raw = b""
+                async for part in response.aiter_bytes():
+                    raw += part
+                    if len(raw) > 1_000_000:
+                        fail("connector_response_too_large", "知识服务响应超过1MB")
+                import json
+
+                payload = json.loads(raw)
+        if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+            raise TypeError("Expected items array")
+        for item in payload["items"][: body["limit"]]:
+            if not isinstance(item, dict) or not all(
+                isinstance(item.get(k), str)
+                for k in ("id", "text", "source_id", "source_version", "provenance")
+            ):
+                raise ValueError("Missing source contract fields")
+            if item.get("project_id", None if task_intake else body["project_id"]) != body["project_id"]:
+                raise ValueError("Upstream returned a different project")
+            items.append(
+                {k: item[k] for k in ("id", "text", "source_id", "source_version", "provenance")}
+                | {
+                    "connector_id": connector["id"],
+                    "retrieved_at": now(),
+                    "media_type": item.get("media_type", "text/plain"),
+                    "classification": "public"
+                    if connector.get("allow_public_results") and item.get("classification") == "public"
+                    else "local",
+                }
+            )
+        _connector_status(repository, connector, "ready", None)
+    except (httpx.HTTPError, ValueError, TypeError, DomainError):
+        items.clear()
+        _connector_status(repository, connector, "unavailable", "upstream_contract_or_connection_failed")
+        items.append(
+            {
+                "connector_id": connector["id"],
+                "error_code": "upstream_contract_or_connection_failed",
+                "text": "",
+                "name": connector["name"],
+            }
+        )
+    return items
+
+
+def _connector_status(repository, connector, status, error):
+    with repository.transaction() as tx:
         current = tx.get("connectors", connector["id"], for_update=True)
         if current and current.get("base_url") == connector.get("base_url"):
             tx.put("connectors", {**current, "status": status, "last_checked_at": now(), "error_code": error})

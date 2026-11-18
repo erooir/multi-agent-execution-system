@@ -9,6 +9,8 @@ from functools import lru_cache
 import numpy as np
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from .image_quality import assess, document_contrast
+
 MAX_IMAGE_PIXELS = 40_000_000
 
 
@@ -93,7 +95,11 @@ def run_ocr(images: list[dict], config: dict | None = None) -> dict:
     warnings = []
     for image_input in images:
         image, animated = _decode_image(image_input["payload"])
-        raw_blocks, _ = engine(np.asarray(image))
+        quality = assess(image)
+        prepared = document_contrast(image, quality)
+        if prepared is not image:
+            warnings.append(f"{image_input['source_id']}: low tonal range; enhanced contrast for OCR")
+        raw_blocks, _ = engine(np.asarray(prepared))
         blocks = []
         for bbox, text, confidence in raw_blocks or []:
             score = normalize_confidence(confidence)

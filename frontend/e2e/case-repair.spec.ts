@@ -1,3 +1,4 @@
+import { group, workspacePage } from "./workspace-navigation";
 import { test, expect } from "@playwright/test";
 import { adminSession } from "./admin-session";
 
@@ -48,12 +49,12 @@ test("任务详情展示条款匹配改道、复用的解析节点和独立复�
     max_revisions: 2,
   });
   await page.goto("/manage");
-  await page.getByLabel("当前项目").selectOption(p.id);
+  await group(page, p.id).click();
+  await workspacePage(page, "任务中心");
   await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "任务中心" })
+    .getByRole("main")
+    .getByRole("button", { name: "核对两版条款", exact: true })
     .click();
-  await page.getByRole("button", { name: "核对两版条款", exact: true }).click();
   await expect(page.locator(".task-strip .badge")).toHaveText("成功", {
     timeout: 30_000,
   });

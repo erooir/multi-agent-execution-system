@@ -11,6 +11,7 @@ from . import service as s
 from .db import TERMINAL
 from .task_cases import _principal, required
 from .tool_registry import freeze_bindings, validate_frozen
+from .workflow_learning import source_available, verified_repairs
 
 
 def _safe_agent(source, index):
@@ -50,6 +51,8 @@ def create_from_run(tx, task):
     if (
         task["request"]["task_type"] != "autonomous_analysis"
         or task["status"] != "succeeded"
+        or not (task.get("quality_verdict") or {}).get("passed")
+        or (task.get("quality_verdict") or {}).get("hard_failures")
         or task.get("candidate_evaluation_id")
     ):
         return None
@@ -62,8 +65,10 @@ def create_from_run(tx, task):
     frozen = {a["id"]: a for a in task["snapshot"]["agents"]}
     nodes = task["snapshot"]["workflow"]["nodes"]
     specs = [_safe_agent(frozen[n["agent_id"]], i) for i, n in enumerate(nodes)]
-    for spec in specs:
-        spec["runtime_bindings"] = freeze_bindings(spec, tx)
+    for node, spec in zip(nodes, specs, strict=True):
+        original = frozen[node["agent_id"]]
+        validate_frozen(original, tx)
+        spec["runtime_bindings"] = copy.deepcopy(original["runtime_bindings"])
     candidate = {
         "id": cid,
         "project_id": task["project_id"],
@@ -74,6 +79,7 @@ def create_from_run(tx, task):
         "source_task_case_id": task["task_case_id"],
         "specs": specs,
         "checksum": s.digest(specs),
+        "reviewed_repairs": verified_repairs(task),
         "evaluation_ids": [],
         "promoted_workflow_id": None,
         "policy": "independent-development-holdout-v1",
@@ -266,6 +272,8 @@ def evaluate(cid, case_ids, max_cost_cny, user, repository):
             signatures.add(signature)
             seen_hashes.update(hashes)
             samples.append((case, task, signature))
+        if not source_available(tx, origin, candidate["project_id"]):
+            s.fail("candidate_source_unavailable", "候选来源已撤回或原始版本变化", 409)
         eid = uuid.uuid4().hex
         records = []
         per_run = round(max_cost_cny / (2 * len(samples)), 6)
@@ -443,6 +451,8 @@ def promote(cid, user, repository):
             or evaluation["candidate_checksum"] != candidate["checksum"]
         ):
             s.fail("evaluation_required", "尚未通过真实独立评测，不可进入复用库", 409)
+        if not source_available(tx, tx.get("tasks", candidate["source_task_id"]), candidate["project_id"]):
+            s.fail("candidate_source_unavailable", "候选来源已撤回或原始版本变化", 409)
         for observation in evaluation["observations"]:
             for arm in ("baseline", "candidate"):
                 task = tx.get("tasks", observation[arm])

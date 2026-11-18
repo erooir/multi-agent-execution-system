@@ -43,6 +43,9 @@ import { Badge, Confirm, Empty, ErrorLine, Panel, SectionTitle } from "./ui";
 import { AgentsPage, DataPage, WorkflowsPage } from "./AssetPages";
 import TasksPage from "./TaskPages";
 import CapabilityPages from "./CapabilityPages";
+import ResourceManagement from "./ResourceManagement";
+import WorkflowLearning from "./WorkflowLearning";
+import AgentActivity from "./AgentActivity";
 import MetricsPanel from "./MetricsPanel";
 import Casework, { type CaseTab } from "./Casework";
 import ToolCatalog from "./ToolCatalog";
@@ -92,10 +95,14 @@ const nav: { id: Page; name: string; icon: any; group: string }[] = [
   },
   { id: "operations", name: "设置", icon: Settings2, group: "治理与运维" },
 ];
-const workdeskTabs: { key: "overview" | "tasks"; label: string; icon: any }[] =
+type WorkdeskTab = "overview" | "tasks" | "activity" | "learning" | "resources";
+const workdeskTabs: { key: WorkdeskTab; label: string; icon: any }[] =
   [
     { key: "overview", label: "工作台", icon: Gauge },
     { key: "tasks", label: "任务中心", icon: Activity },
+    { key: "activity", label: "智能体监测", icon: Bot },
+    { key: "learning", label: "流程与经验", icon: Workflow },
+    { key: "resources", label: "资源计量", icon: Gauge },
   ];
 const centerTabs: { key: HubKind; label: string; icon: any }[] = [
   { key: "expert", label: "专家", icon: Sparkles },
@@ -112,7 +119,7 @@ const libraryTabs: {
   { key: "discover", label: "发现", icon: Sparkles },
 ];
 const roles: Record<string, string> = {
-  requester: "提问用户",
+  requester: "应用账户",
   admin: "平台管理员",
   operator: "项目操作员",
   reviewer: "只读观察员",
@@ -141,11 +148,9 @@ function ManagementApp() {
         ? (view as Page)
         : "overview";
     }),
-    [workdeskTab, setWorkdeskTab] = useState<"overview" | "tasks">(() => {
+    [workdeskTab, setWorkdeskTab] = useState<WorkdeskTab>(() => {
       const params = new URLSearchParams(window.location.search);
-      return params.get("view") === "workdesk" && params.get("tab") === "tasks"
-        ? "tasks"
-        : "overview";
+      return workdeskTabs.find(t => params.get("view")==="workdesk" && t.key === params.get("tab"))?.key ?? "overview";
     }),
     [hubKind, setHubKind] = useState<HubKind>(() => {
       const params = new URLSearchParams(window.location.search);
@@ -470,7 +475,7 @@ function ManagementApp() {
                       setHubKind(tab.key as HubKind);
                       setHubQuery("");
                     } else if (page === "workdesk")
-                      setWorkdeskTab(tab.key as "overview" | "tasks");
+                      setWorkdeskTab(tab.key as WorkdeskTab);
                     else
                       setLibraryTab(
                         tab.key as "knowledge" | "data" | "discover",
@@ -582,6 +587,9 @@ function ManagementApp() {
             />
           ) : (
             <>
+              {page === "workdesk" && workdeskTab === "activity" && <AgentActivity key={projectId} projectId={projectId} onAgent={openAgent} onTask={openTask}/>}
+              {page === "workdesk" && workdeskTab === "learning" && <WorkflowLearning projectId={projectId} canEdit={canEdit} isAdmin={user.role==="admin"} onTask={openTask}/>}
+              {page === "workdesk" && workdeskTab === "resources" && <ResourceManagement projectId={projectId}/>}
               {page === "workdesk" && workdeskTab === "overview" && (
                 <Overview
                   key={projectId}
@@ -611,6 +619,7 @@ function ManagementApp() {
               {page === "hub" && (
                 <HubCenter
                   key={projectId + "/" + hubKind}
+                  isAdmin={user.role==="admin"}
                   kind={hubKind}
                   projectId={projectId}
                   agents={agents}
@@ -811,10 +820,8 @@ function Login({
   initialError: string;
   onLogin: (user: User) => void;
 }) {
-  const [register, setRegister] = useState(false),
-    [username, setUsername] = useState(""),
+  const [username, setUsername] = useState(""),
     [password, setPassword] = useState(""),
-    [name, setName] = useState(""),
     [error, setError] = useState(initialError),
     [busy, setBusy] = useState(false);
   async function submit(e: FormEvent) {
@@ -822,10 +829,7 @@ function Login({
     setBusy(true);
     setError("");
     try {
-      const user = await post(
-        register ? "/auth/register" : "/auth/login",
-        register ? { username, password, name } : { username, password },
-      );
+      const user = await post("/auth/login", {username, password});
       onLogin(user.user);
     } catch (e) {
       setError((e as Error).message);
@@ -844,13 +848,13 @@ function Login({
           <span>智能体管理平台</span>
         </div>
         <div className="login-message">
-          <span className="eyebrow">HANGZHI · AI WORKSPACE</span>
+          <span className="eyebrow">HANGZHI · 管理工作空间</span>
           <h1>
-            从资料到洞见，
+            智能体与工作流
             <br />
-            让工作更简单。
+            管理工作台
           </h1>
-          <p>整理资料、协作分析，让每一步都有据可循。</p>
+          <p>管理项目资产、查看调用和审核结果。</p>
           <div className="login-diagram" aria-hidden="true">
             <div>
               <Database size={21} />
@@ -877,12 +881,8 @@ function Login({
       </section>
       <section className="login-form-side">
         <form className="login-form" onSubmit={submit}>
-          <h2>{register ? "创建账户" : "欢迎回来"}</h2>
-          <p>
-            {register
-              ? "创建提问账户。管理员分配项目后，即可使用项目资料提问。"
-              : "登录航智，开始今天的工作。"}
-          </p>
+          <h2>欢迎回来</h2>
+          <p>使用已分配项目权限的账户登录。</p>
           <fieldset disabled={busy}>
             <label className="field">
               <span>用户名</span>
@@ -894,43 +894,21 @@ function Login({
                 placeholder="请输入用户名"
               />
             </label>
-            {register && (
-              <label className="field">
-                <span>显示名称</span>
-                <input
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="您的姓名或工作名称"
-                />
-              </label>
-            )}
             <label className="field">
               <span>密码</span>
               <input
                 type="password"
                 required
-                autoComplete={register ? "new-password" : "current-password"}
-                minLength={register ? 8 : undefined}
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder={register ? "8 至 128 位" : "请输入密码"}
+                placeholder="请输入密码"
               />
             </label>
             {error && <ErrorLine>{error}</ErrorLine>}
             <button type="submit" className="primary login-submit">
-              {busy ? "正在验证…" : register ? "创建账户" : "登录"}
+              {busy ? "正在验证…" : "登录"}
               <ArrowRight size={18} />
-            </button>
-            <button
-              type="button"
-              className="login-switch"
-              onClick={() => {
-                setRegister(!register);
-                setError("");
-              }}
-            >
-              {register ? "已有账户？返回登录" : "没有账户？创建本地账户"}
             </button>
           </fieldset>
           <div className="login-security">
@@ -1029,7 +1007,7 @@ function Overview({
           ) : (
             <Empty
               title="任务记录从这里开始"
-              description="先登记数据，再提交带质量约束的任务。执行记录将自动保存在当前项目。"
+              description="上游系统提交目标并提供数据接口，任务在此留下执行与审核记录。"
             />
           )}
         </Panel>

@@ -1,3 +1,4 @@
+import {businessLabel} from "./ExpertInterview";
 import { useEffect, useRef, useState } from "react";
 import {
   Plus,
@@ -7,7 +8,6 @@ import {
   Archive,
   Pencil,
   ArrowUpRight,
-  FileUp,
   Workflow,
 } from "lucide-react";
 import { api, idPath, post, remove, readAssetContent } from "./api";
@@ -23,7 +23,7 @@ import {
   SectionTitle,
   Tabs,
 } from "./ui";
-import { AgentForm, AssetForm, WorkflowForm } from "./Forms";
+import { AgentForm, WorkflowForm } from "./Forms";
 import Graph from "./Graph";
 import { AgentDetails, AgentVersions } from "./AssetDetails";
 import { ParameterSummary } from "./ToolParameters";
@@ -409,6 +409,16 @@ export function AgentsPage({
                 { id: "instances", label: `运行实例 · ${instances.length}` },
               ]}
             />
+            {fresh.capabilities?.some((id:string)=>["image_inspect","image_ocr","image_understand"].includes(id)) &&
+              <details className="panel"><summary>图像输入与能力边界</summary>
+                <p>本地可解码图像、检查亮度与对比度，并对清晰或低对比度的文档提取文字。动图只处理首帧。</p>
+                <p>视觉模型在两张合成展板上正确读取编号、图形和颜色。来源位置和版本可以校验；文字遮挡、图外日期和拍摄地点需要额外证据。自然场景尚缺独立实测。</p>
+              </details>}
+            {fresh.management_profile && <dl className="catalog-fields">
+              <dt>业务方向</dt><dd>{businessLabel(fresh)}</dd>
+              <dt>创建方式</dt><dd>{fresh.management_profile.creation_method==="interview" ? "问答生成，人工确认" : "管理配置"}</dd>
+              <dt>创建或分类原因</dt><dd>{fresh.management_profile.reason}</dd>
+            </dl>}
             {detailError && (
               <p role="alert" className="error-line">
                 {detailError}
@@ -789,14 +799,12 @@ export function WorkflowsPage({
   );
 }
 export function DataPage({
-  projectId,
   assets,
   canEdit,
   mutate,
   notify,
 }: Props & { assets: Item[] }) {
-  const [create, setCreate] = useState(false),
-    [selected, setSelected] = useState<Item | null>(null),
+  const [selected, setSelected] = useState<Item | null>(null),
     [content, setContent] = useState<any>(undefined),
     [revoke, setRevoke] = useState<Item | null>(null),
     [search, setSearch] = useState("");
@@ -820,16 +828,8 @@ export function DataPage({
     <>
       <SectionTitle
         eyebrow="DATA CATALOG"
-        title="我的资料"
+        title="上游数据目录"
         description="按原始模态接入数据，保留来源、版本、访问范围与有效期。"
-        actions={
-          canEdit && (
-            <button className="primary" onClick={() => setCreate(true)}>
-              <FileUp size={18} />
-              登记 / 上传数据
-            </button>
-          )
-        }
       />
       <div className="toolbar">
         <div className="search">
@@ -849,7 +849,7 @@ export function DataPage({
             <table>
               <thead>
                 <tr>
-                  <th>我的资料</th>
+                  <th>来源</th>
                   <th>模态 / 大小</th>
                   <th>来源版本</th>
                   <th>访问范围</th>
@@ -904,22 +904,10 @@ export function DataPage({
         ) : (
           <Empty
             title="暂无数据资产"
-            description="登记带来源的文本或结构化数据，或上传支持的原始文件。"
-            action={
-              canEdit && (
-                <button onClick={() => setCreate(true)}>登记第一份数据</button>
-              )
-            }
+            description="上游系统接入的项目来源会显示在这里。"
           />
         )}
       </Panel>
-      {create && (
-        <AssetForm
-          projectId={projectId}
-          onClose={() => setCreate(false)}
-          mutate={mutate}
-        />
-      )}
       {selected && (
         <Modal wide title={selected.name} onClose={() => setSelected(null)}>
           <div className="modal-body">

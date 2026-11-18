@@ -5,6 +5,7 @@ import { parseObject, splitList, taskTypes } from "./domain";
 import type { Item, Mutation } from "./types";
 import type { components } from "./generated/api";
 import { Field, FormModal, Modal } from "./ui";
+import {businessLabels} from "./ExpertInterview";
 import ToolParameters from "./ToolParameters";
 import WorkflowBuilder from "./WorkflowBuilder";
 import { workflowIssues } from "./workflowEditorModel";
@@ -48,6 +49,8 @@ export function AgentForm({
     members: [],
     ...item,
   });
+  const [business,setBusiness] = useState<string>(item?.management_profile?.business || "");
+  const [reason,setReason] = useState<string>(item?.management_profile?.reason || "");
   const [extensions, setExtensions] = useState<Item>({ tools: [], skills: [] });
   const [extensionError, setExtensionError] = useState("");
   const [toolSearch, setToolSearch] = useState("");
@@ -121,7 +124,9 @@ export function AgentForm({
           );
         if (form.execution_strategy === "tool_agent" && !form.tool_refs.length)
           throw Error("自主工具型智能体至少需要一项版本化工具授权。");
+        if (business && reason.trim().length < 2) throw Error("请填写创建或分类原因");
         const body = {
+          ...(business ? { management_profile:{ business, reason, creation_method:item?.management_profile?.creation_method || "manual" }} : {}),
           ...Object.fromEntries(
             [
               "name",
@@ -154,7 +159,11 @@ export function AgentForm({
       }}
     >
       <div className="form-grid">
-        <Field
+        <Field label="业务方向"><select value={business} onChange={e=>setBusiness(e.target.value)}>
+        <option value="" disabled={!!item?.management_profile}>待分类</option>{Object.entries(businessLabels).map(([id,label])=><option key={id} value={id}>{label}</option>)}
+      </select></Field>
+      {business && <Field label="创建或分类原因"><input value={reason} maxLength={500} onChange={e=>setReason(e.target.value)}/></Field>}
+      <Field
           label="运行方式"
           hint={
             dualMode
@@ -523,7 +532,6 @@ export function AgentForm({
 }
 export function TaskForm({
   projectId,
-  assets,
   workflows,
   onClose,
   mutate,
@@ -617,7 +625,7 @@ export function TaskForm({
         form.task_type === "case_analysis"
           ? form.case_scope || "reference"
           : "reference",
-      input_refs: form.input_refs,
+      ...(form.input_refs.length ? {input_refs: form.input_refs} : {}),
       mode: form.mode,
       service_class: form.service_class,
       idempotency_key: form.idempotency_key,
@@ -788,48 +796,7 @@ export function TaskForm({
           placeholder="具体描述期望产物和处理范围"
         />
       </Field>
-      <div className="field">
-        <span>输入数据 · 选择已登记的有效资产</span>
-        <div className="selection-list">
-          {assets
-            .filter(
-              (a) =>
-                a.status === "active" &&
-                new Date(a.expires_at).getTime() > Date.now(),
-            )
-            .map((a) => (
-              <label className="check" key={a.id}>
-                <input
-                  type="checkbox"
-                  disabled={
-                    !form.input_refs.includes(a.id) &&
-                    (!capability?.modalities.includes(a.modality) ||
-                      (form.mode === "cloud" && a.classification !== "public"))
-                  }
-                  checked={form.input_refs.includes(a.id)}
-                  onChange={() =>
-                    update(
-                      "input_refs",
-                      form.input_refs.includes(a.id)
-                        ? form.input_refs.filter((id: string) => id !== a.id)
-                        : [...form.input_refs, a.id],
-                    )
-                  }
-                />
-                <span>{a.name}</span>
-                <small>
-                  {modalities[a.modality]} ·{" "}
-                  {a.classification === "public" ? "公开" : "仅本地"}
-                </small>
-              </label>
-            ))}
-          {!assets.some((a) => a.status === "active") && (
-            <p className="muted">
-              当前项目尚无有效数据。请先在「数据资产」中登记或上传。
-            </p>
-          )}
-        </div>
-      </div>
+      <p className="muted">输入由平台从有效项目来源中检索。复制历史任务时沿用其输入引用，执行前重新核验。</p>
       <div className="form-grid">
         <Field label="执行模式">
           <select
@@ -1062,222 +1029,6 @@ export function TaskForm({
           />
         </Field>
       </details>
-    </FormModal>
-  );
-}
-export function AssetForm({ projectId, onClose, mutate }: Common) {
-  const [upload, setUpload] = useState(false),
-    [file, setFile] = useState<File | null>(null);
-  const [csvEncoding, setCsvEncoding] = useState("utf-8");
-  const [form, setForm] = useState<Item>({
-    name: "",
-    modality: "structured",
-    media_type: "application/json",
-    content: "",
-    source_id: "",
-    source_version: "1",
-    provenance: "",
-    classification: "local",
-    retention_days: 30,
-  });
-  const update = (key: string, value: any) =>
-    setForm({ ...form, [key]: value });
-  return (
-    <FormModal
-      wide
-      title="登记数据资产"
-      onClose={onClose}
-      submit="验证并登记"
-      onSubmit={async () => {
-        if (upload) {
-          if (!file) throw new Error("请选择要上传的文件");
-          const data = new FormData();
-          Object.entries({ ...form, project_id: projectId })
-            .filter(([k]) => !["content", "media_type"].includes(k))
-            .forEach(([k, v]) => data.append(k, String(v)));
-          data.append("file", file);
-          if (/\.csv$/i.test(file.name))
-            data.append("csv_encoding", csvEncoding);
-          return mutate(
-            () => api("/v2/data-assets/upload", { method: "POST", body: data }),
-            "文件已登记",
-          );
-        }
-        const content =
-          form.modality === "structured"
-            ? JSON.parse(form.content)
-            : form.content;
-        return mutate(
-          () =>
-            post("/v2/data-assets", {
-              ...form,
-              project_id: projectId,
-              content,
-            }),
-          "数据资产已登记",
-        );
-      }}
-    >
-      <div className="segmented">
-        <button
-          type="button"
-          className={!upload ? "selected" : ""}
-          onClick={() => {
-            setUpload(false);
-            if (!["text", "structured"].includes(form.modality))
-              setForm({
-                ...form,
-                modality: "structured",
-                media_type: "application/json",
-              });
-          }}
-        >
-          文本 / JSON
-        </button>
-        <button
-          type="button"
-          className={upload ? "selected" : ""}
-          onClick={() => setUpload(true)}
-        >
-          上传文件
-        </button>
-      </div>
-      <div className="form-grid">
-        <Field label="资产名称">
-          <input
-            required
-            value={form.name}
-            maxLength={150}
-            onChange={(e) => update("name", e.target.value)}
-          />
-        </Field>
-        <Field label="模态">
-          <select
-            value={form.modality}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                modality: e.target.value,
-                media_type:
-                  e.target.value === "structured"
-                    ? "application/json"
-                    : "text/plain",
-              })
-            }
-          >
-            {Object.entries(modalities)
-              .filter(([id]) => upload || ["text", "structured"].includes(id))
-              .map(([id, label]) => (
-                <option key={id} value={id}>
-                  {label}
-                </option>
-              ))}
-          </select>
-        </Field>
-      </div>
-      {upload ? (
-        <Field
-          label="选择文件"
-          hint="文档、表格、图片上限10 MB；音视频上限128 MB。支持 PDF、DOCX、XLSX、GeoJSON 和字幕。"
-        >
-          <input
-            type="file"
-            required
-            onChange={(e) => {
-              const selected = e.target.files?.[0] || null;
-              setFile(selected);
-              if (selected) {
-                const kind = selected.type.startsWith("image/")
-                  ? "image"
-                  : selected.type.startsWith("audio/")
-                    ? "audio"
-                    : selected.type.startsWith("video/")
-                      ? "video"
-                      : /\.(json|csv|jsonl|geojson|xlsx)$/i.test(selected.name)
-                        ? "structured"
-                        : "text";
-                setForm({
-                  ...form,
-                  name: form.name || selected.name,
-                  modality: kind,
-                });
-              }
-            }}
-          />
-        </Field>
-      ) : (
-        <Field
-          label={form.modality === "structured" ? "JSON 内容" : "文本内容"}
-        >
-          <textarea
-            required
-            rows={8}
-            className="mono"
-            value={form.content}
-            onChange={(e) => update("content", e.target.value)}
-            placeholder={
-              form.modality === "structured"
-                ? '[{"name":"公开样例","value":1}]'
-                : "输入有权处理的原始文本"
-            }
-          />
-        </Field>
-      )}
-      {upload && file && /\.csv$/i.test(file.name) && (
-        <Field label="CSV文件编码">
-          <select
-            value={csvEncoding}
-            onChange={(e) => setCsvEncoding(e.target.value)}
-          >
-            <option value="utf-8">UTF-8</option>
-            <option value="windows-1252">Windows-1252</option>
-          </select>
-        </Field>
-      )}
-      <div className="form-grid">
-        <Field label="来源标识">
-          <input
-            required
-            value={form.source_id}
-            onChange={(e) => update("source_id", e.target.value)}
-            placeholder="上游系统 / 数据集标识"
-          />
-        </Field>
-        <Field label="来源版本">
-          <input
-            required
-            value={form.source_version}
-            onChange={(e) => update("source_version", e.target.value)}
-          />
-        </Field>
-        <Field label="数据范围">
-          <select
-            value={form.classification}
-            onChange={(e) => update("classification", e.target.value)}
-          >
-            <option value="local">仅本地 · 禁止云端外发</option>
-            <option value="public">公开 · 可用于网关模型</option>
-          </select>
-        </Field>
-        <Field label="保留期限（天）">
-          <input
-            type="number"
-            min={1}
-            max={3650}
-            value={form.retention_days}
-            onChange={(e) => update("retention_days", Number(e.target.value))}
-          />
-        </Field>
-      </div>
-      <Field label="来源及授权说明">
-        <textarea
-          required
-          maxLength={1000}
-          value={form.provenance}
-          onChange={(e) => update("provenance", e.target.value)}
-          placeholder="记录数据来自何处、处理依据及定位信息"
-        />
-      </Field>
     </FormModal>
   );
 }

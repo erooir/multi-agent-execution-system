@@ -222,6 +222,7 @@ export default function WbShell({
 
   const navigate = (page: string) => {
     setMenuOpen(false);
+    setSettingsOpen(false);
     setMobileOpen(false);
     if (onNavigate) onNavigate(page);
     else window.location.href = "/manage?view=" + encodeURIComponent(page);
@@ -394,6 +395,8 @@ export default function WbShell({
                   <button
                     className={`wb-group-row ${project.id === projectId ? "is-current" : ""}`}
                     title={label(project)}
+                    data-project-id={project.id}
+                    aria-current={project.id === projectId ? "true" : undefined}
                     onClick={() => onProjectChange(project.id)}
                   >
                     <Folder size={18} />

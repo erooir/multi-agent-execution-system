@@ -8,6 +8,7 @@ from . import service as s
 from .task_case_contracts import ExecutionPlan
 from .task_cases import _save_scoped_agent
 from .tool_registry import catalog, validate_frozen
+from .workflow_learning import frozen_components, prior_experience, publication, reused_plan
 
 
 def normalize_plan(model_plan, tools, skills, reusable):
@@ -134,13 +135,13 @@ async def plan_execution(execution, *, revision=0):
         for k in available["skills"]
         if not k.get("external") and readiness.get("skills", {}).get(k["id"], {}).get("available", True)
     ]
-    reusable = [
-        a
-        for a in execution.repository.list("agents", current["project_id"])
-        if a.get("scope") == "reusable"
-        and a.get("status") == "published"
-        and a.get("candidate_status") == "promoted"
-    ]
+    with execution.repository.transaction() as tx:
+        reusable, lessons, prior_flow = prior_experience(
+            tx, current, {t["id"] for t in tools}, {k["id"] for k in skills}
+        )
+    # A rejected result requires a new plan, even if the original matched a publication.
+    if revision:
+        prior_flow = None
     previous_plan = current.get("autonomous_plan")
     issues = (execution.quality or {}).get("issues", [])
     prompt = canonical(
@@ -176,6 +177,7 @@ async def plan_execution(execution, *, revision=0):
                 for a in reusable
             ],
             "previous_plan": previous_plan,
+            "reviewed_project_guidance": lessons,
             "failed_checks": issues,
             "previous_output": [o.get("content") for o in execution.outputs] if revision else [],
             "revision": revision,
@@ -208,6 +210,10 @@ async def plan_execution(execution, *, revision=0):
     correction_purpose = None
     contract_corrections = 0
     for attempt in (1, 2, 3):
+        if prior_flow:
+            raw_plan = model_plan = reused_plan(prior_flow)
+            response, normalizations = {}, []
+            break
         response = await _model(
             execution,
             prompt if correction is None else prompt + "\n" + canonical(correction),
@@ -287,6 +293,17 @@ async def plan_execution(execution, *, revision=0):
         raise TaskFailure("insufficient_data", "；".join(model_plan["missing_data"]))
     with execution.repository.transaction() as tx:
         task = execution.check(tx)
+        used_ids = {step.get("reuse_agent_id") for step in model_plan["steps"]} - {None}
+        checked = set()
+        for agent in reusable:
+            if agent["id"] not in used_ids or agent["candidate_id"] in checked:
+                continue
+            cid = agent["candidate_id"]
+            candidate = tx.get("agent_candidates", cid, for_update=True)
+            verified = publication(tx, candidate) if candidate else None
+            if not verified or (prior_flow and verified["flow"]["id"] != prior_flow["flow"]["id"]):
+                raise TaskFailure("workflow_reuse_stale", "已评测流程或评测资料发生变化，请重新规划")
+            checked.add(cid)
         nodes, frozen, steps = [], [], []
         for i, step in enumerate(model_plan["steps"]):
             agent = _save_scoped_agent(
@@ -311,6 +328,7 @@ async def plan_execution(execution, *, revision=0):
                     "skill_ids": step["skill_ids"],
                     "success_criteria": step["success_criteria"],
                     "instructions": step["instructions"],
+                    "components": frozen_components(frozen_agent),
                 }
             )
         prior = tx.list("plan_versions", task["project_id"], task_case_id=case["id"])
@@ -332,6 +350,17 @@ async def plan_execution(execution, *, revision=0):
             "steps": steps,
             "failed_checks": issues,
             "previous_plan_id": task.get("autonomous_plan_id"),
+            "workflow_publication": (
+                {
+                    "id": prior_flow["flow"]["definition_id"],
+                    "version": prior_flow["flow"]["version"],
+                    "checksum": prior_flow["flow"]["checksum"],
+                    "evaluation_id": prior_flow["evaluation"]["id"],
+                }
+                if prior_flow
+                else None
+            ),
+            "reviewed_guidance": lessons if not prior_flow else [],
             "input_checksums": {a["id"]: a["checksum"] for a in execution.inputs},
         }
         plan["checksum"] = s.digest(plan)
@@ -342,9 +371,9 @@ async def plan_execution(execution, *, revision=0):
             **task["snapshot"],
             "agents": frozen,
             "workflow": {
-                "id": "task-scoped",
-                "name": case["title"],
-                "version": plan["version"],
+                "id": prior_flow["flow"]["definition_id"] if prior_flow else "task-scoped",
+                "name": prior_flow["flow"]["name"] if prior_flow else case["title"],
+                "version": prior_flow["flow"]["version"] if prior_flow else plan["version"],
                 "task_type": "autonomous_analysis",
                 "nodes": nodes,
             },
@@ -386,7 +415,7 @@ async def plan_execution(execution, *, revision=0):
         execution.task = tx.put("tasks", task)
         tx.event(
             task["id"],
-            "plan.revised" if revision else "plan.generated",
+            "plan.revised" if revision else "plan.reused" if prior_flow else "plan.generated",
             {"plan_id": plan["id"], "steps": len(nodes), "model": response.get("model")},
         )
 

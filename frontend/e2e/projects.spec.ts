@@ -1,15 +1,11 @@
+import { adminSession } from "./admin-session";
+import { group, currentGroup, workspacePage } from "./workspace-navigation";
 import { test, expect } from "@playwright/test";
 
 test("同名项目区分、改名保存和项目范围保持", async ({ page }) => {
+  expect((await adminSession(page.context())).ok()).toBeTruthy();
   await page.goto("/manage");
-  await page
-    .getByLabel("用户名", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_USERNAME || "admin");
-  await page
-    .getByLabel("密码", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password");
-  await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page.getByLabel("当前项目")).toBeVisible();
+  await expect(page.locator(".wb-main")).toBeVisible();
 
   const name = `同名项目-${Date.now()}`;
   const projects = [];
@@ -35,26 +31,23 @@ test("同名项目区分、改名保存和项目范围保持", async ({ page }) 
   });
   expect(asset.ok()).toBeTruthy();
   await page.reload();
-  const picker = page.getByLabel("当前项目");
-  await expect(picker.locator(`option[value="${first.id}"]`)).toHaveText(
+
+  await expect(group(page, first.id)).toHaveText(
     `${name} · ${first.id.slice(0, 8)}`,
   );
-  await expect(picker.locator(`option[value="${second.id}"]`)).toHaveText(
+  await expect(group(page, second.id)).toHaveText(
     `${name} · ${second.id.slice(0, 8)}`,
   );
-  await picker.selectOption(first.id);
+  await group(page, first.id).click();
 
   // The question portal uses the same disambiguation without exposing project data.
   await page.goto("/");
-  await expect(
-    page.getByLabel("当前项目").locator(`option[value="${first.id}"]`),
-  ).toHaveText(`${name} · ${first.id.slice(0, 8)}`);
+  await expect(group(page, first.id)).toHaveText(
+    `${name} · ${first.id.slice(0, 8)}`,
+  );
   await page.goto("/manage");
-  await picker.selectOption(first.id);
-  await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "设置", exact: true })
-    .click();
+  await group(page, first.id).click();
+  await workspacePage(page, "设置");
   await page.getByRole("button", { name: "项目与成员", exact: true }).click();
   const row = page
     .getByRole("row")
@@ -64,33 +57,24 @@ test("同名项目区分、改名保存和项目范围保持", async ({ page }) 
   await expect(dialog.getByLabel("项目名称")).toHaveValue(name);
   await dialog.getByLabel("项目名称").fill("取消的名称");
   await dialog.getByRole("button", { name: "取消", exact: true }).click();
-  await expect(picker.locator(`option[value="${first.id}"]`)).toContainText(
-    name,
-  );
+  await expect(group(page, first.id)).toContainText(name);
   await row.getByRole("button", { name: "改名", exact: true }).click();
   const renamed = `已改名-${Date.now()}`;
   await dialog.getByLabel("项目名称").fill(renamed);
   await dialog.getByRole("button", { name: "保存", exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  await expect(picker).toHaveValue(first.id);
-  await expect(picker.locator(`option[value="${first.id}"]`)).toHaveText(
-    renamed,
-  );
-  await expect(picker.locator(`option[value="${second.id}"]`)).toHaveText(name);
-  await expect(page.locator(".breadcrumb")).toContainText(renamed);
+  await expect(currentGroup(page)).toHaveAttribute("data-project-id", first.id);
+  await expect(group(page, first.id)).toHaveText(renamed);
+  await expect(group(page, second.id)).toHaveText(name);
+  await expect(currentGroup(page)).toContainText(renamed);
   await page.reload();
-  await expect(picker.locator(`option[value="${first.id}"]`)).toHaveText(
-    renamed,
-  );
-  await picker.selectOption(first.id);
-  await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "我的资料", exact: true })
-    .click();
+  await expect(group(page, first.id)).toHaveText(renamed);
+  await group(page, first.id).click();
+  await workspacePage(page, "我的资料");
   await expect(
     page.getByRole("main").getByText("项目专属资料（合成）", { exact: true }),
   ).toBeVisible();
-  await picker.selectOption(second.id);
+  await group(page, second.id).click();
   await expect(
     page.getByRole("main").getByText("项目专属资料（合成）", { exact: true }),
   ).toHaveCount(0);

@@ -28,6 +28,42 @@
       "title": "ExecutorBinding",
       "type": "object"
     },
+    "ManagementProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "business": {
+          "enum": [
+            "science",
+            "historical",
+            "public_sources",
+            "general"
+          ],
+          "title": "Business",
+          "type": "string"
+        },
+        "creation_method": {
+          "default": "manual",
+          "enum": [
+            "interview",
+            "manual"
+          ],
+          "title": "Creation Method",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 500,
+          "minLength": 2,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "business",
+        "reason"
+      ],
+      "title": "ManagementProfile",
+      "type": "object"
+    },
     "Member": {
       "additionalProperties": false,
       "properties": {
@@ -94,6 +130,17 @@
   },
   "additionalProperties": false,
   "properties": {
+    "management_profile": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ManagementProfile"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "project_id": {
       "title": "Project Id",
       "type": "string"

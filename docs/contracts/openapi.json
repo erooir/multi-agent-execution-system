@@ -469,13 +469,13 @@
         }
       }
     },
-    "/api/v2/task-cases/{case_id}/submissions": {
+    "/api/v2/task-cases/{case_id}/authorize-cloud": {
       "post": {
         "tags": [
           "User tasks"
         ],
-        "summary": "Submit",
-        "operationId": "submit_api_v2_task_cases__case_id__submissions_post",
+        "summary": "Authorize Cloud",
+        "operationId": "authorize_cloud_api_v2_task_cases__case_id__authorize_cloud_post",
         "parameters": [
           {
             "name": "case_id",
@@ -487,68 +487,8 @@
             }
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DataSubmissionInput"
-              }
-            }
-          }
-        },
         "responses": {
           "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v2/task-cases/{case_id}/upload": {
-      "post": {
-        "tags": [
-          "User tasks"
-        ],
-        "summary": "Upload",
-        "operationId": "upload_api_v2_task_cases__case_id__upload_post",
-        "parameters": [
-          {
-            "name": "case_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Case Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/Body_upload_api_v2_task_cases__case_id__upload_post"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
             "description": "Successful Response",
             "content": {
               "application/json": {
@@ -843,6 +783,47 @@
         },
         "responses": {
           "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/task-cases/{case_id}/outcome": {
+      "get": {
+        "tags": [
+          "User tasks"
+        ],
+        "summary": "Outcome",
+        "description": "Upper applications receive delivery, provenance and gaps without management traces.",
+        "operationId": "outcome_api_v2_task_cases__case_id__outcome_get",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
@@ -1229,6 +1210,126 @@
         }
       }
     },
+    "/api/v2/workflow-learning": {
+      "get": {
+        "tags": [
+          "Workflow learning"
+        ],
+        "summary": "Index",
+        "operationId": "index_api_v2_workflow_learning_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/workflow-learning/plans/{plan_id}": {
+      "get": {
+        "tags": [
+          "Workflow learning"
+        ],
+        "summary": "Plan Detail",
+        "operationId": "plan_detail_api_v2_workflow_learning_plans__plan_id__get",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/workflow-learning/publications/{candidate_id}": {
+      "get": {
+        "tags": [
+          "Workflow learning"
+        ],
+        "summary": "Publication Detail",
+        "operationId": "publication_detail_api_v2_workflow_learning_publications__candidate_id__get",
+        "parameters": [
+          {
+            "name": "candidate_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Candidate Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/health": {
       "get": {
         "summary": "Health",
@@ -1559,6 +1660,55 @@
       "get": {
         "summary": "Agent Activity",
         "operationId": "agent_activity_api_v2_agents_activity_summary_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "window_hours",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 720,
+              "minimum": 1,
+              "default": 168,
+              "title": "Window Hours"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/capabilities/usage": {
+      "get": {
+        "summary": "Usage Summary",
+        "operationId": "usage_summary_api_v2_capabilities_usage_get",
         "parameters": [
           {
             "name": "project_id",
@@ -2362,6 +2512,80 @@
         }
       }
     },
+    "/api/v2/expert-design/preview": {
+      "post": {
+        "summary": "Expert Preview",
+        "operationId": "expert_preview_api_v2_expert_design_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExpertInterview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentInput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/expert-design/confirm": {
+      "post": {
+        "summary": "Expert Confirm",
+        "operationId": "expert_confirm_api_v2_expert_design_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmInterview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/agents/{agent_id}": {
       "get": {
         "summary": "Agent",
@@ -2855,15 +3079,15 @@
         }
       }
     },
-    "/api/v2/data-assets/upload": {
+    "/api/v2/upstream/data-assets/files": {
       "post": {
-        "summary": "Upload",
-        "operationId": "upload_api_v2_data_assets_upload_post",
+        "summary": "Receive Project File",
+        "operationId": "receive_project_file_api_v2_upstream_data_assets_files_post",
         "requestBody": {
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_upload_api_v2_data_assets_upload_post"
+                "$ref": "#/components/schemas/Body_receive_project_file_api_v2_upstream_data_assets_files_post"
               }
             }
           },
@@ -3493,6 +3717,43 @@
         }
       }
     },
+    "/api/v2/resources": {
+      "get": {
+        "summary": "Project Resources",
+        "operationId": "project_resources_api_v2_resources_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/budget": {
       "get": {
         "summary": "Budget",
@@ -3958,6 +4219,16 @@
     "schemas": {
       "AgentInput": {
         "properties": {
+          "management_profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManagementProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "project_id": {
             "type": "string",
             "title": "Project Id"
@@ -4308,6 +4579,45 @@
             "title": "Requirement Id",
             "default": ""
           },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "source_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Version"
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provenance"
+          },
           "idempotency_key": {
             "type": "string",
             "title": "Idempotency Key"
@@ -4320,7 +4630,7 @@
         ],
         "title": "Body_ingest_upload_api_v2_task_cases__case_id__ingest_upload_post"
       },
-      "Body_upload_api_v2_data_assets_upload_post": {
+      "Body_receive_project_file_api_v2_upstream_data_assets_files_post": {
         "properties": {
           "file": {
             "type": "string",
@@ -4377,36 +4687,7 @@
           "source_id",
           "provenance"
         ],
-        "title": "Body_upload_api_v2_data_assets_upload_post"
-      },
-      "Body_upload_api_v2_task_cases__case_id__upload_post": {
-        "properties": {
-          "file": {
-            "type": "string",
-            "contentMediaType": "application/octet-stream",
-            "title": "File"
-          },
-          "classification": {
-            "type": "string",
-            "title": "Classification",
-            "default": "local"
-          },
-          "requirement_id": {
-            "type": "string",
-            "title": "Requirement Id",
-            "default": ""
-          },
-          "idempotency_key": {
-            "type": "string",
-            "title": "Idempotency Key"
-          }
-        },
-        "type": "object",
-        "required": [
-          "file",
-          "idempotency_key"
-        ],
-        "title": "Body_upload_api_v2_task_cases__case_id__upload_post"
+        "title": "Body_receive_project_file_api_v2_upstream_data_assets_files_post"
       },
       "CandidateEvaluationInput": {
         "properties": {
@@ -4492,6 +4773,63 @@
         ],
         "title": "CapabilityCatalog"
       },
+      "ConfirmInterview": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "business": {
+            "type": "string",
+            "enum": [
+              "science",
+              "historical",
+              "public_sources",
+              "general"
+            ],
+            "title": "Business"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 2,
+            "title": "Reason"
+          },
+          "deliverable": {
+            "type": "string",
+            "enum": [
+              "records",
+              "excerpts",
+              "transcription",
+              "image_properties"
+            ],
+            "title": "Deliverable"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Name",
+            "default": ""
+          },
+          "confirmation_id": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 16,
+            "pattern": "^[a-zA-Z0-9-]+$",
+            "title": "Confirmation Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_id",
+          "business",
+          "reason",
+          "deliverable",
+          "confirmation_id"
+        ],
+        "title": "ConfirmInterview"
+      },
       "ConnectorInput": {
         "properties": {
           "project_id": {
@@ -4513,6 +4851,16 @@
             "title": "Kind",
             "default": "local_assets"
           },
+          "automatic_intake": {
+            "type": "boolean",
+            "title": "Automatic Intake",
+            "default": false
+          },
+          "allow_public_results": {
+            "type": "boolean",
+            "title": "Allow Public Results",
+            "default": false
+          },
           "base_url": {
             "type": "string",
             "maxLength": 500,
@@ -4533,49 +4881,6 @@
           "name"
         ],
         "title": "ConnectorInput"
-      },
-      "DataSubmissionInput": {
-        "properties": {
-          "input_refs": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "maxItems": 50,
-            "title": "Input Refs"
-          },
-          "requirement_ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "maxItems": 20,
-            "title": "Requirement Ids"
-          },
-          "idempotency_key": {
-            "type": "string",
-            "maxLength": 140,
-            "minLength": 1,
-            "title": "Idempotency Key"
-          },
-          "public_egress_authorized": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Public Egress Authorized"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "idempotency_key"
-        ],
-        "title": "DataSubmissionInput"
       },
       "ExecutorBinding": {
         "properties": {
@@ -4604,6 +4909,55 @@
           "implementation"
         ],
         "title": "ExecutorBinding"
+      },
+      "ExpertInterview": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "business": {
+            "type": "string",
+            "enum": [
+              "science",
+              "historical",
+              "public_sources",
+              "general"
+            ],
+            "title": "Business"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 2,
+            "title": "Reason"
+          },
+          "deliverable": {
+            "type": "string",
+            "enum": [
+              "records",
+              "excerpts",
+              "transcription",
+              "image_properties"
+            ],
+            "title": "Deliverable"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Name",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_id",
+          "business",
+          "reason",
+          "deliverable"
+        ],
+        "title": "ExpertInterview"
       },
       "FailureCount": {
         "properties": {
@@ -4946,6 +5300,42 @@
           "excluded_count"
         ],
         "title": "LatencyMetrics"
+      },
+      "ManagementProfile": {
+        "properties": {
+          "business": {
+            "type": "string",
+            "enum": [
+              "science",
+              "historical",
+              "public_sources",
+              "general"
+            ],
+            "title": "Business"
+          },
+          "creation_method": {
+            "type": "string",
+            "enum": [
+              "interview",
+              "manual"
+            ],
+            "title": "Creation Method",
+            "default": "manual"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 2,
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "business",
+          "reason"
+        ],
+        "title": "ManagementProfile"
       },
       "McpServerInput": {
         "properties": {
@@ -5717,6 +6107,14 @@
             "maxLength": 1000,
             "title": "Output Requirements",
             "default": ""
+          },
+          "source_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 32,
+            "title": "Source Ids"
           },
           "data_requirement": {
             "type": "string",

@@ -22,7 +22,9 @@ from ..model_gateway import HARD_CAP, model_gateway
 from . import contracts as c
 from . import service as s
 from .db import TERMINAL, now, repo, tables
+from .expert_design import ConfirmInterview, ExpertInterview, confirm, draft
 from .public_evidence import PublicEvidenceRequest
+from .task_intake import management_inputs
 
 router = APIRouter(prefix="/api/v2")
 identity = APIRouter(prefix="/api")
@@ -34,9 +36,11 @@ admin = Depends(auth.require_roles("admin"))
 
 from .task_case_api import candidate_router
 from .task_case_api import router as task_case_router
+from .workflow_learning_api import router as workflow_learning_router
 
 router.include_router(task_case_router)
 router.include_router(candidate_router)
+router.include_router(workflow_learning_router)
 
 
 @identity.post("/auth/login")
@@ -368,6 +372,13 @@ def agent_activity(project_id: str, window_hours: int = Query(168, ge=1, le=720)
     return activity(project_id, user, repo, window_hours)
 
 
+@router.get("/capabilities/usage")
+def usage_summary(project_id: str, window_hours: int = Query(168, ge=1, le=720), user: dict = read):
+    from ..casework.monitor import capability_usage
+
+    return capability_usage(project_id, user, repo, window_hours)
+
+
 @router.post("/model/connectivity")
 async def model_connectivity(user: dict = edit):
     return await model_gateway.connectivity()
@@ -375,7 +386,7 @@ async def model_connectivity(user: dict = edit):
 
 @router.post("/tasks/preflight", response_model=c.TaskPreflight)
 def task_preflight(body: c.TaskInput, user: dict = edit):
-    return s.create_task(body.model_dump(), user, preflight=True)
+    return s.create_task(management_inputs(body, user, repo), user, preflight=True)
 
 
 @router.get("/capabilities", response_model=c.CapabilityCatalog | list[dict])
@@ -501,6 +512,17 @@ def agents(user: dict = read):
     return s.visible("agents", user)
 
 
+@router.post("/expert-design/preview", response_model=c.AgentInput)
+def expert_preview(body: ExpertInterview, user: dict = edit):
+    s.project_access(body.project_id, user)
+    return draft(body)
+
+
+@router.post("/expert-design/confirm", status_code=201)
+def expert_confirm(body: ConfirmInterview, user: dict = edit):
+    return confirm(body, user, repo)
+
+
 @router.post("/agents", status_code=201)
 def create_agent(body: c.AgentInput, user: dict = edit):
     return s.save_agent(body.model_dump(), user)
@@ -579,8 +601,8 @@ def create_asset(body: c.AssetInput, user: dict = edit):
     return s.safe_asset(s.create_asset(body.model_dump(), user))
 
 
-@router.post("/data-assets/upload", status_code=201)
-async def upload(
+@router.post("/upstream/data-assets/files", status_code=201)
+async def receive_project_file(
     file: UploadFile = File(...),  # noqa: B008 -- FastAPI dependency marker
     project_id: str = Form(...),
     name: str = Form(""),
@@ -760,7 +782,7 @@ def question_answer(question_id: str, user: dict = signed_in):
 
 @router.post("/tasks", status_code=202)
 def create_task(body: c.TaskInput, user: dict = edit):
-    return task_view(s.create_task(body.model_dump(), user))
+    return task_view(s.create_task(management_inputs(body, user, repo), user))
 
 
 @router.get("/tasks/{task_id}")
@@ -904,6 +926,13 @@ def case_package(artifact_id: str, user: dict = read):
     )
 
 
+@router.get("/resources")
+def project_resources(project_id: str, user: dict = read):
+    from .resource_usage import project_resource_usage
+
+    return project_resource_usage(project_id, user, repo)
+
+
 @router.get("/budget")
 def budget(user: dict = read):
     return budget_view()
@@ -948,6 +977,7 @@ def create_schedule(body: c.ScheduleInput, user: dict = edit):
     except ZoneInfoNotFoundError:
         s.fail("invalid_timezone", "未知时区", 422)
     data = body.model_dump()
+    data["task_template"] = management_inputs(body.task_template, user, repo)
     data.update(
         status="enabled",
         created_by=user["id"],

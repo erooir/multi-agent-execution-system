@@ -1,3 +1,4 @@
+import { currentGroup } from "./workspace-navigation";
 import { test, expect } from "@playwright/test";
 import { adminSession } from "./admin-session";
 
@@ -80,7 +81,10 @@ test("普通用户只提交一个问题，平台在已有资料上自动构建�
     });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/questions");
-    await expect(page.getByLabel("当前项目")).toHaveValue(project.id);
+    await expect(currentGroup(page)).toHaveAttribute(
+      "data-project-id",
+      project.id,
+    );
     await expect(page.getByRole("link", { name: "管理工作台" })).toHaveCount(0);
     const question =
       "2004 年北极 9 月海冰范围比 2000 至 2002 年平均少多少？在这五年中排第几？";

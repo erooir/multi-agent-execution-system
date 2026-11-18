@@ -128,6 +128,7 @@ async def run_worker(
     active: dict[asyncio.Task, str] = {}
     last_heartbeat = 0.0
     maintenance: asyncio.Task | None = None
+    intake: asyncio.Task | None = None
     last_maintenance = 0.0
     try:
         register_worker(repository, worker_id, "running", [])
@@ -150,6 +151,18 @@ async def run_worker(
             if time.monotonic() - last_heartbeat >= 5:
                 register_worker(repository, worker_id, "running", list(active.values()))
                 schedule_due(repository)
+                if intake is None or intake.done():
+                    if intake:
+                        try:
+                            intake.result()
+                        except Exception as exc:  # noqa: BLE001 - lease permits recovery after interruption.
+                            log.error("Upstream retrieval failed: %s", type(exc).__name__)
+                    from .task_intake import retrieve_one
+
+                    if once:
+                        await retrieve_one(repository)
+                    else:
+                        intake = asyncio.create_task(retrieve_one(repository))
                 last_heartbeat = time.monotonic()
             if not active and maintenance is None and not once and time.monotonic() - last_maintenance >= 30:
                 from .improvement import maintain
@@ -181,6 +194,9 @@ async def run_worker(
             future.cancel()
         if active:
             await asyncio.gather(*active, return_exceptions=True)
+        if intake:
+            intake.cancel()
+            await asyncio.gather(intake, return_exceptions=True)
         if maintenance:
             await asyncio.gather(maintenance, return_exceptions=True)
         register_worker(repository, worker_id, "stopped", [])

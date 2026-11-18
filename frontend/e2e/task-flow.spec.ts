@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test("真实浏览器：上传、失败保留、任务完成、双视角、复制、事件续传与产物权限", async ({
+test("真实浏览器：上游接入、失败保留、任务完成、双视角、复制、事件续传与产物权限", async ({
   page,
   playwright,
 }) => {
@@ -13,52 +13,47 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
     .getByLabel("密码", { exact: true })
     .fill(process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page.getByLabel("当前项目")).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
   await page.context().storageState({ path: "../.local/browser-auth.json" });
   const created = await page.request.post("/api/v2/projects", {
     data: { name, description: "浏览器自动验收，仅含合成资料" },
   });
   expect(created.ok()).toBeTruthy();
   const project = await created.json();
-  await page.reload();
-  await page.getByLabel("当前项目").selectOption(project.id);
-  await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "我的资料", exact: true })
-    .click();
-  await page.getByRole("button", { name: "登记 / 上传数据" }).click();
-  let dialog = page.getByRole("dialog");
-  await dialog.getByRole("button", { name: "上传文件", exact: true }).click();
-  await dialog.getByLabel("选择文件").setInputFiles({
-    name: `${name}.json`,
-    mimeType: "application/json",
-    buffer: Buffer.from('[{"name":"A","amount":2},{"name":"B","amount":3}]'),
+  const source = await page.request.post("/api/v2/data-assets", {
+    data: {
+      project_id: project.id,
+      name,
+      source_id: name,
+      source_version: "1",
+      modality: "structured",
+      media_type: "application/json",
+      content: [
+        { name: "A", amount: 2 },
+        { name: "B", amount: 3 },
+      ],
+      classification: "local",
+      provenance: "合成上游接口验收",
+    },
   });
-  await dialog
-    .getByLabel("来源标识", { exact: true })
-    .fill(`synthetic:browser:${name}`);
-  await dialog
-    .getByLabel("来源及授权说明", { exact: true })
-    .fill("合成公开样本，仅供浏览器功能验收。");
-  await dialog.getByRole("button", { name: "验证并登记" }).click();
-  await expect(dialog).not.toBeVisible();
+  expect(source.ok()).toBeTruthy();
+  await page.goto("/manage?view=tasks");
+  await page.locator(".wb-group-row").filter({ hasText: name }).click();
   await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "任务中心", exact: true })
-    .click();
-  await page.getByRole("button", { name: "新建任务", exact: true }).focus();
+    .locator("main")
+    .getByRole("button", { name: "新建任务", exact: true })
+    .focus();
   await page.keyboard.press("Enter");
-  dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("dialog");
   await dialog.getByLabel("任务名称", { exact: true }).fill(name);
   await dialog
     .getByLabel("任务目标", { exact: true })
-    .fill("规范化全部合成记录并保留字段。");
+    .fill(`规范化来源 ${name} 的记录并保留字段。`);
   await expect(
     dialog
       .getByRole("combobox", { name: "执行模式", exact: true })
       .getByRole("option", { name: "云端模型 · 计入累计预算" }),
   ).toHaveJSProperty("disabled", true);
-  await dialog.getByRole("checkbox", { name: new RegExp(name) }).check();
   await dialog.getByLabel("任务时效类型").selectOption("interactive");
   await dialog
     .getByRole("button", { name: "检查匹配与授权", exact: true })
@@ -150,8 +145,7 @@ test("真实浏览器：上传、失败保留、任务完成、双视角、复�
     page.locator("tr").filter({ hasText: task.id }).locator(".badge"),
   ).toHaveText("成功");
   await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "工作台", exact: true })
+    .getByRole("button", { name: "工作台·任务中心", exact: true })
     .click();
   await expect(
     page.getByRole("heading", { name: "运行统计", exact: true }),
@@ -196,11 +190,13 @@ test("浏览器查看已完成真实云任务的MCP参数、结果和证据", as
     );
     test.skip(!task, "本环境尚无真实云端MCP验收记录；CI不调用付费模型");
     const page = await context.newPage();
-    await page.goto("/manage");
-    await page.getByLabel("当前项目").selectOption(task.project_id);
+    const project = (
+      await (await context.request.get("/api/v2/projects")).json()
+    ).find((p: any) => p.id === task.project_id);
+    await page.goto("/manage?view=tasks");
     await page
-      .getByRole("navigation")
-      .getByRole("button", { name: "任务中心", exact: true })
+      .locator(".wb-group-row")
+      .filter({ hasText: project.name })
       .click();
     await page
       .locator("tr")

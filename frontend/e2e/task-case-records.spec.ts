@@ -72,7 +72,7 @@ test("资料准备显示完整目标，去除重复说明并保留新名称", as
     overview.getByRole("heading", { name: goal, exact: true }),
   ).toBeVisible();
   await expect(overview.locator(".taskcase-goal")).toHaveCount(1);
-  await expect(page.locator(".taskcase-history strong")).toHaveAttribute(
+  await expect(page.locator(".wb-task-row:not(.is-indented)")).toHaveAttribute(
     "title",
     goal,
   );
@@ -93,6 +93,7 @@ test("资料准备显示完整目标，去除重复说明并保留新名称", as
   await expect(
     overview.getByRole("heading", { name: goal, exact: true }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "打开导航" }).click();
   await page.getByRole("button", { name: "新建任务", exact: true }).click();
   await page.getByText("执行设置", { exact: true }).click();
   for (const removed of [
@@ -126,14 +127,14 @@ test("删除需确认，成功后选择下一条且刷新不恢复已删任务",
   await expect(page.locator(".taskcase-overview p.taskcase-goal")).toHaveText(
     goal,
   );
-  await expect(page.locator(".taskcase-history li")).toHaveCount(1);
+  await expect(page.locator(".wb-task-row:not(.is-indented)")).toHaveCount(1);
   await expect(page).toHaveURL(/\?project=project$/);
   expect(calls.deletionCount).toBe(1);
   await page.reload();
   await expect(page.locator(".taskcase-overview h2")).toHaveText(
     "另一个自定义任务",
   );
-  await expect(page.locator(".taskcase-history li")).toHaveCount(1);
+  await expect(page.locator(".wb-task-row:not(.is-indented)")).toHaveCount(1);
 });
 
 test("删除被后台拒绝时保留任务与错误，重试成功后最后一条进入新建", async ({
@@ -147,12 +148,12 @@ test("删除被后台拒绝时保留任务与错误，重试成功后最后一�
   await expect(dialog.getByRole("alert")).toHaveText(
     "任务正在完成执行清理，请稍后再删除记录。",
   );
-  await expect(page.locator(".taskcase-history li")).toHaveCount(1);
+  await expect(page.locator(".wb-task-row:not(.is-indented)")).toHaveCount(1);
   await dialog.getByRole("button", { name: "删除记录", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "你希望完成什么工作？" }),
   ).toBeVisible();
-  await expect(page.locator(".taskcase-history li")).toHaveCount(0);
+  await expect(page.locator(".wb-task-row:not(.is-indented)")).toHaveCount(0);
   expect(calls.deletionCount).toBe(2);
   await expect(page).toHaveURL(/\?project=project$/);
 });

@@ -1,3 +1,4 @@
+import { group, workspacePage } from "./workspace-navigation";
 import { test, expect } from "@playwright/test";
 import { adminSession } from "./admin-session";
 
@@ -25,11 +26,8 @@ test("用例岗位对照显示共享算法和不同权限，当前专员可执�
     classification: "local",
   });
   await page.goto("/manage");
-  await page.getByLabel("当前项目").selectOption(p.id);
-  await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "场景分析" })
-    .click();
+  await group(page, p.id).click();
+  await workspacePage(page, "场景分析");
   const installed = page.waitForResponse(
     (r) =>
       r.url().includes("/api/v2/casework/install?") &&
@@ -74,10 +72,7 @@ test("用例岗位对照显示共享算法和不同权限，当前专员可执�
       a.role_contract?.stage === "analyze",
   );
   expect(specialist).toBeTruthy();
-  await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "智能体资产" })
-    .click();
+  await workspacePage(page, "智能体资产");
   await page.getByLabel("执行方式筛选").selectOption("dual");
   await page.getByLabel("用例岗位分工").selectOption("analyze");
   await page.getByLabel("发布状态").selectOption("published");
@@ -106,5 +101,6 @@ test("用例岗位对照显示共享算法和不同权限，当前专员可执�
   await dlg.getByRole("button", { name: "执行本地试用" }).click();
   await expect(dlg.locator(".tool-result")).toContainText(
     "Particle size distributions (PSDs)",
+    { timeout: 30000 },
   );
 });

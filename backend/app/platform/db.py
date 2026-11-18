@@ -23,6 +23,7 @@ from sqlalchemy import (
 )
 from sqlalchemy import event as sa_event
 
+from ..resource_limits import task_slots
 from .dameng import database_url, json_scalar, supports_row_lock
 from .db_schema import SCHEMA_VERSION, metadata, schema, tables
 
@@ -225,6 +226,7 @@ class Repository:
                 )
             ],
             json_scalar(self.engine, table.c.payload, "finished_at").label("finished_at"),
+            json_scalar(self.engine, table.c.payload, "first_claimed_at").label("first_claimed_at"),
             json_scalar(self.engine, table.c.payload, "reason_code").label("reason_code"),
             json_scalar(self.engine, table.c.payload, "request", "mode").label("mode"),
             json_scalar(self.engine, table.c.payload, "snapshot", "scheduling", "service_class").label(
@@ -302,8 +304,22 @@ class Repository:
     def claim(self, worker_id, lease_seconds=30):
         with self.transaction() as tx:
             table = tables["tasks"]
+            # Serialize the count and lease assignment across workers. Capacity
+            # is released by completion or lease expiry, including worker crashes.
+            tx.lock_project_initialization()
             claimed_at = datetime.now(UTC)
             current_time = claimed_at.timestamp()
+            active = tx.connection.scalar(
+                select(func.count())
+                .select_from(table)
+                .where(
+                    ~table.c.status.in_(TERMINAL),
+                    table.c.lease_owner.is_not(None),
+                    table.c.lease_until >= current_time,
+                )
+            )
+            if active >= task_slots():
+                return None
             query = select(table).where(
                 and_(
                     ~table.c.status.in_(TERMINAL),

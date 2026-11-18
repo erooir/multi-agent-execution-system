@@ -293,7 +293,7 @@ async def test_planner_missing_data_releases_worker_and_task_can_resume(db, monk
     assert resumed["status"] == "ready" and resumed["task_id"] is None and len(resumed["runs"]) == 2
 
 
-def test_web_upload_and_customer_api_are_same_task_scoped_intake(db, monkeypatch):
+def test_only_scoped_upstream_api_accepts_inline_and_binary_data(db, monkeypatch):
     p = setup(db, monkeypatch)
     monkeypatch.setattr(
         service, "ASSET_DIR", __import__("pathlib").Path(db.engine.url.database).parent / "assets"
@@ -303,18 +303,24 @@ def test_web_upload_and_customer_api_are_same_task_scoped_intake(db, monkeypatch
     app = application()
     app.dependency_overrides[auth.get_current_user] = lambda: REQUESTER
     with TestClient(app) as client:
+        target = f"/api/v2/task-cases/{first['id']}"
+        file = {"file": ("rows.csv", b"name,value\nalpha,3\n", "text/csv")}
+        meta = {"idempotency_key": "file", "classification": "local"}
+        assert client.post(target + "/upload", data=meta, files=file).status_code == 404
+        assert client.post(target + "/ingest/upload", data=meta, files=file).status_code == 403
+        token = client.post(target + "/ingest-tokens", json={}).json()
         response = client.post(
-            f"/api/v2/task-cases/{first['id']}/upload",
-            data={"idempotency_key": "file", "classification": "local"},
-            files={"file": ("rows.csv", b"name,value\nalpha,3\n", "text/csv")},
+            target + "/ingest/upload",
+            data=meta,
+            files=file,
+            headers={"Authorization": "Bearer " + token["token"]},
         )
         assert response.status_code == 201, response.text
-        result = response.json()
+        result = client.get(target).json()
         assert result["status"] == "ready"
-        assert len(result["submissions"]) == 1
+        assert len(result["submissions"]) == 1 and result["submissions"][0]["transport"] == "api_file"
         a = db.get("data_assets", result["input_refs"][0])
         assert a["task_case_id"] == first["id"] and a["classification"] == "local"
-        token = client.post(f"/api/v2/task-cases/{first['id']}/ingest-tokens", json={}).json()
         response = client.post(
             f"/api/v2/task-cases/{first['id']}/ingest",
             headers={"Authorization": "Bearer " + token["token"]},
@@ -421,13 +427,16 @@ def test_corrupt_office_or_pdf_upload_is_a_data_gap_not_internal_error(db, monke
     app = application()
     app.dependency_overrides[auth.get_current_user] = lambda: REQUESTER
     with TestClient(app) as client:
+        target = f"/api/v2/task-cases/{case['id']}"
+        token = client.post(target + "/ingest-tokens", json={}).json()["token"]
         response = client.post(
-            f"/api/v2/task-cases/{case['id']}/upload",
+            target + "/ingest/upload",
+            headers={"Authorization": "Bearer " + token},
             data={"idempotency_key": "corrupt", "classification": "local"},
             files={"file": (filename, b"not a valid document or zip", "application/octet-stream")},
         )
         assert response.status_code == 201, response.text
-        data = response.json()
+        data = client.get(target).json()
         assert data["status"] == "awaiting_data"
         assert not data["profiles"][0]["readable"] and "无法解析" in data["profiles"][0]["validation"]
 

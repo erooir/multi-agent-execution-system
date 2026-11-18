@@ -1,3 +1,4 @@
+import { currentGroup, workspacePage } from "./workspace-navigation";
 import { test, expect, type Page } from "@playwright/test";
 
 async function management(page: Page) {
@@ -210,7 +211,7 @@ async function management(page: Page) {
     return json({ detail: { message: "Unexpected fixture request" } }, 404);
   });
   await page.goto("/manage");
-  await expect(page.getByLabel("当前项目")).toHaveValue("p");
+  await expect(currentGroup(page)).toHaveAttribute("data-project-id", "p");
   return mutations;
 }
 
@@ -218,10 +219,7 @@ test("任务专属与独立评测快照不冒充复用资产，工具缺依赖�
   page,
 }) => {
   await management(page);
-  await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "智能体资产", exact: true })
-    .click();
+  await workspacePage(page, "智能体资产");
   await expect(
     page
       .locator(".agent-registry-counts")
@@ -239,10 +237,7 @@ test("任务专属与独立评测快照不冒充复用资产，工具缺依赖�
     dialog.getByRole("button", { name: "编辑定义", exact: true }),
   ).toHaveCount(0);
   await page.keyboard.press("Escape");
-  await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "工具箱", exact: true })
-    .click();
+  await workspacePage(page, "工具箱");
   await expect(page.getByText(/当前部署已就绪 1 \/ 2 项/)).toBeVisible();
   await page.getByLabel("工具分类").selectOption("scripts");
   await expect(
@@ -257,10 +252,7 @@ test("候选独立评测未通过时不能晋升，真实契约通过后才出�
   page,
 }) => {
   const mutations = await management(page);
-  await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "效果评测", exact: true })
-    .click();
+  await workspacePage(page, "效果评测");
   await page.getByLabel("候选来源任务").selectOption("source");
   await page.getByRole("button", { name: "提取去数据化候选" }).click();
   await expect(

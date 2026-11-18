@@ -104,6 +104,17 @@ def deterministic_quality(request: dict, output: dict, inputs: list[dict], *, sc
         else:
             text = content.get("text", "") if isinstance(content, dict) else ""
             citations = content.get("citations", []) if isinstance(content, dict) else []
+            if task_type == "autonomous_analysis" and isinstance(text, str):
+                from .arithmetic_review import reconciliation_errors
+
+                count, arithmetic_errors = reconciliation_errors(text)
+                if count:
+                    check(
+                        "decimal_reconciliation",
+                        not arithmetic_errors,
+                        "显式复算式错误：" + "；".join(arithmetic_errors),
+                        True,
+                    )
 
             def valid_citation(citation):
                 if not isinstance(citation, dict):
@@ -196,7 +207,12 @@ def deterministic_quality(request: dict, output: dict, inputs: list[dict], *, sc
                 or isinstance(bbox, list)
                 and len(bbox) == 4
                 and all(type(value) in {int, float} and math.isfinite(value) for value in bbox)
+                and 0 <= bbox[0] < bbox[2]
+                and 0 <= bbox[1] < bbox[3]
             )
+            size = output.get("metrics", {}).get("display_sizes", {}).get(item.get("source_id"))
+            if valid and bbox is not None and size:
+                valid = bbox[2] <= size[0] and bbox[3] <= size[1]
         check("image_evidence", valid, "视觉证据必须引用真实图片和有效区域", True)
         check("min_length", len(text.strip()) >= policy.get("min_length", 1), "图像理解文本长度未达到要求")
     else:

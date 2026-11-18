@@ -2203,3 +2203,18 @@ code {
   background: #e9f8f4;
   color: #0d8f79;
 }
+
+.expert-interview { display:grid; gap:1rem; padding-block:1rem; }
+.expert-interview label { display:grid; gap:.4rem; }
+.expert-interview textarea { min-height:5rem; }
+.expert-interview dl { display:grid; grid-template-columns:auto 1fr; gap:.55rem 1rem; }
+.expert-interview dd { margin:0; }
+.expert-group-select { display:flex; align-items:center; gap:.75rem; margin:1rem 0; }
+.expert-group { margin:1rem 0 1.5rem; }
+.expert-group h3 { margin:.6rem 0; }
+.expert-group small { font-weight:normal; }
+
+.agent-frequency { margin:1rem 0; }
+.agent-frequency > div { display:grid; grid-template-columns:minmax(6rem,1fr) minmax(4rem,2fr) auto; align-items:center; gap:.7rem; margin:.25rem 0; }
+.agent-frequency button { text-align:left; }
+.agent-frequency meter { width:100%; accent-color:var(--accent,#545dd5); }

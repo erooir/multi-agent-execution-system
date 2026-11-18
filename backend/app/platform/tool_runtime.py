@@ -155,8 +155,13 @@ class ToolSession:
             if hasattr(schema, "model_validate"):
                 validated = schema.model_validate(arguments).model_dump()
             else:
-                validate_json(arguments, schema)
-                validated = arguments
+                validated = dict(arguments)
+                if spec.get("adapter") == "builtin" and spec["kind"] == "tool":
+                    # JSON Schema defaults are annotations. Keep the supplied arguments intact for audit.
+                    for key, field in schema.get("properties", {}).items():
+                        if "default" in field and key not in schema.get("required", []):
+                            validated.setdefault(key, field["default"])
+                validate_json(validated, schema)
             pending_result = handler(**validated)
             raw_result = await pending_result if inspect.isawaitable(pending_result) else pending_result
             data = self._normalize_result(raw_result)

@@ -251,6 +251,44 @@ def profile_asset(asset):
     return result
 
 
+def missing_source_ids(tx, row):
+    requested = row.get("source_ids", [])
+    if not requested:
+        return []
+    present = set()
+    for ref in row.get("input_refs", []):
+        asset = tx.get("data_assets", ref)
+        if (
+            not asset
+            or asset["project_id"] != row["project_id"]
+            or asset.get("task_case_id") not in {None, row["id"]}
+        ):
+            continue
+        try:
+            s.usable_asset(asset)
+        except s.DomainError:
+            continue
+        if row["mode"] == "cloud" and asset["classification"] != "public":
+            continue
+        try:
+            profile = profile_asset(asset)
+        except s.DomainError:
+            continue
+        if profile["readable"] and profile["nonempty"]:
+            present.add(asset["source_id"])
+    return [key for key in dict.fromkeys(requested) if key not in present]
+
+
+def refresh_missing(tx, row):
+    row["missing"] = [
+        r["description"]
+        for r in row["requirements"]
+        if r["required"] and r["status"] not in {"provided", "satisfied"}
+    ]
+    row["missing"].extend("缺少指定来源：" + key for key in missing_source_ids(tx, row))
+    row["status"] = "awaiting_data" if row["missing"] else "ready"
+
+
 def create(body, user, repository):
     body = TaskCaseInput.model_validate(body).model_dump()
     _principal(user)
@@ -262,13 +300,18 @@ def create(body, user, repository):
         if old:
             if old.get("deleted_at"):
                 s.fail("task_case_deleted", "此提交对应的任务已删除，请使用新的提交标识创建任务", 409)
-            if old["request_hash"] != s.digest(body):
+            legacy_body = {k: v for k, v in body.items() if k != "source_ids"}
+            if old["request_hash"] != s.digest(body) and (
+                body["source_ids"] or old["request_hash"] != s.digest(legacy_body)
+            ):
                 s.fail("idempotency_conflict", "同一提交标识已用于不同任务", 409)
             return view(tx, old, user)
         row = {
             **body,
             "id": cid,
             "owner_id": user["id"],
+            "intake_owner": user.get("username", user["id"]),
+            "intake": {"status": "pending", "attempts": 0},
             "request_hash": s.digest(body),
             "title": body["title"] or body["goal"][:80],
             "input_refs": [],
@@ -280,9 +323,7 @@ def create(body, user, repository):
             "ingest_tokens": [],
         }
         row["requirements"], row["matched_case_id"] = _requirements(row, _available(tx, row))
-        if row["requirements"]:
-            row["status"] = "awaiting_data"
-            row["missing"] = [r["description"] for r in row["requirements"] if r["required"]]
+        refresh_missing(tx, row)
         row = tx.put("task_cases", row)
         s.audit(tx, row["project_id"], "task_case.created", cid, user)
         if row["mode"] == "cloud" and row["public_egress_authorized"]:
@@ -293,6 +334,8 @@ def create(body, user, repository):
 
 
 def _status(tx, row):
+    if row["status"] == "cancelled":
+        return "cancelled"
     task = tx.get("tasks", row["task_id"]) if row.get("task_id") else None
     if task and task.get("task_case_id") == row["id"]:
         if task.get("task_case_phase") == "requirements" and task["status"] not in TERMINAL:
@@ -312,7 +355,7 @@ def _editable(tx, row):
         s.fail("task_case_locked", "任务执行中或已成功交付，不能更改冻结输入", 409)
 
 
-def submit(case_id, body, user, repository):
+def submit(case_id, body, user, repository, *, replace_sources=False):
     body = DataSubmissionInput.model_validate(body).model_dump()
     with repository.transaction() as tx:
         row = required(tx, case_id, user, write=True)
@@ -340,6 +383,18 @@ def submit(case_id, body, user, repository):
                 s.fail("permission_denied", "资料不属于当前项目或此任务的授权范围", 403)
             s.usable_asset(asset)
             s.verify_frozen_asset(asset, asset)
+        if replace_sources:
+            new_ids = set(body["input_refs"])
+            source_keys = {tx.get("data_assets", key)["source_id"] for key in new_ids}
+            # Only the working input set changes. Historical submissions and prior runs stay frozen.
+            removed = {
+                key
+                for key in row["input_refs"]
+                if key not in new_ids and (tx.get("data_assets", key) or {}).get("source_id") in source_keys
+            }
+            row["input_refs"] = [key for key in row["input_refs"] if key not in removed]
+            for rid, bindings in row.get("requirement_bindings", {}).items():
+                row["requirement_bindings"][rid] = [key for key in bindings if key not in removed]
         added = [ref for ref in body["input_refs"] if ref not in row["input_refs"]]
         row["input_refs"] = list(dict.fromkeys([*row["input_refs"], *body["input_refs"]]))
         if body["public_egress_authorized"] is not None:
@@ -352,16 +407,20 @@ def submit(case_id, body, user, repository):
             row["requirements"] = refresh(row, _available(tx, row))
         else:
             row["requirements"], row["matched_case_id"] = _requirements(row, _available(tx, row))
-        row["missing"] = [
-            r["description"]
-            for r in row["requirements"]
-            if r["required"] and r["status"] not in {"provided", "satisfied"}
-        ]
         row.pop("execution_missing", None)
-        row["status"] = "awaiting_data" if row["missing"] else "ready"
+        refresh_missing(tx, row)
         # A new data revision detaches a terminal run, without losing its trace or costs.
         row["task_id"] = None
         row["revision"] += 1
+        if row.get("intake"):
+            row["intake"] = {**row["intake"], "next_at": None}
+        elif added:
+            # An explicit new upstream submission can resume a historical task.
+            row["intake"] = {"status": "pending", "attempts": 0}
+            if row["owner_id"] == user["id"]:
+                row["intake_owner"] = user.get("username", user["id"])
+            else:
+                row.pop("intake")
         if added:
             tx.put(
                 "data_submissions",
@@ -558,7 +617,7 @@ def start(case_id, user, repository):
             from .task_requirements import begin
 
             return view(tx, begin(tx, row, user), user)
-        if row["missing"]:
+        if row["missing"] or missing_source_ids(tx, row):
             s.fail("insufficient_data", "请提供资料需求中缺少的参考数据", 422)
         worker = _principal(user)
         code = row.get("matched_case_id")
@@ -633,9 +692,12 @@ def start(case_id, user, repository):
 def cancel(case_id, user, repository):
     with repository.transaction() as tx:
         row = required(tx, case_id, user, write=True)
-        if row.get("task_id"):
-            s.cancel_task(row["task_id"], _principal(user), tx)
-        else:
+        run = tx.get("tasks", row["task_id"]) if row.get("task_id") else None
+        if run and run["status"] not in TERMINAL:
+            s.cancel_task(run["id"], _principal(user), tx)
+        elif not run or _status(tx, row) == "awaiting_data":
+            for token in row.get("ingest_tokens", []):
+                token["revoked"] = True
             row = tx.put("task_cases", {**row, "status": "cancelled"})
         return view(tx, row, user)
 
@@ -715,11 +777,11 @@ def _case_accounting(row):
         with model_gateway.ledger.connect() as ledger:
             slots = ",".join("?" for _ in row["task_ids"])
             values = ledger.execute(
-                "SELECT model,COUNT(*) requests, SUM(CASE WHEN state='settled' THEN cost ELSE 0 END) cost_cny,"
+                "SELECT model,provider,COUNT(*) requests, SUM(CASE WHEN state='settled' THEN cost ELSE 0 END) cost_cny,"
                 "SUM(CASE WHEN state!='settled' THEN reserved ELSE 0 END) reserved_cny,"
-                "SUM(CASE WHEN state='uncertain' THEN 1 ELSE 0 END) uncertain_count FROM charges WHERE run_id IN ("
+                "SUM(CASE WHEN state='uncertain' THEN 1 ELSE 0 END) uncertain_count FROM model_request_usage WHERE run_id IN ("
                 + slots
-                + ") GROUP BY model",
+                + ") GROUP BY model,provider",
                 row["task_ids"],
             ).fetchall()
             models = [
@@ -729,13 +791,54 @@ def _case_accounting(row):
     return totals, models
 
 
-def _aggregate_trace(tx, row, out):
+def case_source_context(tx, row):
+    """All deliveries and traces depend on the case's complete input history."""
+    task_ids = dict.fromkeys([*row.get("task_ids", []), *([row["task_id"]] if row.get("task_id") else [])])
+    runs = []
+    missing_run = False
+    for task_id in task_ids:
+        run = tx.get("tasks", task_id)
+        if run and run.get("task_case_id") == row["id"] and run["project_id"] == row["project_id"]:
+            runs.append(run)
+        else:
+            missing_run = True
+    submissions = tx.list("data_submissions", row["project_id"], task_case_id=row["id"])
+    refs = set(row.get("input_refs", []))
+    for receipt in submissions:
+        refs.update(receipt.get("input_refs", []))
+    assets = {}
+    frozen_ids = set()
+
+    def current(asset_id):
+        if asset_id not in assets:
+            assets[asset_id] = tx.get("data_assets", asset_id)
+        asset = assets[asset_id]
+        if (
+            not asset
+            or asset.get("project_id") != row["project_id"]
+            or asset.get("task_case_id") not in (None, row["id"])
+        ):
+            s.fail("missing_input", "来源不存在或超出本任务授权", 409)
+        return asset
+
+    try:
+        for run in runs:
+            for frozen in run["snapshot"]["inputs"]:
+                s.verify_frozen_asset(frozen, current(frozen["id"]))
+                frozen_ids.add(frozen["id"])
+        for asset_id in refs - frozen_ids:
+            asset = current(asset_id)
+            s.verify_frozen_asset(asset, asset)
+    except (s.DomainError, OSError):
+        return runs, submissions, True
+    return runs, submissions, missing_run
+
+
+def _aggregate_trace(tx, row, out, runs):
     """All phases and data revisions remain observable, including charged failed runs."""
     usage, models = _case_accounting(row)
     out["usage"] = usage
     out["trace"]["models"] = models
-    runs = [tx.get("tasks", tid) for tid in row["task_ids"]]
-    runs = [r for r in runs if r and r.get("task_case_id") == row["id"]]
     out["runs"] = [
         {
             **{
@@ -747,21 +850,7 @@ def _aggregate_trace(tx, row, out):
         }
         for run in runs
     ]
-    try:
-        for run in runs:
-            for frozen in run["snapshot"]["inputs"]:
-                s.verify_frozen_asset(frozen, tx.get("data_assets", frozen["id"]))
-    except s.DomainError:
-        out.update(content_withheld=True, plans=[], requirements_analysis=None, review=None, result=None)
-        out["trace"] = {
-            "models": models,
-            "agents": [],
-            "tools": [],
-            "revisions": [],
-            "assessment_reviews": [],
-            "scripts": [],
-            "sandbox_runs": [],
-        }
+    if out.get("content_withheld"):
         return
     agents, tools, revisions, assessments = [], [], [], []
     for run in runs:
@@ -919,6 +1008,7 @@ def view(tx, row, user, *, summary=False):
         "title",
         "goal",
         "output_requirements",
+        "source_ids",
         "mode",
         "max_cost_cny",
         "public_egress_authorized",
@@ -929,20 +1019,42 @@ def view(tx, row, user, *, summary=False):
         "created_at",
         "updated_at",
         "requirements_analysis",
+        "intake",
     ]
     out = {key: row.get(key) for key in keys}
+    if out.get("intake"):
+        out["intake"] = {k: v for k, v in out["intake"].items() if k != "claim"}
     out["status"] = _status(tx, row)
     task = tx.get("tasks", row["task_id"]) if row.get("task_id") else None
     out["task_type"] = task["request"]["task_type"] if task else None
+    runs, submissions, withheld = case_source_context(tx, row)
+    if withheld:
+        out.update(
+            content_withheld=True,
+            title="任务资料已不可用",
+            goal="",
+            output_requirements="",
+            source_ids=[],
+            requirements=[],
+            requirements_analysis=None,
+            missing=["输入资料已撤回、过期或变化，相关产物与运行详情已屏蔽。"],
+        )
+        if out.get("intake"):
+            out["intake"] = {
+                k: out["intake"][k]
+                for k in ("attempts", "status", "checked_at", "next_at", "bound_asset_count")
+                if k in out["intake"]
+            }
     out["candidate_eligible"] = bool(
-        task
+        not withheld
+        and task
         and not task.get("task_case_phase")
         and task["request"]["task_type"] == "autonomous_analysis"
         and task["status"] == "succeeded"
     )
     from .agent_candidates import evaluation_sample_eligible
 
-    out["evaluation_eligible"] = evaluation_sample_eligible(task, tx)
+    out["evaluation_eligible"] = not withheld and evaluation_sample_eligible(task, tx)
     if summary:
         return out
     out["available_assets"] = [
@@ -950,15 +1062,17 @@ def view(tx, row, user, *, summary=False):
             k: a.get(k)
             for k in ("id", "name", "modality", "media_type", "classification", "bytes", "source_version")
         }
-        for a in _available(tx, row)
+        for a in ([] if withheld else _available(tx, row))
+        if a["id"] in row.get("input_refs", [])
     ]
-    out["profiles"] = [p for requirement in row["requirements"] for p in requirement.get("profiles", [])]
-    submissions = tx.list("data_submissions", row["project_id"], task_case_id=row["id"])
+    out["profiles"] = [p for requirement in out["requirements"] for p in requirement.get("profiles", [])]
+    if withheld:
+        submissions = []
     transported = {tuple(x.get("input_refs", [])) for x in submissions if x.get("transport")}
     out["submissions"] = [
         x for x in submissions if x.get("transport") or tuple(x.get("input_refs", [])) not in transported
     ]
-    out["plans"] = tx.list("plan_versions", row["project_id"], task_case_id=row["id"])
+    out["plans"] = [] if withheld else tx.list("plan_versions", row["project_id"], task_case_id=row["id"])
     out.update(
         runs=[],
         result=None,
@@ -973,222 +1087,196 @@ def view(tx, row, user, *, summary=False):
             "sandbox_runs": [],
         },
     )
-    task = tx.get("tasks", row["task_id"]) if row.get("task_id") else None
-    for tid in row["task_ids"]:
-        run = tx.get("tasks", tid)
-        if run:
-            out["runs"].append(
+    if task and not withheld:
+        out["review"] = task.get("quality_verdict")
+        out["trace"]["scripts"] = tx.list("script_versions", row["project_id"], task_id=task["id"])
+        sandbox_runs = tx.list("sandbox_runs", row["project_id"], task_id=task["id"])
+        out["trace"]["sandbox_runs"] = [
+            {
+                **run,
+                "outputs": [
+                    {
+                        **{k: v for k, v in output.items() if k != "base64"},
+                        "download_url": f"/api/v2/task-cases/{row['id']}/sandbox-runs/{run['id']}/outputs/{index}",
+                    }
+                    for index, output in enumerate(run.get("outputs", []))
+                ],
+            }
+            for run in sandbox_runs
+        ]
+        nodes = tx.list("nodes", row["project_id"], task_id=task["id"])
+        instances = tx.list("instances", row["project_id"], task_id=task["id"])
+        historical_agents = {(a["id"], a.get("version", 1)): a for a in task["snapshot"]["agents"]}
+        for node in nodes:
+            key = (node["agent_id"], node["agent_version"])
+            if key not in historical_agents:
+                saved = tx.get("agent_versions", f"{key[0]}:{key[1]}")
+                if saved:
+                    historical_agents[key] = {**saved, "id": key[0]}
+        for a in historical_agents.values():
+            own = [i for i in instances if i["agent_id"] == a["id"]]
+            out["trace"]["agents"].append(
                 {
-                    k: run.get(k)
-                    for k in ("id", "status", "reason_code", "revision", "created_at", "finished_at")
+                    "id": a["id"],
+                    "name": a["name"],
+                    "version": a.get("version", 1),
+                    "scope": a.get("scope", "reusable"),
+                    "instances": len(own),
+                    "status": own[-1]["status"] if own else "pending",
                 }
             )
-    if task:
-        blocked = s.unavailable_sources([a["id"] for a in task["snapshot"]["inputs"]], row["project_id"], tx)
-        try:
-            for frozen in task["snapshot"]["inputs"]:
-                s.verify_frozen_asset(frozen, tx.get("data_assets", frozen["id"]))
-        except s.DomainError:
-            blocked = True
-        if blocked:
-            out.update(
-                content_withheld=True,
-                plans=[],
-                review=None,
-                missing=["输入资料已撤回、过期或变化，相关产物与运行详情已屏蔽。"],
-            )
-        else:
-            out["review"] = task.get("quality_verdict")
-            out["trace"]["scripts"] = tx.list("script_versions", row["project_id"], task_id=task["id"])
-            sandbox_runs = tx.list("sandbox_runs", row["project_id"], task_id=task["id"])
-            out["trace"]["sandbox_runs"] = [
+        out["trace"]["tools"] = [
+            {
+                k: call.get(k)
+                for k in (
+                    "id",
+                    "capability_id",
+                    "status",
+                    "revision",
+                    "duration_ms",
+                    "node_id",
+                    "summary",
+                    "error_code",
+                )
+            }
+            for call in task.get("tool_calls", [])
+        ]
+        out["trace"]["revisions"] = task.get("repair_history", [])
+        names = {a["id"]: a["name"] for a in historical_agents.values()}
+        out["trace"]["assessment_reviews"] = [
+            {
+                "agent_id": node["agent_id"],
+                "agent_name": names.get(node["agent_id"], ""),
+                "node_id": node["node_id"],
+                "revision": node.get("attempt", 1) - 1,
+                **node["output"]["assessment_review"],
+            }
+            for node in nodes
+            if (node.get("output") or {}).get("assessment_review")
+        ]
+        model_ids = sorted(
+            {(n.get("output") or {}).get("model") for n in nodes if (n.get("output") or {}).get("model")}
+        )
+        from .runtime import _usage
+
+        usage = _usage(task["id"], task["request"]["mode"])
+        out["usage"] = usage
+        out["trace"]["models"] = (
+            [
                 {
-                    **run,
-                    "outputs": [
-                        {
-                            **{k: v for k, v in output.items() if k != "base64"},
-                            "download_url": f"/api/v2/task-cases/{row['id']}/sandbox-runs/{run['id']}/outputs/{index}",
-                        }
-                        for index, output in enumerate(run.get("outputs", []))
-                    ],
+                    "model": "、".join(model_ids) or "网关模型",
+                    "requests": usage.get("request_count"),
+                    "cost_cny": usage.get("cost_cny"),
+                    "scope": "task_total",
                 }
-                for run in sandbox_runs
             ]
-            nodes = tx.list("nodes", row["project_id"], task_id=task["id"])
-            instances = tx.list("instances", row["project_id"], task_id=task["id"])
-            historical_agents = {(a["id"], a.get("version", 1)): a for a in task["snapshot"]["agents"]}
-            for node in nodes:
-                key = (node["agent_id"], node["agent_version"])
-                if key not in historical_agents:
-                    saved = tx.get("agent_versions", f"{key[0]}:{key[1]}")
-                    if saved:
-                        historical_agents[key] = {**saved, "id": key[0]}
-            for a in historical_agents.values():
-                own = [i for i in instances if i["agent_id"] == a["id"]]
-                out["trace"]["agents"].append(
+            if usage.get("request_count")
+            else []
+        )
+        if task["status"] in TERMINAL:
+            from .question_answers import deliver
+
+            artifacts = tx.list("artifacts", row["project_id"], task_id=task["id"])
+            if artifacts:
+                sources = {a["id"]: a for a in task["snapshot"]["inputs"]}
+                if task["request"]["task_type"] == "autonomous_analysis":
+                    content = artifacts[-1].get("content") or {}
+                    citations = []
+                    for citation in content.get("citations", []):
+                        asset = sources.get(citation.get("source_id"))
+                        if not asset:
+                            continue
+                        checkpoint = task.get("tool_checkpoints", {}).get(citation.get("tool_call_id"), {})
+                        page = (checkpoint.get("arguments") or {}).get("page")
+                        base_url = f"/api/v2/task-cases/{row['id']}/sources/{asset['id']}/download"
+                        citations.append(
+                            {
+                                "source_id": asset["id"],
+                                "source": asset["name"],
+                                "source_url": base_url
+                                + (f"#page={page}" if type(page) is int and page > 0 else ""),
+                                "page": page if type(page) is int and page > 0 else None,
+                                "location": f"第 {page} 页"
+                                if page
+                                else (
+                                    f"字符 {citation['start']}–{citation['end']}"
+                                    if "start" in citation
+                                    else "可核验的工具计算或解析结果"
+                                ),
+                                "excerpt": str(citation.get("quote", "由工具执行记录及校验和定位此结果"))[
+                                    :450
+                                ],
+                                "quote_truncated": len(str(citation.get("quote", ""))) > 450,
+                                "tool_call_id": citation.get("tool_call_id"),
+                                "kind": citation.get("kind"),
+                            }
+                        )
+                    out["result"] = {
+                        "answer": content.get("text", ""),
+                        "citations": citations,
+                        "tables": [],
+                        "missing": content.get("missing_information", []),
+                        "incomplete": task["status"] != "succeeded",
+                    }
+                else:
+                    out["result"] = deliver(tx, task, sources, row["goal"])
+                if not out["result"].get("answer"):
+                    out["result"]["answer"] = "\n\n".join(
+                        str((a.get("content") or {}).get("text", ""))
+                        for a in artifacts
+                        if isinstance(a.get("content"), dict)
+                    )
+                out["result"]["artifacts"] = [
                     {
                         "id": a["id"],
-                        "name": a["name"],
-                        "version": a.get("version", 1),
-                        "scope": a.get("scope", "reusable"),
-                        "instances": len(own),
-                        "status": own[-1]["status"] if own else "pending",
+                        "type": a["type"],
+                        "media_type": a["media_type"],
+                        "download_url": f"/api/v2/task-cases/{row['id']}/artifacts/{a['id']}/download",
                     }
-                )
-            out["trace"]["tools"] = [
-                {
-                    k: call.get(k)
-                    for k in (
-                        "id",
-                        "capability_id",
-                        "status",
-                        "revision",
-                        "duration_ms",
-                        "node_id",
-                        "summary",
-                        "error_code",
-                    )
-                }
-                for call in task.get("tool_calls", [])
-            ]
-            out["trace"]["revisions"] = task.get("repair_history", [])
-            names = {a["id"]: a["name"] for a in historical_agents.values()}
-            out["trace"]["assessment_reviews"] = [
-                {
-                    "agent_id": node["agent_id"],
-                    "agent_name": names.get(node["agent_id"], ""),
-                    "node_id": node["node_id"],
-                    "revision": node.get("attempt", 1) - 1,
-                    **node["output"]["assessment_review"],
-                }
-                for node in nodes
-                if (node.get("output") or {}).get("assessment_review")
-            ]
-            model_ids = sorted(
-                {(n.get("output") or {}).get("model") for n in nodes if (n.get("output") or {}).get("model")}
-            )
-            from .runtime import _usage
-
-            usage = _usage(task["id"], task["request"]["mode"])
-            out["usage"] = usage
-            out["trace"]["models"] = (
-                [
-                    {
-                        "model": "、".join(model_ids) or "网关模型",
-                        "requests": usage.get("request_count"),
-                        "cost_cny": usage.get("cost_cny"),
-                        "scope": "task_total",
-                    }
+                    for a in artifacts
                 ]
-                if usage.get("request_count")
-                else []
-            )
-            if task["status"] in TERMINAL:
-                from .question_answers import deliver
-
-                artifacts = tx.list("artifacts", row["project_id"], task_id=task["id"])
-                if artifacts:
-                    sources = {a["id"]: a for a in task["snapshot"]["inputs"]}
-                    if task["request"]["task_type"] == "autonomous_analysis":
-                        content = artifacts[-1].get("content") or {}
-                        citations = []
-                        for citation in content.get("citations", []):
-                            asset = sources.get(citation.get("source_id"))
-                            if not asset:
-                                continue
-                            checkpoint = task.get("tool_checkpoints", {}).get(
-                                citation.get("tool_call_id"), {}
-                            )
-                            page = (checkpoint.get("arguments") or {}).get("page")
-                            base_url = f"/api/v2/task-cases/{row['id']}/sources/{asset['id']}/download"
-                            citations.append(
-                                {
-                                    "source_id": asset["id"],
-                                    "source": asset["name"],
-                                    "source_url": base_url
-                                    + (f"#page={page}" if type(page) is int and page > 0 else ""),
-                                    "page": page if type(page) is int and page > 0 else None,
-                                    "location": f"第 {page} 页"
-                                    if page
-                                    else (
-                                        f"字符 {citation['start']}–{citation['end']}"
-                                        if "start" in citation
-                                        else "可核验的工具计算或解析结果"
-                                    ),
-                                    "excerpt": str(citation.get("quote", "由工具执行记录及校验和定位此结果"))[
-                                        :450
-                                    ],
-                                    "quote_truncated": len(str(citation.get("quote", ""))) > 450,
-                                    "tool_call_id": citation.get("tool_call_id"),
-                                    "kind": citation.get("kind"),
-                                }
-                            )
-                        out["result"] = {
-                            "answer": content.get("text", ""),
-                            "citations": citations,
-                            "tables": [],
-                            "missing": content.get("missing_information", []),
-                            "incomplete": task["status"] != "succeeded",
-                        }
-                    else:
-                        out["result"] = deliver(tx, task, sources, row["goal"])
-                    if not out["result"].get("answer"):
-                        out["result"]["answer"] = "\n\n".join(
-                            str((a.get("content") or {}).get("text", ""))
-                            for a in artifacts
-                            if isinstance(a.get("content"), dict)
-                        )
-                    out["result"]["artifacts"] = [
-                        {
-                            "id": a["id"],
-                            "type": a["type"],
-                            "media_type": a["media_type"],
-                            "download_url": f"/api/v2/task-cases/{row['id']}/artifacts/{a['id']}/download",
-                        }
-                        for a in artifacts
-                    ]
-                    out["result"]["generated_files"] = _generated_files(
-                        tx, row, task, artifacts[-1].get("content") or {}, sandbox_runs
+                out["result"]["generated_files"] = _generated_files(
+                    tx, row, task, artifacts[-1].get("content") or {}, sandbox_runs
+                )
+                out["result"]["status"] = task["status"]
+                out["result"]["products"] = next(
+                    (a["content"].get("products") for a in artifacts if a["type"] == "case_report"), None
+                )
+                out["result"]["warnings"] = (task.get("result") or {}).get("warnings", [])
+                by_name = {a["name"]: a for a in sources.values()}
+                report_evidence = [
+                    e
+                    for a in artifacts
+                    if a["type"] == "case_report"
+                    for e in a["content"].get("evidence", [])
+                ]
+                for citation in out["result"].get("citations", []):
+                    source = sources.get(citation.get("source_id")) or by_name.get(citation.get("source"))
+                    if not source:
+                        continue
+                    evidence = next(
+                        (
+                            e
+                            for e in report_evidence
+                            if e.get("source_id") == source["id"]
+                            and str(e.get("quote", ""))[:450] == citation.get("excerpt")
+                        ),
+                        None,
                     )
-                    out["result"]["status"] = task["status"]
-                    out["result"]["products"] = next(
-                        (a["content"].get("products") for a in artifacts if a["type"] == "case_report"), None
+                    page = citation.get("page") or ((evidence or {}).get("location") or {}).get("page")
+                    citation["source_id"] = source["id"]
+                    citation["source_url"] = (
+                        f"/api/v2/task-cases/{row['id']}/sources/{source['id']}/download"
+                        + (f"#page={page}" if type(page) is int and page > 0 else "")
                     )
-                    out["result"]["warnings"] = (task.get("result") or {}).get("warnings", [])
-                    by_name = {a["name"]: a for a in sources.values()}
-                    report_evidence = [
-                        e
-                        for a in artifacts
-                        if a["type"] == "case_report"
-                        for e in a["content"].get("evidence", [])
-                    ]
-                    for citation in out["result"].get("citations", []):
-                        source = sources.get(citation.get("source_id")) or by_name.get(citation.get("source"))
-                        if not source:
-                            continue
-                        evidence = next(
-                            (
-                                e
-                                for e in report_evidence
-                                if e.get("source_id") == source["id"]
-                                and str(e.get("quote", ""))[:450] == citation.get("excerpt")
-                            ),
-                            None,
+                    if type(page) is int and page > 0:
+                        citation["page"] = page
+                    if evidence:
+                        citation["quote_truncated"] = bool(
+                            evidence.get("quote_truncated") or len(str(evidence.get("quote", ""))) > 450
                         )
-                        page = citation.get("page") or ((evidence or {}).get("location") or {}).get("page")
-                        citation["source_id"] = source["id"]
-                        citation["source_url"] = (
-                            f"/api/v2/task-cases/{row['id']}/sources/{source['id']}/download"
-                            + (f"#page={page}" if type(page) is int and page > 0 else "")
-                        )
-                        if type(page) is int and page > 0:
-                            citation["page"] = page
-                        if evidence:
-                            citation["quote_truncated"] = bool(
-                                evidence.get("quote_truncated") or len(str(evidence.get("quote", ""))) > 450
-                            )
-                out["reason_code"] = task.get("reason_code")
-    _aggregate_trace(tx, row, out)
+            out["reason_code"] = task.get("reason_code")
+    _aggregate_trace(tx, row, out, runs)
     stages = [
         ("created", "分析资料需求"),
         ("data", "准备资料"),
@@ -1290,6 +1378,29 @@ def ingest_identity(case_id, token, repository):
     return user
 
 
+def _verify_upstream_scope(row, source_id, classification):
+    if row.get("source_ids") and source_id not in row["source_ids"]:
+        s.fail("source_not_requested", "来源标识不在本任务指定的检索范围", 403)
+    if row["mode"] == "cloud" and row["public_egress_authorized"] and classification != "public":
+        s.fail("data_egress_blocked", "此云端任务仅能处理已授权的公开来源", 403)
+
+
+def _reject_duplicate_version(tx, row, source_id, version, checksum):
+    # The original submission key handles exact replays before this check. Another
+    # key may not bind a second copy or silently mutate an already seen upstream version.
+    owned = {a["id"]: a for a in tx.list("data_assets", row["project_id"], task_case_id=row["id"])}
+    for key in row["input_refs"]:
+        if key not in owned:
+            linked = tx.get("data_assets", key)
+            if linked:
+                owned[key] = linked
+    for asset in owned.values():
+        if asset["source_id"] == source_id and asset["source_version"] == version:
+            if asset["checksum"] != checksum:
+                s.fail("source_version_conflict", "同一来源版本的内容已变化，请提交新的来源版本", 409)
+            s.fail("duplicate_source_version", "此来源版本已经接入；重试请沿用原幂等键", 409)
+
+
 def ingest_inline(case_id, body, user, repository):
     with repository.transaction() as tx:
         row = required(tx, case_id, user, write=True)
@@ -1302,7 +1413,18 @@ def ingest_inline(case_id, body, user, repository):
             if existing.get("upload_hash") != s.digest(body.model_dump()):
                 s.fail("idempotency_conflict", "同一数据提交标识已用于不同内容", 409)
             return view(tx, row, user)
+        _verify_upstream_scope(row, body.source_id, body.classification)
         _editable(tx, row)
+        encoded = (
+            body.content
+            if isinstance(body.content, str)
+            else json.dumps(
+                body.content, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+            )
+        ).encode()
+        _reject_duplicate_version(
+            tx, row, body.source_id, body.source_version, hashlib.sha256(encoded).hexdigest()
+        )
         asset = s.create_asset(
             {
                 "project_id": row["project_id"],
@@ -1328,6 +1450,7 @@ def ingest_inline(case_id, body, user, repository):
             },
             user,
             tx,
+            replace_sources=True,
         )
         tx.put(
             "data_submissions",
@@ -1340,7 +1463,20 @@ def ingest_inline(case_id, body, user, repository):
         return view(tx, tx.get("task_cases", case_id), user)
 
 
-def upload(case_id, filename, content, classification, requirement_id, key, user, repository):
+def upload(
+    case_id,
+    filename,
+    content,
+    classification,
+    requirement_id,
+    key,
+    user,
+    repository,
+    *,
+    source_id=None,
+    source_version=None,
+    provenance=None,
+):
     suffix = Path(filename).suffix.lower()
     known = {
         ".txt",
@@ -1409,6 +1545,8 @@ def upload(case_id, filename, content, classification, requirement_id, key, user
         inner_key = "upload-" + s.digest(key)[:48]
         sid = s.digest([case_id, "submission", inner_key])[:48]
         signature = s.digest([filename, hashlib.sha256(content).hexdigest(), classification, requirement_id])
+        if source_id or source_version or provenance:
+            signature = s.digest([signature, source_id, source_version, provenance])
         old = tx.get("data_submissions", sid) or tx.get(
             "data_submissions", s.digest([case_id, "upload", key])[:48]
         )
@@ -1416,7 +1554,12 @@ def upload(case_id, filename, content, classification, requirement_id, key, user
             if old["upload_hash"] != signature:
                 s.fail("idempotency_conflict", "同一上传标识已用于不同文件", 409)
             return view(tx, row, user)
+        _verify_upstream_scope(row, source_id, classification)
         _editable(tx, row)
+        source_id = source_id or f"task-upload:{case_id}:{key}"
+        file_hash = hashlib.sha256(content).hexdigest()
+        source_version = source_version or "sha256:" + file_hash
+        _reject_duplicate_version(tx, row, source_id, source_version, file_hash)
         asset = s.create_asset(
             {
                 "project_id": row["project_id"],
@@ -1424,9 +1567,9 @@ def upload(case_id, filename, content, classification, requirement_id, key, user
                 "modality": modality,
                 "media_type": media,
                 "content": value,
-                "source_id": f"task-upload:{case_id}:{key}",
-                "source_version": "sha256:" + hashlib.sha256(content).hexdigest(),
-                "provenance": "用户为当前任务上传的原始资料",
+                "source_id": source_id,
+                "source_version": source_version,
+                "provenance": provenance or "上游接口提交的任务专用原始资料",
                 "classification": classification,
             },
             _principal(user),
@@ -1443,9 +1586,10 @@ def upload(case_id, filename, content, classification, requirement_id, key, user
             },
             user,
             tx,
+            replace_sources=True,
         )
         tx.put(
             "data_submissions",
-            {**tx.get("data_submissions", sid), "upload_hash": signature, "transport": "web"},
+            {**tx.get("data_submissions", sid), "upload_hash": signature, "transport": "api_file"},
         )
         return view(tx, tx.get("task_cases", case_id), user)

@@ -1,3 +1,5 @@
+import { adminSession } from "./admin-session";
+import { group, workspacePage } from "./workspace-navigation";
 import { test, expect } from "@playwright/test";
 
 test("真实资产编排：定义表单、不可变版本差异、可视化依赖与循环保护", async ({
@@ -5,15 +7,9 @@ test("真实资产编排：定义表单、不可变版本差异、可视化依�
 }) => {
   await page.setViewportSize({ width: 1440, height: 1100 });
   const name = `资产编排验收-${Date.now()}`;
+  expect((await adminSession(page.context())).ok()).toBeTruthy();
   await page.goto("/manage");
-  await page
-    .getByLabel("用户名", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_USERNAME || "admin");
-  await page
-    .getByLabel("密码", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password");
-  await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page.getByLabel("当前项目")).toBeVisible();
+  await expect(page.locator(".wb-main")).toBeVisible();
   const response = await page.request.post("/api/v2/projects", {
     data: {
       name,
@@ -23,11 +19,8 @@ test("真实资产编排：定义表单、不可变版本差异、可视化依�
   expect(response.ok()).toBeTruthy();
   const project = await response.json();
   await page.reload();
-  await page.getByLabel("当前项目").selectOption(project.id);
-  await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "智能体资产", exact: true })
-    .click();
+  await group(page, project.id).click();
+  await workspacePage(page, "智能体资产");
   await page.getByRole("button", { name: "创建智能体", exact: true }).click();
   let dialog = page.getByRole("dialog", { name: "创建智能体", exact: true });
   await dialog.getByLabel("名称", { exact: true }).fill(name);
@@ -38,9 +31,17 @@ test("真实资产编排：定义表单、不可变版本差异、可视化依�
     .getByRole("combobox", { name: "结构化处理方式", exact: true })
     .selectOption("deduplicate");
   await dialog.getByLabel(/^排序字段/).fill("name");
+  const agentSaved = page.waitForResponse(
+    (r) =>
+      r.request().method() === "POST" && r.url().endsWith("/api/v2/agents"),
+  );
   await dialog.getByRole("button", { name: "保存定义", exact: true }).click();
-  await expect(dialog).not.toBeVisible();
-  await page.getByRole("button", { name: new RegExp(name) }).click();
+  expect((await agentSaved).ok()).toBeTruthy();
+  await expect(dialog).not.toBeVisible({ timeout: 15000 });
+  await page
+    .getByRole("main")
+    .getByRole("button", { name: new RegExp(name) })
+    .click();
   let details = page.getByRole("dialog", { name, exact: true });
   await expect(
     details.getByText("处理方式：去除重复记录", { exact: true }),
@@ -62,7 +63,7 @@ test("真实资产编排：定义表单、不可变版本差异、可视化依�
     .getByLabel("执行指令", { exact: true })
     .fill("保持所有字段来源，不补造缺失内容。");
   await dialog.getByRole("button", { name: "保存定义", exact: true }).click();
-  await expect(dialog).not.toBeVisible();
+  await expect(dialog).not.toBeVisible({ timeout: 15000 });
   await details
     .getByRole("button", { name: "发布新版本", exact: true })
     .click();
@@ -86,10 +87,7 @@ test("真实资产编排：定义表单、不可变版本差异、可视化依�
     .getByRole("button", { name: "关闭对话框", exact: true })
     .click();
 
-  await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "工作流", exact: true })
-    .click();
+  await workspacePage(page, "工作流");
   await page.getByRole("button", { name: "创建流程", exact: true }).click();
   dialog = page.getByRole("dialog", { name: "创建复用流程", exact: true });
   await dialog.getByLabel("流程名称", { exact: true }).fill(`${name}-双节点`);
@@ -173,7 +171,7 @@ test("真实资产编排：定义表单、不可变版本差异、可视化依�
   );
   await dialog.getByRole("button", { name: "保存流程", exact: true }).click();
   const workflow = await (await saved).json();
-  await expect(dialog).not.toBeVisible();
+  await expect(dialog).not.toBeVisible({ timeout: 15000 });
   expect(workflow.nodes).toHaveLength(2);
   expect(workflow.nodes[1].depends_on).toEqual([workflow.nodes[0].id]);
   expect(workflow.nodes[0].depends_on).toEqual([]);

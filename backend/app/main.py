@@ -41,8 +41,8 @@ class RequestBodyLimitMiddleware:
         except ValueError:
             declared = -1
         path = scope.get("path", "")
-        is_upload = path == "/api/v2/data-assets/upload" or (
-            path.startswith("/api/v2/task-cases/") and path.endswith("/upload")
+        is_upload = path == "/api/v2/upstream/data-assets/files" or (
+            path.startswith("/api/v2/task-cases/") and path.endswith("/ingest/upload")
         )
         limit = 129_000_000 if is_upload else self.max_bytes
         if declared < 0 or declared > limit:

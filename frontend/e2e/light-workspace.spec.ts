@@ -1,3 +1,5 @@
+import { adminSession } from "./admin-session";
+import { group, currentGroup, workspacePage } from "./workspace-navigation";
 import { test, expect } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 
@@ -7,14 +9,9 @@ test("Light 工作空间：导航、说明展开、表单及移动布局", async
   await page.goto("/manage");
   await expect(page.locator("body")).toHaveCSS("color-scheme", "light");
   await page.screenshot({ path: `${folder}/login.png`, fullPage: true });
-  await page
-    .getByLabel("用户名", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_USERNAME || "admin");
-  await page
-    .getByLabel("密码", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password");
-  await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page.getByLabel("当前项目")).toBeVisible();
+  expect((await adminSession(page.context())).ok()).toBeTruthy();
+  await page.reload();
+  await expect(page.locator(".wb-main")).toBeVisible();
   const projectResponse = await page.request.post("/api/v2/projects", {
     data: {
       name: `Light 界面验收-${Date.now()}`,
@@ -58,7 +55,7 @@ test("Light 工作空间：导航、说明展开、表单及移动布局", async
     )
     .toBe("succeeded");
   await page.reload();
-  await page.getByLabel("当前项目").selectOption(project.id);
+  await group(page, project.id).click();
   const pages = [
     "工作台",
     "场景分析",
@@ -73,16 +70,19 @@ test("Light 工作空间：导航、说明展开、表单及移动布局", async
     "设置",
   ];
   for (const [index, name] of pages.entries()) {
-    await page
-      .getByRole("navigation")
-      .getByRole("button", { name, exact: true })
-      .click();
+    await workspacePage(page, name);
     await expect(
-      page.getByRole("heading", { name, exact: true }),
+      page.getByRole("heading", {
+        name: name === "我的资料" ? "上游数据目录" : name,
+        exact: true,
+      }),
     ).toBeVisible();
     await expect(page.locator("main .error-line")).toHaveCount(0);
     if (name === "工作台") {
-      await expect(page.getByLabel("当前项目")).toHaveValue(project.id);
+      await expect(currentGroup(page)).toHaveAttribute(
+        "data-project-id",
+        project.id,
+      );
       await expect(
         page.getByRole("region", { name: "项目资源汇总" }),
       ).toBeVisible();
@@ -97,11 +97,11 @@ test("Light 工作空间：导航、说明展开、表单及移动布局", async
       fullPage: true,
     });
   }
+  await workspacePage(page, "任务中心");
   await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "任务中心", exact: true })
+    .getByRole("main")
+    .getByRole("button", { name: "新建任务", exact: true })
     .click();
-  await page.getByRole("button", { name: "新建任务", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByLabel("任务名称", { exact: true })).toBeVisible();
   await expect(
@@ -116,6 +116,7 @@ test("Light 工作空间：导航、说明展开、表单及移动布局", async
   await page.screenshot({ path: `${folder}/task-form.png`, fullPage: true });
   await page.keyboard.press("Escape");
   await page
+    .getByRole("main")
     .getByRole("button", { name: "季度数据整理（合成）", exact: true })
     .click();
   await expect(page.locator(".task-summary")).toContainText(
@@ -126,10 +127,7 @@ test("Light 工作空间：导航、说明展开、表单及移动布局", async
   await page.screenshot({ path: `${folder}/task-graph.png`, fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "打开导航", exact: true }).click();
-  await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "工作台", exact: true })
-    .click();
+  await workspacePage(page, "工作台");
   await expect(
     page.getByRole("heading", { name: "工作台", exact: true }),
   ).toBeVisible();
@@ -143,12 +141,10 @@ test("Light 工作空间：导航、说明展开、表单及移动布局", async
   );
   await page.screenshot({ path: `${folder}/mobile.png`, fullPage: true });
   await page.goto("/");
-  await expect(
-    page.getByRole("heading", { name: "我的任务", exact: true }),
-  ).toBeVisible();
-  await expect(page.locator(".taskcase-history")).not.toContainText(
-    "正在读取任务",
-  );
+  await expect(page.locator(".wb-topbar")).toContainText("任务工作台");
+  await page.getByRole("button", { name: "打开导航", exact: true }).click();
+  await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
+  await expect(page.locator(".wb-sidebar")).not.toContainText("正在读取任务");
   await page.screenshot({
     path: `${folder}/question-mobile.png`,
     fullPage: true,

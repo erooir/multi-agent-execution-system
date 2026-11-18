@@ -1,26 +1,19 @@
+import { adminSession } from "./admin-session";
+import { group, workspacePage } from "./workspace-navigation";
 import { test, expect } from "@playwright/test";
 
 test("接入能力：Calculator登记、发布与不可变版本", async ({ page }) => {
+  expect((await adminSession(page.context())).ok()).toBeTruthy();
   await page.goto("/manage");
-  await page
-    .getByLabel("用户名", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_USERNAME || "admin");
-  await page
-    .getByLabel("密码", { exact: true })
-    .fill(process.env.HANGZHI_SMOKE_PASSWORD || "synthetic-browser-password");
-  await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page.getByLabel("当前项目")).toBeVisible();
+  await expect(page.locator(".wb-main")).toBeVisible();
   const created = await page.request.post("/api/v2/projects", {
     data: { name: `原生能力验收-${Date.now()}`, description: "仅合成配置" },
   });
   expect(created.ok()).toBeTruthy();
   const project = await created.json();
   await page.reload();
-  await page.getByLabel("当前项目").selectOption(project.id);
-  await page
-    .getByRole("navigation")
-    .getByRole("button", { name: "扩展接入", exact: true })
-    .click();
+  await group(page, project.id).click();
+  await workspacePage(page, "扩展接入");
   await page
     .getByRole("main")
     .getByRole("button", { name: "扩展接入", exact: true })

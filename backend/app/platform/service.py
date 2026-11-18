@@ -587,9 +587,11 @@ def validate_agent(body, tx, agent_id=None):
         walk(ref, {agent_id} if agent_id else set(), 1)
 
 
-def save_agent(body, user, agent_id=None, repository=None):
+def save_agent(body, user, agent_id=None, repository=None, *, interview=False):
     repository = repository or repo
     body = AgentInput.model_validate(body).model_dump()
+    if body.get("management_profile") is None:
+        body.pop("management_profile", None)
     with repository.transaction() as tx:
         project_access(body["project_id"], user, True, tx)
         old = required("agents", agent_id, user, True, tx) if agent_id else {}
@@ -597,6 +599,9 @@ def save_agent(body, user, agent_id=None, repository=None):
             fail("immutable_project", "不能移动智能体所属项目")
         if old.get("status") in ("retired", "destroyed"):
             fail("invalid_state", "退役或销毁的智能体不可编辑", 409)
+        if body.get("management_profile"):
+            previous_method = (old.get("management_profile") or {}).get("creation_method", "manual")
+            body["management_profile"]["creation_method"] = "interview" if interview else previous_method
         validate_agent(body, tx, agent_id)
         result = tx.put(
             "agents", {**old, **body, "status": "draft", "current_version": old.get("current_version", 0)}

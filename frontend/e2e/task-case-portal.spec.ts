@@ -151,49 +151,6 @@ async function install(
         task = { ...task, status: "analyzing_requirements" };
       return json(task, 201);
     }
-    if (pathname === "/api/v2/task-cases/case-synthetic/upload") {
-      posted.push({ path: pathname, data: request.postData() });
-      task = {
-        ...task,
-        status: "ready",
-        missing: [],
-        profiles: [
-          {
-            asset_id: "uploaded",
-            name: "synthetic.csv",
-            readable: true,
-            record_count: 2,
-            fields: ["month", "value"],
-          },
-        ],
-        requirements: task.requirements.map((r: any) => ({
-          ...r,
-          status: "satisfied",
-        })),
-        submissions: [
-          ...task.submissions,
-          {
-            id: "submission-file",
-            input_refs: ["uploaded"],
-            created_at: stamp,
-          },
-        ],
-      };
-      return json(task);
-    }
-    if (pathname === "/api/v2/task-cases/case-synthetic/submissions") {
-      const data = request.postDataJSON();
-      posted.push({ path: pathname, data });
-      task = {
-        ...task,
-        public_egress_authorized: data.public_egress_authorized,
-        ...(options.existingStatus ||
-        ["failed", "partial", "cancelled"].includes(task.status)
-          ? { status: "ready", task_id: null }
-          : {}),
-      };
-      return json(task);
-    }
     if (pathname === "/api/v2/task-cases/case-synthetic/start") {
       posted.push({ path: pathname, data: request.postDataJSON() });
       starts++;
@@ -487,10 +444,42 @@ async function install(
       404,
     );
   });
-  return { posted, calls };
+  // The fixture advances the upstream server independently from browser interaction.
+  function deliverUpstream() {
+    task = {
+      ...task,
+      status: "ready",
+      missing: [],
+      profiles: [
+        {
+          asset_id: "uploaded",
+          name: "synthetic.csv",
+          readable: true,
+          record_count: 2,
+          fields: ["month", "value"],
+        },
+      ],
+      requirements: task.requirements.map((r: any) => ({
+        ...r,
+        status: "satisfied",
+      })),
+      submissions: [
+        ...task.submissions,
+        {
+          id: "submission-file",
+          input_refs: ["uploaded"],
+          created_at: stamp,
+        },
+      ],
+    };
+    starts++;
+    task = { ...task, task_id: "upstream-run-" + starts, status: "running" };
+    finished = true;
+  }
+  return { posted, calls, deliverUpstream };
 }
 
-test("任务从创建、资料上传到自动执行，展示真实契约中的结果和定向修订", async ({
+test("任务从创建、上游接入到自动执行，展示真实契约中的结果和定向修订", async ({
   page,
 }, testInfo) => {
   const contract = await install(page, { script: true });
@@ -500,22 +489,15 @@ test("任务从创建、资料上传到自动执行，展示真实契约中的�
     .fill("核查合成月度统计并交付表格");
   await page.getByRole("button", { name: "创建任务", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "这项任务需要的资料" }),
+    page.getByRole("heading", { name: "资料接入与检索" }),
   ).toBeVisible();
   await expect(
     page.getByText("需要完整月份、数值、单位与来源。", { exact: true }),
   ).toBeVisible();
   expect(contract.posted.some((p) => p.path.endsWith("/start"))).toBeFalsy();
-  await page.getByLabel("上传任务资料", { exact: true }).setInputFiles({
-    name: "synthetic.csv",
-    mimeType: "text/csv",
-    buffer: Buffer.from("month,value\n2023-01,10\n2023-02,20"),
-  });
-  await page.getByLabel("这些文件是允许用于本任务的公开资料").check();
-  await page
-    .getByLabel("授权本任务通过统一网关使用云模型处理任务说明及所选公开资料")
-    .check();
-  await page.getByRole("button", { name: "提交资料并开始分析" }).click();
+  await expect(page.locator("input[type=file]")).toHaveCount(0);
+  contract.deliverUpstream();
+  await page.reload();
   await expect(page.getByRole("heading", { name: "交付结果" })).toBeVisible();
   await expect(
     page.getByText("合成验收结果：共 2 个月，合计 30。", { exact: true }),
@@ -541,12 +523,12 @@ test("任务从创建、资料上传到自动执行，展示真实契约中的�
   const inputRecord = page.locator(".taskcase-input-record");
   await expect(inputRecord).not.toHaveAttribute("open", "");
   await expect(
-    page.getByRole("heading", { name: "这项任务需要的资料", exact: true }),
+    page.getByRole("heading", { name: "资料接入与检索", exact: true }),
   ).toBeHidden();
   await inputRecord.locator(":scope > summary").click();
   await expect(
     inputRecord.getByRole("heading", {
-      name: "这项任务需要的资料",
+      name: "资料接入与检索",
       exact: true,
     }),
   ).toBeVisible();
@@ -581,16 +563,7 @@ test("任务从创建、资料上传到自动执行，展示真实契约中的�
     page.getByRole("cell", { name: "stats.reconcile_total", exact: true }),
   ).toBeVisible();
   await expect(page.getByRole("link", { name: "管理工作台" })).toHaveCount(0);
-  expect(contract.posted.map((p) => p.path)).toEqual([
-    "/api/v2/task-cases",
-    "/api/v2/task-cases/case-synthetic/upload",
-    "/api/v2/task-cases/case-synthetic/submissions",
-    "/api/v2/task-cases/case-synthetic/start",
-  ]);
-  expect(contract.posted[1].data).toContain(
-    'name="classification"\r\n\r\npublic',
-  );
-  expect(contract.posted[2].data.public_egress_authorized).toBe(true);
+  expect(contract.posted.map((p) => p.path)).toEqual(["/api/v2/task-cases"]);
   expect(
     contract.calls.every(
       (p) =>
@@ -735,13 +708,11 @@ test("云任务不会将本地资料误当作已授权公开输入，移动端�
     .getByLabel("任务目标", { exact: true })
     .fill("分析已登记资料并说明证据来源");
   await page.getByRole("button", { name: "创建任务", exact: true }).click();
-  await page.getByLabel("仅本地资料").check();
-  await page
-    .getByLabel("授权本任务通过统一网关使用云模型处理任务说明及所选公开资料")
-    .check();
   await expect(
-    page.getByRole("button", { name: "提交资料并开始分析" }),
-  ).toBeDisabled();
+    page.getByRole("heading", { name: "资料接入与检索" }),
+  ).toBeVisible();
+  await expect(page.getByLabel("仅本地资料")).toHaveCount(0);
+  await expect(page.locator("input[type=file]")).toHaveCount(0);
   expect(contract.posted).toHaveLength(1);
   expect(
     await page.evaluate(
@@ -757,45 +728,17 @@ for (const status of ["failed", "partial", "cancelled"] as const) {
     const contract = await install(page, { existingStatus: status });
     await page.goto("/?project=project-synthetic&task_case=case-synthetic");
     await expect(
-      page.getByRole("heading", { name: "补充资料并继续", exact: true }),
+      page.getByRole("heading", { name: "资料接入与检索", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByText(/新一轮与历史运行共享本任务累计费用上限/),
+      page.getByText(/上游系统可以按缺口提交新的依据/),
     ).toBeVisible();
     if (status === "partial")
       await expect(
         page.getByText("上一轮部分交付，仍缺一月。", { exact: true }),
       ).toBeVisible();
-    if (status !== "cancelled") {
-      await page.getByLabel("上传任务资料", { exact: true }).setInputFiles({
-        name: "additional.csv",
-        mimeType: "text/csv",
-        buffer: Buffer.from("month,value\n2023-02,20"),
-      });
-      await page.getByLabel("这些文件是允许用于本任务的公开资料").check();
-      await page
-        .getByRole("button", { name: "补充资料并继续此任务", exact: true })
-        .click();
-    } else
-      await page
-        .getByRole("button", { name: "沿用已提交资料继续", exact: true })
-        .click();
-    await expect(
-      page.locator(".taskcase-overview .taskcase-status"),
-    ).toHaveText("已完成");
-    expect(
-      contract.posted.every((entry) =>
-        entry.path.startsWith("/api/v2/task-cases/case-synthetic/"),
-      ),
-    ).toBe(true);
-    const submission = contract.posted.find((entry) =>
-      entry.path.endsWith("/submissions"),
-    )!;
-    expect(submission.data).not.toHaveProperty("max_cost_cny");
-    expect(submission.data.input_refs).toEqual([]);
-    expect(contract.posted.at(-1)?.path).toBe(
-      "/api/v2/task-cases/case-synthetic/start",
-    );
+    await expect(page.locator("input[type=file]")).toHaveCount(0);
+    expect(contract.posted).toHaveLength(0);
     await expect(page.getByLabel("上传任务资料", { exact: true })).toHaveCount(
       0,
     );
@@ -815,7 +758,7 @@ test("成功任务保持冻结只读，不能从前端重新提交资料", async
   expect(contract.posted).toEqual([]);
 });
 
-test("同一页面部分交付后沿用资料续跑使用新提交标识，不重放上一轮确认", async ({
+test("上游补齐部分交付的资料后由平台续跑，浏览器只观察结果", async ({
   page,
 }) => {
   const contract = await install(page, { firstRunPartial: true, script: true });
@@ -824,24 +767,14 @@ test("同一页面部分交付后沿用资料续跑使用新提交标识，不�
     .getByLabel("任务目标", { exact: true })
     .fill("分析合成月度资料并核验完整覆盖");
   await page.getByRole("button", { name: "创建任务", exact: true }).click();
-  await page.getByLabel("上传任务资料", { exact: true }).setInputFiles({
-    name: "synthetic.csv",
-    mimeType: "text/csv",
-    buffer: Buffer.from("month,value\n2023-01,10"),
-  });
-  await page.getByLabel("这些文件是允许用于本任务的公开资料").check();
-  await page
-    .getByLabel("授权本任务通过统一网关使用云模型处理任务说明及所选公开资料")
-    .check();
-  await page
-    .getByRole("button", { name: "提交资料并开始分析", exact: true })
-    .click();
+  contract.deliverUpstream();
+  await page.reload();
   await expect(page.locator(".taskcase-overview .taskcase-status")).toHaveText(
     "部分完成",
   );
   await expect(page.locator(".taskcase-input-record")).toHaveCount(0);
   await expect(
-    page.getByRole("heading", { name: "补充资料并继续", exact: true }),
+    page.getByRole("heading", { name: "资料接入与检索", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "部分交付文件", exact: true }),
@@ -856,22 +789,14 @@ test("同一页面部分交付后沿用资料续跑使用新提交标识，不�
       .locator(".taskcase-result")
       .getByRole("link", { name: "下载 summary.json", exact: true }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "沿用已提交资料继续", exact: true })
-    .click();
+  contract.deliverUpstream();
+  await page.reload();
   await expect(page.locator(".taskcase-overview .taskcase-status")).toHaveText(
     "已完成",
   );
-  const confirmations = contract.posted.filter((entry) =>
-    entry.path.endsWith("/submissions"),
-  );
-  expect(confirmations).toHaveLength(2);
-  expect(confirmations[0].data.input_refs).toEqual(
-    confirmations[1].data.input_refs,
-  );
-  expect(confirmations[0].data.idempotency_key).not.toBe(
-    confirmations[1].data.idempotency_key,
-  );
+  expect(
+    contract.posted.every((entry) => !entry.path.endsWith("/submissions")),
+  ).toBe(true);
   expect(
     contract.posted.filter((entry) => entry.path === "/api/v2/task-cases"),
   ).toHaveLength(1);

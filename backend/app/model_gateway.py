@@ -8,6 +8,7 @@ import logging
 import math
 import os
 import sqlite3
+import time
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -20,6 +21,7 @@ from urllib.request import getproxies, proxy_bypass
 
 import httpx
 
+from . import resource_limits
 from .config import (
     BUDGET_LEDGER_PATH,
     MAX_OUTPUT_TOKENS,
@@ -27,6 +29,7 @@ from .config import (
     PRICED_MODEL_IDS,
     get_api_key,
     get_settings,
+    intranet_provider,
 )
 
 # Twice the verified 2026-10-17 CNY peak prices. Ignore cache/off-peak discounts.
@@ -271,6 +274,54 @@ class BudgetLedger:
                 "CREATE TABLE IF NOT EXISTS task_limits(run_id TEXT PRIMARY KEY,limit_cny REAL NOT NULL)"
             )
 
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS resource_requests("
+                "charge_id TEXT PRIMARY KEY, input_upper INTEGER NOT NULL, "
+                "output_limit INTEGER NOT NULL, context_limit INTEGER NOT NULL, duration_ms INTEGER)"
+            )
+            db.execute("CREATE INDEX IF NOT EXISTS charges_run_id ON charges(run_id)")
+
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS intranet_requests("
+                "id TEXT PRIMARY KEY,created_at TEXT NOT NULL,purpose TEXT NOT NULL,run_id TEXT,"
+                "state TEXT NOT NULL,model TEXT NOT NULL,input_tokens INTEGER,output_tokens INTEGER)"
+            )
+            db.execute("CREATE INDEX IF NOT EXISTS intranet_run_id ON intranet_requests(run_id)")
+            db.execute(
+                "CREATE VIEW IF NOT EXISTS model_request_usage AS "
+                "SELECT id,created_at,purpose,run_id,state,model,input_tokens,output_tokens,cost,reserved,"
+                "'deepseek' AS provider FROM charges UNION ALL "
+                "SELECT id,created_at,purpose,run_id,state,model,input_tokens,output_tokens,0,0,"
+                "'intranet' AS provider FROM intranet_requests"
+            )
+
+    def begin_internal(self, model, purpose, run_id, bounds):
+        request_id = uuid.uuid4().hex
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute(
+                "INSERT INTO intranet_requests(id,created_at,purpose,run_id,state,model) VALUES(?,?,?,?,?,?)",
+                (request_id, datetime.now(UTC).isoformat(), purpose, run_id, "reserved", model),
+            )
+            db.execute(
+                "INSERT INTO resource_requests(charge_id,input_upper,output_limit,context_limit) VALUES(?,?,?,?)",
+                (request_id, *bounds),
+            )
+        return request_id
+
+    def internal_settle(self, request_id, model, usage):
+        if not isinstance(usage, dict) or any(
+            type(usage.get(k)) is not int or usage[k] < 0 for k in ("prompt_tokens", "completion_tokens")
+        ):
+            raise ModelCallError("model_usage_missing", "内网模型未返回有效 Token 用量；本轮不计为已确认")
+        with self.connect() as db:
+            row = db.execute(
+                "UPDATE intranet_requests SET state='settled',input_tokens=?,output_tokens=? WHERE id=? AND model=? AND state='reserved'",
+                (usage["prompt_tokens"], usage["completion_tokens"], request_id, model),
+            )
+            if row.rowcount != 1:
+                raise ModelCallError("model_identity_invalid", "内网模型响应标识与部署值不一致")
+
     def connect(self):
         db = sqlite3.connect(
             self.path.resolve().as_uri() + "?mode=rw" if self.require_existing else self.path,
@@ -281,7 +332,16 @@ class BudgetLedger:
         db.execute("PRAGMA busy_timeout=30000")
         return db
 
-    def reserve(self, amount: float, purpose: str, run_id=None, limit=HARD_CAP, *, task_limit=None) -> str:
+    def reserve(
+        self,
+        amount: float,
+        purpose: str,
+        run_id=None,
+        limit=HARD_CAP,
+        *,
+        task_limit=None,
+        resource_bounds=None,
+    ) -> str:
         if not math.isfinite(float(amount)) or amount <= 0 or amount > HARD_CAP:
             raise BudgetExceeded("单次请求预估费用不合法或超过预算")
         if not math.isfinite(float(limit)) or not 0 < limit <= HARD_CAP:
@@ -332,6 +392,12 @@ class BudgetLedger:
                 "INSERT INTO charges(id,created_at,purpose,run_id,state,reserved,model) VALUES(?,?,?,?,?,?,?)",
                 (request_id, datetime.now(UTC).isoformat(), purpose, run_id, "reserved", amount, MODEL_ID),
             )
+            if resource_bounds is not None:
+                db.execute(
+                    "INSERT INTO resource_requests(charge_id,input_upper,output_limit,context_limit) "
+                    "VALUES(?,?,?,?)",
+                    (request_id, *resource_bounds),
+                )
             return request_id
 
     def settle(self, request_id: str, usage: dict, model=MODEL_ID) -> float:
@@ -395,8 +461,9 @@ class BudgetLedger:
                 "COALESCE(SUM(CASE WHEN state='settled' THEN cost ELSE 0 END),0) cost_cny,"
                 "COALESCE(SUM(CASE WHEN state!='settled' THEN reserved ELSE 0 END),0) reserved_cny,"
                 "COALESCE(SUM(input_tokens),0) input_tokens,COALESCE(SUM(output_tokens),0) output_tokens,"
-                "COALESCE(SUM(CASE WHEN state='uncertain' THEN 1 ELSE 0 END),0) uncertain_count "
-                "FROM charges" + where,
+                "COALESCE(SUM(CASE WHEN state='uncertain' THEN 1 ELSE 0 END),0) uncertain_count, "
+                "COALESCE(SUM(CASE WHEN state!='settled' THEN 1 ELSE 0 END),0) pending_count "
+                "FROM model_request_usage" + where,
                 parameters,
             ).fetchone()
         result = dict(row)
@@ -404,7 +471,7 @@ class BudgetLedger:
             cost_cny=round(result["cost_cny"], 6),
             reserved_cny=round(result["reserved_cny"], 6),
             total_cny=round(result["cost_cny"] + result["reserved_cny"], 6),
-            accounting_complete=result["reserved_cny"] == 0,
+            accounting_complete=not result.pop("pending_count"),
         )
         return result
 
@@ -444,9 +511,13 @@ class BudgetLedger:
 
 
 class MeteredTransport(httpx.AsyncBaseTransport):
-    def __init__(self, ledger: BudgetLedger, purpose: str, run_id=None, inner=None):
+    def __init__(self, ledger: BudgetLedger, purpose: str, run_id=None, inner=None, *, upstream=None):
         self.ledger, self.purpose, self.run_id = ledger, purpose, run_id
-        self.inner = inner or httpx.AsyncHTTPTransport(retries=2, proxy=model_proxy())
+        self.upstream = upstream
+        self.model_id = upstream.model if upstream else MODEL_ID
+        self.inner = inner or httpx.AsyncHTTPTransport(
+            retries=0 if upstream else 2, proxy=None if upstream else model_proxy(), trust_env=False
+        )
         self.result = {}
         self.request_ids: list[str] = []
         # SDKs wrap transport failures; retain trusted policy exceptions without request dumps.
@@ -496,7 +567,7 @@ class MeteredTransport(httpx.AsyncBaseTransport):
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         try:
             return await self._handle_async_request(request)
-        except (BudgetExceeded, ModelRequestCancelled, PermissionError) as exc:
+        except (BudgetExceeded, ModelRequestCancelled, PermissionError, ModelCallError) as exc:
             self.policy_failure = exc
             raise
         except httpx.TimeoutException:
@@ -517,7 +588,11 @@ class MeteredTransport(httpx.AsyncBaseTransport):
             self.policy_failure = exc
             raise
         scope = _request_scope.get()
-        if (
+        if self.upstream:
+            expected = httpx.URL(self.upstream.base_url + "/chat/completions")
+            if request.method != "POST" or request.url != expected or request.url.userinfo:
+                raise PermissionError("模型请求目标与配置的内网端点不一致")
+        elif (
             request.url.scheme != "https"
             or request.url.host != "api.deepseek.com"
             or request.url.port not in (None, 443)
@@ -529,7 +604,11 @@ class MeteredTransport(httpx.AsyncBaseTransport):
             raise RuntimeError("模型请求目标不在授权范围")
         body = await request.aread()
         payload = json.loads(body)
-        if MODEL_ID not in PRICED_MODEL_IDS or payload.get("model") != MODEL_ID or payload.get("stream"):
+        if (
+            (not self.upstream and MODEL_ID not in PRICED_MODEL_IDS)
+            or payload.get("model") != self.model_id
+            or payload.get("stream")
+        ):
             raise RuntimeError("模型或流式请求不符合预算网关约束")
         if payload.get("n", 1) != 1 or payload.get("best_of", 1) != 1:
             raise RuntimeError("模型网关只允许每次一个输出，避免未计量候选")
@@ -540,7 +619,7 @@ class MeteredTransport(httpx.AsyncBaseTransport):
             raise RuntimeError(f"模型请求必须指定不超过{MAX_OUTPUT_TOKENS} tokens的输出上限")
         if "max_completion_tokens" in payload and payload["max_completion_tokens"] != output_cap:
             raise RuntimeError("模型请求输出上限字段不一致")
-        if self.ledger.budget()["accounting_violation"]:
+        if not self.upstream and self.ledger.budget()["accounting_violation"]:
             raise BudgetExceeded("计量异常，已停止所有模型调用")
 
         # Image bytes are not text tokens; reserve the verified per-image bound separately.
@@ -556,6 +635,16 @@ class MeteredTransport(httpx.AsyncBaseTransport):
         input_cap = text_bytes + 4096 + image_count * 1024
         if input_cap > 1_000_000:
             raise ValueError("输入超出模型上下文限制")
+        window = resource_limits.context_window()
+        if input_cap + output_cap > window:
+            raise ModelCallError("model_context_limit", "输入估算上限与输出上限之和超过部署上下文窗口")
+        try:
+            async with resource_limits.model_slot(self.ledger.path, lambda: self._check_scope(scope)):
+                return await self._dispatch(request, scope, run_id, input_cap, output_cap, window)
+        except resource_limits.CapacityTimeout as exc:
+            raise ModelCallError("model_rate_limited", str(exc)) from None
+
+    async def _dispatch(self, request, scope, run_id, input_cap, output_cap, window):
         reserved = (input_cap * INPUT_RATE + output_cap * OUTPUT_RATE) / 1_000_000
         self._check_scope(scope)
         if scope and scope.before_dispatch:
@@ -564,14 +653,20 @@ class MeteredTransport(httpx.AsyncBaseTransport):
             except BaseException as exc:
                 self.policy_failure = exc
                 raise
-        request_id = self.ledger.reserve(
-            reserved,
-            self.purpose,
-            run_id,
-            get_settings()["budget_limit_cny"],
-            task_limit=scope.max_cost_cny if scope else None,
-        )
+        bounds = (input_cap, output_cap, window)
+        if self.upstream:
+            request_id = self.ledger.begin_internal(self.model_id, self.purpose, run_id, bounds)
+        else:
+            request_id = self.ledger.reserve(
+                reserved,
+                self.purpose,
+                run_id,
+                get_settings()["budget_limit_cny"],
+                task_limit=scope.max_cost_cny if scope else None,
+                resource_bounds=bounds,
+            )
         self.request_ids.append(request_id)
+        start = time.monotonic()
         try:
             response, content = await self._send(request, scope)
             if 200 <= response.status_code < 300:
@@ -580,15 +675,18 @@ class MeteredTransport(httpx.AsyncBaseTransport):
                 choices = data.get("choices") or []
                 self.result = {
                     "request_id": request_id,
-                    "model": data.get("model", MODEL_ID),
+                    "model": data.get("model", self.model_id),
                     "finish_reasons": [
                         choice.get("finish_reason") for choice in choices if isinstance(choice, dict)
                     ],
                     "max_output_tokens": output_cap,
                 }
-                if isinstance(usage, dict) and "prompt_tokens" in usage and "completion_tokens" in usage:
+                if self.upstream:
+                    self.ledger.internal_settle(request_id, data.get("model"), usage)
+                    self.result.update(usage=usage, cost_cny=0.0)
+                elif isinstance(usage, dict) and "prompt_tokens" in usage and "completion_tokens" in usage:
                     try:
-                        cost = self.ledger.settle(request_id, usage, data.get("model", MODEL_ID))
+                        cost = self.ledger.settle(request_id, usage, data.get("model", self.model_id))
                     except InvalidModelUsage:
                         # A useful body may still be returned; accounting remains visibly uncertain.
                         self.result["accounting_complete"] = False
@@ -612,6 +710,17 @@ class MeteredTransport(httpx.AsyncBaseTransport):
         except BaseException:
             self.ledger.uncertain(request_id)
             raise
+        finally:
+            with self.ledger.connect() as db:
+                if self.upstream:
+                    db.execute(
+                        "UPDATE intranet_requests SET state='uncertain' WHERE id=? AND state='reserved'",
+                        (request_id,),
+                    )
+                db.execute(
+                    "UPDATE resource_requests SET duration_ms=? WHERE charge_id=?",
+                    (round((time.monotonic() - start) * 1000), request_id),
+                )
 
     async def aclose(self):
         await self.inner.aclose()
@@ -620,7 +729,6 @@ class MeteredTransport(httpx.AsyncBaseTransport):
 class ModelGateway:
     def __init__(self, ledger=None):
         self._ledger = ledger
-        self.semaphore = asyncio.Semaphore(2)
 
     async def connectivity(self):
         checked_at = datetime.now(UTC).isoformat()
@@ -634,15 +742,23 @@ class ModelGateway:
         result["last_successful_call_at"] = self.config_status().get("last_successful_call_at")
         if os.environ.get("HANGZHI_OFFLINE", "false").lower() == "true":
             return {**result, "reason_code": "offline_policy"}
+        upstream = intranet_provider()
         try:
             async with httpx.AsyncClient(
-                proxy=model_proxy(), timeout=8, follow_redirects=False, trust_env=False
+                proxy=None if upstream else model_proxy(), timeout=8, follow_redirects=False, trust_env=False
             ) as client:
-                response = await client.head("https://api.deepseek.com/models")
+                response = await client.head(
+                    upstream.base_url + "/models" if upstream else "https://api.deepseek.com/models"
+                )
             result["reachable"] = response.status_code < 500
         except httpx.HTTPError:
             result.update(reachable=False, reason_code="model_connection_failed")
         return result
+
+    @property
+    def ledger_path(self) -> Path:
+        """Inspect the selected ledger without initializing or migrating its schema."""
+        return self._ledger.path if self._ledger else Path(BUDGET_LEDGER_PATH)
 
     @property
     def ledger(self) -> BudgetLedger:
@@ -659,14 +775,20 @@ class ModelGateway:
     def config_status(self):
         import importlib.metadata
 
+        upstream = intranet_provider()
+        provider = "intranet" if upstream else "deepseek"
         try:
-            last_success = next(
-                (item["created_at"] for item in self.ledger.recent() if item["state"] == "settled"), None
-            )
+            with self.ledger.connect() as db:
+                last_success = db.execute(
+                    "SELECT MAX(created_at) FROM model_request_usage WHERE provider=? AND state='settled' "
+                    "AND (? IS NULL OR model=?)",
+                    (provider, upstream.model if upstream else None, upstream.model if upstream else None),
+                ).fetchone()[0]
         except RuntimeError:
             last_success = None
         return {
-            "model": MODEL_ID,
+            "model": upstream.model if upstream else MODEL_ID,
+            "provider": provider,
             "key_configured": bool(get_api_key()),
             "last_successful_call_at": last_success,
             "agno_version": importlib.metadata.version("agno"),
@@ -674,6 +796,29 @@ class ModelGateway:
             "budget_limit_cny": 300,
             "deployment": "localhost",
         }
+
+    def _client_model(self, transport, api_key, http_client, max_tokens, json_mode):
+        from agno.models.deepseek import DeepSeek
+        from agno.models.openai import OpenAIChat
+        from openai import AsyncOpenAI
+
+        upstream = transport.upstream
+        client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=upstream.base_url if upstream else "https://api.deepseek.com",
+            max_retries=0,
+            http_client=http_client,
+        )
+        params = {
+            "id": transport.model_id,
+            "api_key": api_key,
+            "async_client": client,
+            "max_tokens": min(max(1, max_tokens), get_settings()["max_output_tokens"], MAX_OUTPUT_TOKENS),
+            "retries": 0,
+            "max_retries": 0,
+            "request_params": {"response_format": {"type": "json_object"}} if json_mode else None,
+        }
+        return OpenAIChat(**params) if upstream else DeepSeek(**params, use_thinking=False)
 
     async def complete(
         self,
@@ -689,11 +834,14 @@ class ModelGateway:
         output_schema=None,
     ):
         run_id = _authorize_egress(run_id=run_id, evidence=evidence)
+        upstream = intranet_provider()
         api_key = get_api_key()
         if not api_key:
             raise ModelCallError(
                 "model_not_configured",
-                "未配置模型密钥，请在Windows用户环境变量中设置DEEPSEEK_API_KEY_ZX后重试",
+                "未配置内网模型独立凭据 HANGZHI_UPSTREAM_API_KEY"
+                if upstream
+                else "未配置模型密钥 DEEPSEEK_API_KEY_ZX",
             )
         if len(str(prompt).encode("utf-8")) + len(system.encode("utf-8")) > 200_000:
             raise ModelCallError(
@@ -701,28 +849,12 @@ class ModelGateway:
             )
         from agno.agent import Agent
         from agno.media import Image
-        from agno.models.deepseek import DeepSeek
-        from openai import AsyncOpenAI
 
-        transport = MeteredTransport(self.ledger, purpose, run_id)
-        async with (
-            self.semaphore,
-            httpx.AsyncClient(transport=transport, timeout=90, follow_redirects=False) as http_client,
-        ):
-            client = AsyncOpenAI(
-                api_key=api_key, base_url="https://api.deepseek.com", max_retries=0, http_client=http_client
-            )
-            request_params = {"response_format": {"type": "json_object"}} if json_mode else None
-            model = DeepSeek(
-                id=MODEL_ID,
-                api_key=api_key,
-                async_client=client,
-                max_tokens=min(max(1, max_tokens), get_settings()["max_output_tokens"], MAX_OUTPUT_TOKENS),
-                use_thinking=False,
-                retries=0,
-                max_retries=0,
-                request_params=request_params,
-            )
+        transport = MeteredTransport(
+            self.ledger, purpose, run_id, **({"upstream": upstream} if upstream else {})
+        )
+        async with httpx.AsyncClient(transport=transport, timeout=90, follow_redirects=False) as http_client:
+            model = self._client_model(transport, api_key, http_client, max_tokens, json_mode)
             agent = Agent(
                 name=f"workbench-{purpose}",
                 model=model,
@@ -764,7 +896,8 @@ class ModelGateway:
             return {
                 "text": text,
                 **transport.summary(),
-                "model": transport.result.get("model", MODEL_ID),
+                "model": transport.result.get("model", transport.model_id),
+                "provider": "intranet" if upstream else "deepseek",
                 "request_id": transport.result.get("request_id"),
                 "finish_reason": (transport.result.get("finish_reasons") or [None])[0],
             }
@@ -831,40 +964,28 @@ class ModelGateway:
         """带真实 tools= 的受控模型执行；所有请求仍经由计量传输与预算账本。"""
         run_id = context.get("run_id") if isinstance(context, dict) else getattr(context, "run_id", None)
         run_id = _authorize_egress(run_id=run_id, context=context)
+        upstream = intranet_provider()
         api_key = get_api_key()
         if not api_key:
             raise ModelCallError(
                 "model_not_configured",
-                "未配置模型密钥，请在Windows用户环境变量中设置DEEPSEEK_API_KEY_ZX后重试",
+                "未配置内网模型独立凭据 HANGZHI_UPSTREAM_API_KEY"
+                if upstream
+                else "未配置模型密钥 DEEPSEEK_API_KEY_ZX",
             )
         from agno.agent import Agent
         from agno.media import Image
-        from agno.models.deepseek import DeepSeek
-        from openai import AsyncOpenAI
 
-        transport = MeteredTransport(self.ledger, "agent_run", run_id)
+        transport = MeteredTransport(
+            self.ledger, "agent_run", run_id, **({"upstream": upstream} if upstream else {})
+        )
         tool_calls: list[dict] = []
         tools = [
             self._bind_tool(name, binding, tool_calls) for name, binding in (tool_bindings or {}).items()
         ]
         tools.extend(native_tools or [])
-        async with (
-            self.semaphore,
-            httpx.AsyncClient(transport=transport, timeout=90, follow_redirects=False) as http_client,
-        ):
-            client = AsyncOpenAI(
-                api_key=api_key, base_url="https://api.deepseek.com", max_retries=0, http_client=http_client
-            )
-            model = DeepSeek(
-                id=MODEL_ID,
-                api_key=api_key,
-                async_client=client,
-                max_tokens=min(max(1, max_tokens), get_settings()["max_output_tokens"], MAX_OUTPUT_TOKENS),
-                use_thinking=False,
-                retries=0,
-                max_retries=0,
-                request_params={"response_format": {"type": "json_object"}} if output_schema else None,
-            )
+        async with httpx.AsyncClient(transport=transport, timeout=90, follow_redirects=False) as http_client:
+            model = self._client_model(transport, api_key, http_client, max_tokens, bool(output_schema))
             agent = Agent(
                 name=f"workbench-agent-{agent_spec.get('name', 'run')}",
                 model=model,
@@ -911,7 +1032,8 @@ class ModelGateway:
             return {
                 "text": text,
                 **transport.summary(),
-                "model": transport.result.get("model", MODEL_ID),
+                "model": transport.result.get("model", transport.model_id),
+                "provider": "intranet" if upstream else "deepseek",
                 "request_id": transport.result.get("request_id"),
                 "finish_reason": (transport.result.get("finish_reasons") or [None])[0],
                 "tool_calls": tool_calls,
