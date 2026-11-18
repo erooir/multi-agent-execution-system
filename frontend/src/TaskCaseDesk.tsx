@@ -48,6 +48,7 @@ import {
   textValue,
   type TaskCase,
 } from "./taskCases";
+import type { WbDeskCommand, WbDeskState, WbTask } from "./WbShell";
 import "./question-desk.css";
 import "./task-cases.css";
 
@@ -72,9 +73,15 @@ function State({ status }: { status: string }) {
 export default function TaskCaseDesk({
   projectId,
   canSubmit,
+  onState,
+  command,
+  chromeInSidebar = false,
 }: {
   projectId: string;
   canSubmit: boolean;
+  onState?: (state: WbDeskState) => void;
+  command?: WbDeskCommand | null;
+  chromeInSidebar?: boolean;
 }) {
   const [tasks, setTasks] = useState<TaskCase[]>([]);
   const [selected, setSelected] = useState("");
@@ -89,6 +96,39 @@ export default function TaskCaseDesk({
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const key = "hangzhi.task-case.selection." + projectId;
+  const lastCommand = useRef(0);
+
+  // Publish the existing list to the WorkBuddy-style sidebar. No extra request.
+  useEffect(() => {
+    onState?.({
+      items: tasks.map(
+        (t): WbTask => ({
+          id: t.id,
+          title: taskCaseHeading(t),
+          status: t.status,
+          statusLabel: taskCaseStatus[t.status] || t.status,
+          createdAt: t.created_at,
+          active: taskCaseActive.has(t.status),
+        }),
+      ),
+      selected: composing ? "" : selected,
+      loading,
+      error: listError,
+    });
+  }, [tasks, selected, composing, loading, listError, onState]);
+
+  useEffect(() => {
+    if (!command || command.seq === lastCommand.current) return;
+    lastCommand.current = command.seq;
+    if (command.kind === "select" && command.id) {
+      setSelected(command.id);
+      setComposing(false);
+    } else if (command.kind === "compose" && canSubmit) {
+      setComposing(true);
+    } else if (command.kind === "refresh") {
+      setTick((n) => n + 1);
+    }
+  }, [command, canSubmit]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -221,17 +261,19 @@ export default function TaskCaseDesk({
 
   return (
     <div className="taskcase-desk">
-      <div className="taskcase-heading">
-        <div>
-          <h1>我的任务</h1>
+      {!chromeInSidebar && (
+        <div className="taskcase-heading">
+          <div>
+            <h1>我的任务</h1>
+          </div>
+          {canSubmit && (
+            <button className="primary" onClick={() => setComposing(true)}>
+              <Plus size={17} />
+              新建任务
+            </button>
+          )}
         </div>
-        {canSubmit && (
-          <button className="primary" onClick={() => setComposing(true)}>
-            <Plus size={17} />
-            新建任务
-          </button>
-        )}
-      </div>
+      )}
       {notice && (
         <p role="status" className="taskcase-muted">
           {notice}
@@ -243,8 +285,11 @@ export default function TaskCaseDesk({
           <button onClick={() => setTick((n) => n + 1)}>重新连接</button>
         </ErrorLine>
       )}
-      <div className="taskcase-layout">
-        <aside className="taskcase-history" aria-label="任务列表">
+      <div
+        className={`taskcase-layout ${chromeInSidebar ? "is-embedded" : ""}`}
+      >
+        {!chromeInSidebar && (
+          <aside className="taskcase-history" aria-label="任务列表">
           <div className="taskcase-row">
             <h2>
               任务记录 <small>{tasks.length}</small>
@@ -288,6 +333,7 @@ export default function TaskCaseDesk({
             <p className="taskcase-muted">还没有任务。从右侧创建第一个任务。</p>
           )}
         </aside>
+        )}
         <div className="taskcase-content">
           {composing || (!loading && !tasks.length && canSubmit) ? (
             <CreateTask

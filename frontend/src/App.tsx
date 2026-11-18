@@ -29,7 +29,15 @@ import {
 } from "lucide-react";
 import { api, ApiError, post } from "./api";
 import { projectLabel } from "./projects";
-import { money, projectItems, taskSummary, taskTypes, time } from "./domain";
+import {
+  money,
+  projectItems,
+  statusNames,
+  taskSummary,
+  taskTypes,
+  terminal,
+  time,
+} from "./domain";
 import type { Bootstrap, Item, Mutation, Page, User } from "./types";
 import { Badge, Confirm, Empty, ErrorLine, Panel, SectionTitle } from "./ui";
 import { AgentsPage, DataPage, WorkflowsPage } from "./AssetPages";
@@ -40,6 +48,8 @@ import Casework, { type CaseTab } from "./Casework";
 import ToolCatalog from "./ToolCatalog";
 import WorkspaceEntry from "./WorkspaceEntry";
 import QuestionPortal from "./QuestionPortal";
+import WbShell, { type WbTask, type HubKind } from "./WbShell";
+import HubCenter from "./HubCenter";
 import "./task-experience.css";
 import {
   ImprovementsPage,
@@ -48,6 +58,24 @@ import {
 } from "./ManagementPages";
 const nav: { id: Page; name: string; icon: any; group: string }[] = [
   { id: "overview", name: "工作台", icon: Gauge, group: "工作空间" },
+  {
+    id: "hub",
+    name: "专家 · 技能 · 连接器",
+    icon: Sparkles,
+    group: "工作空间",
+  },
+  {
+    id: "workdesk",
+    name: "工作台 · 任务中心",
+    icon: Gauge,
+    group: "工作空间",
+  },
+  {
+    id: "library",
+    name: "知识库 · 资料库 · 发现",
+    icon: Database,
+    group: "工作空间",
+  },
   { id: "casework", name: "场景分析", icon: Layers3, group: "工作空间" },
   { id: "agents", name: "智能体资产", icon: Bot, group: "工作空间" },
   { id: "tasks", name: "任务中心", icon: Activity, group: "工作空间" },
@@ -63,6 +91,25 @@ const nav: { id: Page; name: string; icon: any; group: string }[] = [
     group: "治理与运维",
   },
   { id: "operations", name: "设置", icon: Settings2, group: "治理与运维" },
+];
+const workdeskTabs: { key: "overview" | "tasks"; label: string; icon: any }[] =
+  [
+    { key: "overview", label: "工作台", icon: Gauge },
+    { key: "tasks", label: "任务中心", icon: Activity },
+  ];
+const centerTabs: { key: HubKind; label: string; icon: any }[] = [
+  { key: "expert", label: "专家", icon: Sparkles },
+  { key: "skill", label: "技能", icon: Wrench },
+  { key: "connector", label: "连接器", icon: Network },
+];
+const libraryTabs: {
+  key: "knowledge" | "data" | "discover";
+  label: string;
+  icon: any;
+}[] = [
+  { key: "knowledge", label: "知识库", icon: Layers3 },
+  { key: "data", label: "资料库", icon: Database },
+  { key: "discover", label: "发现", icon: Sparkles },
 ];
 const roles: Record<string, string> = {
   requester: "提问用户",
@@ -88,8 +135,40 @@ function ManagementApp() {
       (Bootstrap & { current_project_id: string | null }) | null
     >(null),
     [projectId, setProjectId] = useState(""),
-    [page, setPage] = useState<Page>("overview"),
-    [taskId, setTaskId] = useState<string | null>(null),
+    [page, setPage] = useState<Page>(() => {
+      const view = new URLSearchParams(window.location.search).get("view");
+      return nav.some((item) => item.id === view)
+        ? (view as Page)
+        : "overview";
+    }),
+    [workdeskTab, setWorkdeskTab] = useState<"overview" | "tasks">(() => {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("view") === "workdesk" && params.get("tab") === "tasks"
+        ? "tasks"
+        : "overview";
+    }),
+    [hubKind, setHubKind] = useState<HubKind>(() => {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get("tab");
+      return params.get("view") === "hub" &&
+        centerTabs.some((item) => item.key === tab)
+        ? (tab as HubKind)
+        : "expert";
+    }),
+    [hubQuery, setHubQuery] = useState(""),
+    [libraryTab, setLibraryTab] = useState<
+      "knowledge" | "data" | "discover"
+    >(() => {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get("tab");
+      return params.get("view") === "library" &&
+        libraryTabs.some((item) => item.key === tab)
+        ? (tab as "knowledge" | "data" | "discover")
+        : "knowledge";
+    }),
+    [taskId, setTaskId] = useState<string | null>(() =>
+      new URLSearchParams(window.location.search).get("task"),
+    ),
     [agentId, setAgentId] = useState<string | null>(null),
     [agentTool, setAgentTool] = useState<string | null>(null),
     [caseTab, setCaseTab] = useState<CaseTab>("catalog"),
@@ -253,6 +332,22 @@ function ManagementApp() {
     setAgentId(null);
     setWorkflowId(null);
   }
+  function openWorkdesk() {
+    setWorkdeskTab("overview");
+    go("workdesk");
+    setMobile(false);
+  }
+  function openCenter() {
+    setHubKind("expert");
+    setHubQuery("");
+    go("hub");
+    setMobile(false);
+  }
+  function openLibrary() {
+    setLibraryTab("knowledge");
+    go("library");
+    setMobile(false);
+  }
   function selectProject(id: string) {
     if (selectedProject.current === id) return;
     selectedProject.current = id;
@@ -284,7 +379,8 @@ function ManagementApp() {
           setAuthError("");
           setData(null);
           setProjectId("");
-          setPage("overview");
+          const view = new URLSearchParams(window.location.search).get("view");
+          setPage(nav.some((n) => n.id === view) ? (view as Page) : "overview");
         }}
       />
     );
@@ -298,6 +394,33 @@ function ManagementApp() {
     workflows = scoped("workflows"),
     assets = scoped("data_assets"),
     project = data?.projects.find((p) => p.id === projectId);
+  const recentTasks: WbTask[] = (data?.tasks || [])
+    .filter((t) => !projectId || t.project_id === projectId)
+    .sort((a, b) =>
+      String(b.created_at || "").localeCompare(String(a.created_at || "")),
+    )
+    .slice(0, 60)
+    .map((t) => ({
+      id: t.id,
+      title: t.name || t.request?.name || t.id,
+      status: t.status,
+      statusLabel: statusNames[t.status] || t.status,
+      createdAt: t.created_at,
+      active: !terminal.has(t.status),
+      projectId: t.project_id,
+    }));
+  const topTabs: { key: string; label: string; icon: any }[] =
+    page === "hub"
+      ? centerTabs
+      : page === "workdesk"
+        ? workdeskTabs
+        : libraryTabs;
+  const topActive: string =
+    page === "hub"
+      ? hubKind
+      : page === "workdesk"
+        ? workdeskTab
+        : libraryTab;
   const common = { projectId, canEdit, mutate, notify },
     openTask = (id: string) => {
       setTaskId(id);
@@ -313,142 +436,129 @@ function ManagementApp() {
       setCaseTab(tab);
     };
   return (
-    <div className="app-shell">
-      <a href="#main-content" className="skip-link">
-        跳到主要内容
-      </a>
-      {mobile && (
-        <button
-          className="sidebar-backdrop"
-          aria-label="关闭导航"
-          onClick={() => setMobile(false)}
-        />
-      )}
-      <aside className={`sidebar ${mobile ? "open" : ""}`}>
-        <div className="brand">
-          <span className="brand-mark">
-            <Network size={25} />
-          </span>
-          <div>
-            <strong>航智</strong>
-          </div>
-          <span className="version">v2</span>
-        </div>
-        <div className="project-picker">
-          <label htmlFor="project-select">当前项目</label>
-          <select
-            id="project-select"
-            value={projectId}
-            onChange={(e) => selectProject(e.target.value)}
-          >
-            {data?.projects.length ? (
-              data.projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {projectLabel(p, data.projects)}
-                </option>
-              ))
-            ) : (
-              <option value="">暂无可访问项目</option>
-            )}
-          </select>
-        </div>
-        <nav aria-label="主导航">
-          {nav.map((item, index) => {
-            const Icon = item.icon;
-            return (
-              <div key={item.id}>
-                {(index === 0 || nav[index - 1].group !== item.group) && (
-                  <div className="nav-label">{item.group}</div>
-                )}
+    <WbShell
+      user={user}
+      projects={data?.projects || []}
+      projectId={projectId}
+      projectLabel={projectLabel}
+      onProjectChange={selectProject}
+      title={nav.find((n) => n.id === page)?.name || "工作台"}
+      tasks={recentTasks}
+      allTasks={recentTasks}
+      selectedTaskId={page === "tasks" ? taskId || "" : ""}
+      onSelectTask={openTask}
+      onNewTask={() => {
+        window.location.href = "/";
+      }}
+      onRefreshTasks={() => void refresh().catch(() => {})}
+      tasksLoading={!data}
+      tasksError={error}
+      onNavigate={(next) => go(next as Page)}
+      onOpenWorkdesk={openWorkdesk}
+      onOpenCenter={openCenter}
+      onOpenLibrary={openLibrary}
+      activeNav={page}
+      topbarContent={
+        ["hub", "workdesk", "library"].includes(page) ? (
+          <div className="wb-hub-tabs">
+            {topTabs.map((tab) => {
+              const Icon = tab.icon;
+              return (
                 <button
-                  className={`nav-item ${page === item.id ? "active" : ""}`}
-                  aria-current={page === item.id ? "page" : undefined}
-                  onClick={() => go(item.id)}
+                  key={tab.key}
+                  className={topActive === tab.key ? "is-active" : ""}
+                  onClick={() => {
+                    if (page === "hub") {
+                      setHubKind(tab.key as HubKind);
+                      setHubQuery("");
+                    } else if (page === "workdesk")
+                      setWorkdeskTab(tab.key as "overview" | "tasks");
+                    else
+                      setLibraryTab(
+                        tab.key as "knowledge" | "data" | "discover",
+                      );
+                  }}
                 >
-                  <Icon size={19} />
-                  {item.name}
-                  {item.id === "tasks" && taskSummary(tasks).active > 0 && (
-                    <span className="nav-count">
-                      {taskSummary(tasks).active}
-                    </span>
-                  )}
+                  <Icon size={17} />
+                  {tab.label}
                 </button>
-              </div>
-            );
-          })}
-        </nav>
-        <div className="sidebar-bottom">
-          <div className="local-state">
-            <span className={`status-dot ${error ? "bad" : ""}`} />
-            <div>
-              <strong>{error ? "连接异常" : "服务已连接"}</strong>
-            </div>
+              );
+            })}
           </div>
-          <button className="account" onClick={() => setLogout(true)}>
-            <span className="avatar">{user.name?.slice(0, 1) || "用"}</span>
-            <span>
-              <strong>{user.name || user.username}</strong>
-              <small>{roles[user.role]}</small>
-            </span>
-            <LogOut size={17} />
-          </button>
-        </div>
-      </aside>
-      <div className="main-shell">
-        <header className="topbar">
-          <div className="breadcrumb">
-            <button
-              className="icon-button mobile-toggle"
-              aria-label="打开导航"
-              onClick={() => setMobile(true)}
-            >
-              <Menu size={21} />
-            </button>
-            <span title={project?.id}>
-              {project && data ? projectLabel(project, data.projects) : "平台"}
-            </span>
-            <ChevronRight size={15} />
-            <strong>{nav.find((n) => n.id === page)?.name}</strong>
-          </div>
-          <div className="top-actions">
+        ) : undefined
+      }
+      budget={data?.budget || null}
+      system={data?.system || null}
+      onLogout={() => setLogout(true)}
+      headerRight={
+        page === "hub" ? (
+          <>
+            <label className="wb-hub-search">
+              <Search size={14} />
+              <input
+                value={hubQuery}
+                onChange={(e) => setHubQuery(e.target.value)}
+                placeholder={
+                  hubKind === "expert"
+                    ? "搜索智能体 / 工作流"
+                    : hubKind === "skill"
+                      ? "搜索工具与技能包"
+                      : "搜索 MCP 服务"
+                }
+                aria-label="搜索"
+              />
+            </label>
             <a className="desk-link" href="/">
               返回任务工作台
             </a>
-            <span className={`connection ${error ? "error" : ""}`}>
-              <span className="status-dot" />
-              {error
-                ? "同步中断"
-                : lastSync
-                  ? `已同步 ${time(lastSync).split(" ").pop()}`
-                  : "正在连接"}
-            </span>
-            <button
-              className="icon-button"
-              disabled={refreshing}
-              aria-label="刷新工作空间"
-              title="刷新持久记录"
-              onClick={async () => {
-                setRefreshing(true);
-                try {
-                  await refresh();
-                } catch {
-                } finally {
-                  setRefreshing(false);
-                }
-              }}
-            >
-              <RefreshCw size={18} className={refreshing ? "spin" : ""} />
-            </button>
-            <span className="environment">
-              {data
-                ? data.system.offline
-                  ? "本地模式"
-                  : "允许云端"
-                : "读取部署策略中"}
-            </span>
-          </div>
-        </header>
-        <main id="main-content" tabIndex={-1}>
+          </>
+        ) : (
+        <>
+          <a className="desk-link" href="/">
+            返回任务工作台
+          </a>
+          <span className={`connection ${error ? "error" : ""}`}>
+            <span className="status-dot" />
+            {error
+              ? "同步中断"
+              : lastSync
+                ? `已同步 ${time(lastSync).split(" ").pop()}`
+                : "正在连接"}
+          </span>
+          <button
+            className="icon-button"
+            disabled={refreshing}
+            aria-label="刷新工作空间"
+            title="刷新持久记录"
+            onClick={async () => {
+              setRefreshing(true);
+              try {
+                await refresh();
+              } catch {
+              } finally {
+                setRefreshing(false);
+              }
+            }}
+          >
+            <RefreshCw size={18} className={refreshing ? "spin" : ""} />
+          </button>
+          <span className="environment">
+            {data
+              ? data.system.offline
+                ? "本地模式"
+                : "允许云端"
+              : "读取部署策略中"}
+          </span>
+        </>
+        )
+      }
+      footer={
+        <>
+          <span>航智 · AI 工作空间</span>
+          <span>持久任务 · 独立版本 · 可追溯交付</span>
+        </>
+      }
+    >
           {error && (
             <ErrorLine>
               同步失败：{error}。已加载的记录保留显示，请检查服务连接并刷新。
@@ -474,6 +584,74 @@ function ManagementApp() {
             />
           ) : (
             <>
+              {page === "workdesk" && workdeskTab === "overview" && (
+                <Overview
+                  key={projectId}
+                  data={data}
+                  project={project}
+                  agents={agents}
+                  tasks={tasks}
+                  assets={assets}
+                  workflows={workflows}
+                />
+              )}
+              {page === "workdesk" && workdeskTab === "tasks" && (
+                <TasksPage
+                  key={projectId}
+                  {...common}
+                  tasks={tasks}
+                  agents={agents}
+                  assets={assets}
+                  workflows={workflows}
+                  schedules={scoped("schedules")}
+                  selectedId={taskId}
+                  onSelect={setTaskId}
+                  onAgent={openAgent}
+                  onTaskUpdated={taskUpdated}
+                />
+              )}
+              {page === "hub" && (
+                <HubCenter
+                  key={projectId + "/" + hubKind}
+                  kind={hubKind}
+                  projectId={projectId}
+                  agents={agents}
+                  capabilities={
+                    Array.isArray(data.capabilities) ? data.capabilities : []
+                  }
+                  connectors={scoped("connectors")}
+                  query={hubQuery}
+                  workflows={workflows}
+                  assets={assets}
+                  canEdit={canEdit}
+                  mutate={mutate}
+                  onTask={openTask}
+                  onAgent={openAgent}
+                  offline={!!data.system.offline}
+                  onOpenFullPage={(target) => go(target as Page)}
+                  onCreated={() => void refresh().catch(() => {})}
+                  notify={notify}
+                />
+              )}
+              {page === "library" && libraryTab === "knowledge" && (
+                <KnowledgePage
+                  key={projectId}
+                  {...common}
+                  connectors={scoped("connectors")}
+                  memories={scoped("memories")}
+                  assets={assets}
+                />
+              )}
+              {page === "library" && libraryTab === "data" && (
+                <DataPage key={projectId} {...common} assets={assets} />
+              )}
+              {page === "library" && libraryTab === "discover" && (
+                <CapabilityPages
+                  key={projectId}
+                  {...common}
+                  isAdmin={user.role === "admin"}
+                />
+              )}
               {page === "overview" && (
                 <Overview
                   key={projectId}
@@ -596,12 +774,6 @@ function ManagementApp() {
               )}
             </>
           )}
-        </main>
-        <footer className="app-footer">
-          <span>航智 · AI 工作空间</span>
-          <span>持久任务 · 独立版本 · 可追溯交付</span>
-        </footer>
-      </div>
       {toast && (
         <div
           className={`toast ${toast.error ? "error" : ""}`}
@@ -631,7 +803,7 @@ function ManagementApp() {
           }}
         />
       )}
-    </div>
+    </WbShell>
   );
 }
 function Login({

@@ -24,11 +24,15 @@ export function AgentForm({
   offline = false,
   onClose,
   mutate,
+  embedded = false,
+  formId,
 }: Common & {
   item?: Item;
   agents: Item[];
   capabilities: Item[];
   offline?: boolean;
+  embedded?: boolean;
+  formId?: string;
 }) {
   const [form, setForm] = useState<Item>({
     name: "",
@@ -111,6 +115,8 @@ export function AgentForm({
   return (
     <FormModal
       wide
+      embedded={embedded}
+      formId={formId}
       title={item ? "编辑智能体定义" : "创建智能体"}
       onClose={onClose}
       submit="保存定义"
@@ -1287,7 +1293,14 @@ export function WorkflowForm({
   agents,
   onClose,
   mutate,
-}: Common & { item?: Item; agents: Item[] }) {
+  embedded = false,
+  formId,
+}: Common & {
+  item?: Item;
+  agents: Item[];
+  embedded?: boolean;
+  formId?: string;
+}) {
   const [form, setForm] = useState<Item>({
     name: "",
     description: "",
@@ -1308,6 +1321,8 @@ export function WorkflowForm({
   return (
     <FormModal
       wide
+      embedded={embedded}
+      formId={formId}
       title={item ? "编辑流程定义" : "创建复用流程"}
       onClose={onClose}
       submit="保存流程"
@@ -1383,3 +1398,13 @@ export function WorkflowForm({
     </FormModal>
   );
 }
+
+/* Headless variants for the expert / skill / connector center: identical
+   fields, validation and submit body, but no native dialog, so the center
+   can keep its own WorkBuddy-style modal chrome. */
+export const AgentCreateFields = (
+  props: Parameters<typeof AgentForm>[0],
+) => <AgentForm {...props} embedded formId="hub-agent-create-form" />;
+export const WorkflowCreateFields = (
+  props: Parameters<typeof WorkflowForm>[0],
+) => <WorkflowForm {...props} embedded formId="hub-workflow-create-form" />;
