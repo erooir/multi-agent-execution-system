@@ -2240,3 +2240,24 @@ code {
 }
 /* Hue comes from the item id (see HubIcons.tsx), so every item gets its own
    colour while saturation / lightness stay consistent across the set. */
+/* The center create dialog keeps its own WorkBuddy chrome while hosting the
+   full agent / workflow definition forms in embedded (headless) mode. */
+.hub-create-modal {
+  width: min(760px, 100%);
+}
+.hub-create-body {
+  max-height: 68vh;
+  overflow: auto;
+}
+.hub-create-body form,
+.hub-create-body fieldset {
+  min-width: 0;
+}
+.hub-create-body fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.hub-create-body .form-grid {
+  margin-bottom: 12px;
+}

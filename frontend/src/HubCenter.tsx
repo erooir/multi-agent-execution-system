@@ -21,6 +21,7 @@ import type { HubKind } from "./WbShell";
 import { AgentsPage, WorkflowsPage } from "./AssetPages";
 import ToolCatalog from "./ToolCatalog";
 import { JsonView } from "./ui";
+import { AgentCreateFields, WorkflowCreateFields } from "./Forms";
 import HubIcon, {
   iconHue,
   kindHue,
@@ -504,6 +505,13 @@ export default function HubCenter({
       : kind === "skill"
         ? "导入技能包"
         : "登记 MCP 服务";
+  const isCreateFull = Boolean(kind === "expert");
+  const closeCreate = () => {
+    setCreating(false);
+    setCreateError("");
+    setCatalogTick((n) => n + 1);
+    onCreated?.();
+  };
   const openDetail = (item: HubItem) => {
     setSelected(item);
     setDetailSeq((n) => n + 1);
@@ -542,52 +550,11 @@ export default function HubCenter({
 
   async function submitCreate(e: FormEvent) {
     e.preventDefault();
-    if (!projectId) return;
+    if (!projectId || isCreateFull) return;
     setCreateBusy(true);
     setCreateError("");
     try {
-      if (isWorkflow) {
-        await post("/v2/workflows", {
-          project_id: projectId,
-          name: createForm.name,
-          description: createForm.description || "",
-          task_type: createForm.task_type,
-          nodes: [
-            {
-              id: "process",
-              label: createForm.name,
-              agent_id: createForm.agent_id,
-              depends_on: [],
-              config: {},
-            },
-          ],
-        });
-        notify?.("流程已创建");
-      } else if (kind === "expert") {
-        const cap = capabilities.find(
-          (c) => c.id === createForm.capability,
-        );
-        await post("/v2/agents", {
-          project_id: projectId,
-          name: createForm.name,
-          description: createForm.description || "",
-          purpose: "general",
-          structure: "atomic",
-          capabilities: [createForm.capability],
-          modalities: Array.isArray(cap?.modalities)
-            ? cap.modalities
-            : ["structured"],
-          tool_ids: [],
-          instructions: "",
-          model_policy: "local",
-          execution_strategy: "fixed",
-          tool_refs: [],
-          skill_refs: [],
-          members: [],
-          parameters: {},
-        });
-        notify?.("智能体已创建");
-      } else if (kind === "connector") {
+      if (kind === "connector") {
         await post("/v2/capability-definitions/mcp", {
           project_id: projectId,
           name: createForm.name,
@@ -876,6 +843,45 @@ export default function HubCenter({
                 <X size={18} />
               </button>
             </div>
+            {isCreateFull ? (
+              <>
+                <div className="hub-modal-body hub-create-body">
+                  {isWorkflow ? (
+                    <WorkflowCreateFields
+                      projectId={projectId}
+                      agents={agents}
+                      mutate={mutate}
+                      onClose={closeCreate}
+                    />
+                  ) : (
+                    <AgentCreateFields
+                      projectId={projectId}
+                      agents={agents}
+                      capabilities={capabilities}
+                      offline={offline}
+                      mutate={mutate}
+                      onClose={closeCreate}
+                    />
+                  )}
+                </div>
+                <div className="hub-modal-foot">
+                  <button type="button" onClick={() => setCreating(false)}>
+                    取消
+                  </button>
+                  <button
+                    type="submit"
+                    form={
+                      isWorkflow
+                        ? "hub-workflow-create-form"
+                        : "hub-agent-create-form"
+                    }
+                    className="is-primary"
+                  >
+                    确认添加
+                  </button>
+                </div>
+              </>
+            ) : (
             <form onSubmit={submitCreate}>
               <div className="hub-modal-body">
                 {kind === "skill" ? (
@@ -1065,6 +1071,7 @@ export default function HubCenter({
                 </button>
               </div>
             </form>
+            )}
           </div>
         </div>
       )}
