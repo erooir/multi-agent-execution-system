@@ -14,7 +14,7 @@ A100 实测使用 GPU 0、1 两张 80GB 卡，BF16、TP=2、32K 总上下文、�
 
 ## 构建与启动
 
-`scripts/model_api/Containerfile` 只接收固定基础镜像、公开 wheel 和启动脚本。准备最小构建目录，放入该 Containerfile、`entrypoint.sh` 和 `wheels/transformers-5.8.0-py3-none-any.whl`；先核对 wheel 哈希，再以 `--network=none --pull=false` 构建。权重、密钥和运行数据不得进入镜像构建上下文。
+`scripts/model_api/Containerfile` 只接收固定基础镜像、公开 wheel 和启动脚本。准备最小构建目录，放入该 Containerfile、`entrypoint.sh`、`serve_with_keys.py` 和 `wheels/transformers-5.8.0-py3-none-any.whl`；先核对 wheel 哈希，再以 `--network=none --pull=false` 构建。权重、密钥和运行数据不得进入镜像构建上下文。
 
 从 `scripts/model_api/compose.env.example` 创建仓库外的 `compose.env`，填入镜像 ID/digest、两张空闲 GPU 的 UUID、模型路径、私有密钥路径、缓存路径和实际 UID/GID。目录应由该 UID/GID 拥有。配置文件和至少 32 字符的随机密钥文件均使用 `chmod 600`，私有父目录使用 `chmod 700`。不要把密钥写进命令行或 Git。
 
@@ -31,7 +31,7 @@ bash scripts/model_api/manage.sh stop
 
 vLLM 在内部网络监听 `0.0.0.0:8001`，该网络无外网路由。Docker 29 的内部网络没有发布宿主端口，因此使用固定目标的 Nginx 转发，宿主仅发布 `127.0.0.1:8001`，只转发原生鉴权覆盖的 `/v1/` 路径。Nginx 不持有模型密钥，不修改模型协议或实现业务调用。模型鉴权、工具 parser、JSON 和用量仍来自原生 vLLM。Nginx 使用只读文件系统、非 root 用户和临时目录，不记录访问正文或鉴权头。
 
-运行期启用 `HF_HUB_OFFLINE=1`、`TRANSFORMERS_OFFLINE=1` 和禁遥测配置。API key 从只读密钥文件载入 `VLLM_API_KEY`，不会出现在启动参数中。默认关闭 thinking，使用 `qwen3_coder` 工具 parser 和 `qwen3` reasoning parser。镜像必须包含实际运行 UID/GID 的 passwd 条目；否则 Torch 编译器的用户名查询会失败，本机首轮启动曾因此失败，修复后的镜像已实际运行。
+运行期启用 `HF_HUB_OFFLINE=1`、`TRANSFORMERS_OFFLINE=1` 和禁遥测配置。密钥只读文件支持单个明文字符串或最多 32 个字符串组成的 JSON 数组。`serve_with_keys.py` 将它们传给原生 vLLM 多密钥鉴权；没有增加业务服务或修改模型协议。密钥不进入 CLI 或容器配置环境，启动 Namespace 的字符串表示经过隐藏，因为当前 vLLM 会直接记录非默认参数。默认关闭 thinking，使用 `qwen3_coder` 工具 parser 和 `qwen3` reasoning parser。镜像必须包含实际运行 UID/GID 的 passwd 条目；否则 Torch 编译器的用户名查询会失败，本机首轮启动曾因此失败，修复后的镜像已实际运行。
 
 ## 本地电脑访问
 

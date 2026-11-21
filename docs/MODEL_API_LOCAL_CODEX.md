@@ -13,7 +13,19 @@ git switch --track origin/codex/qwen38-examples-20261121
 
 本地已有同名分支时改用 `git switch codex/qwen38-examples-20261121`、`git pull --ff-only`。如有本地修改或分叉，先保留并报告，不自动丢弃。该分支未合并到 main。
 
-## 2. 通过 SSH 获取模型 API 密钥
+## 2. 找到并复制一枚 API 密钥
+
+服务器已创建三枚独立密钥，任选一个文件打开，复制完整的一行即可；三枚均可用于同一个模型 API：
+
+```text
+/home/lxy/projects/multi_agents/deployment-state/api-keys/client-01.txt
+/home/lxy/projects/multi_agents/deployment-state/api-keys/client-02.txt
+/home/lxy/projects/multi_agents/deployment-state/api-keys/client-03.txt
+```
+
+**可直接手动复制到本地私有配置的 `HANGZHI_UPSTREAM_API_KEY`，不要求用脚本获取。** 这三枚权限相同，共享同一个模型服务的容量。API/Worker 均配置所选密钥即可。复制的是文件内容，不是路径；不需要三枚同时使用。
+
+如希望连文件一起取回，下面的 SCP 是可选方式。
 
 使用本机**已经能登录这台 A100 的 SSH Host 别名/地址**，沿用其用户名、端口、跳板机配置。可检查本机 SSH config；缺少连接信息才向用户询问，不猜地址。
 
@@ -27,7 +39,7 @@ $account = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 New-Item -ItemType Directory -Path $secretDir -Force | Out-Null
 icacls.exe $secretDir /inheritance:r /grant:r "${account}:(OI)(CI)F" | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Cannot restrict credential directory access.' }
-scp "${modelSsh}:/home/lxy/projects/multi_agents/deployment-state/api-key" $keyFile
+scp "${modelSsh}:/home/lxy/projects/multi_agents/deployment-state/api-keys/client-01.txt" $keyFile
 if ($LASTEXITCODE -ne 0) { throw 'API key transfer failed.' }
 icacls.exe $keyFile /inheritance:r /grant:r "${account}:F" | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Cannot restrict API key file access.' }
@@ -47,7 +59,9 @@ ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L 127.0.0.1:8001:1
 
 ## 4. 配置模型并先做无数据库探测
 
-回到项目根目录的 PowerShell。`$keyFile` 如果不在当前终端，重新设置其文件路径；不要打印其内容。
+本地 Codex 可以直接把用户提供的密钥填入**本地私有启动配置**，并为启动 API/Worker 的进程设置下表变量；无需运行下载或密钥生成脚本。不要将真实值写入受 Git 跟踪的文件，也不要在回复中复述。若把配置保存为 `.env`，须显式加载到启动进程，项目不会自动读取它。
+
+以下为可选的文件加载方式：把复制的密钥保存到本地受保护文件，或使用上一步 SCP。回到项目根目录的 PowerShell，`$keyFile` 如果不在当前终端，重新设置其文件路径；不要打印其内容。
 
 ```powershell
 $keyFile = Join-Path $env:LOCALAPPDATA 'Hangzhi/qwen38-api-key'
@@ -71,7 +85,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Model API smoke probe failed; inspect the repo
 | `HANGZHI_UPSTREAM_MAX_OUTPUT_TOKENS` / `HANGZHI_UPSTREAM_MAX_TASK_REQUESTS` | `16000` / `60` |
 | `HANGZHI_OFFLINE` | `false`，当前应用开关也会拦截内网 HTTP；模型容器仍无外网路由 |
 
-每次新开 PowerShell，重新执行 `use-client.ps1` 即可；不必重新取密钥。不要只写 `.env` 就认为已生效，现有启动入口不会自动加载它。密钥保存在文件，应用变量只在启动进程中加载。
+使用文件加载脚本时，每次新开 PowerShell，重新执行 `use-client.ps1` 即可；不必重新取密钥。使用手动配置时，让本地 Codex 保证配置同样加载到 API/Worker 的启动环境。
 
 ## 5. 重启本地 API 和 Worker
 

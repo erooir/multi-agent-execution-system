@@ -5,6 +5,7 @@ COPY wheels/ /tmp/model-api-wheels/
 RUN python -m pip install --no-index --find-links=/tmp/model-api-wheels --no-deps transformers==5.8.0 \
     && rm -rf /tmp/model-api-wheels
 COPY entrypoint.sh /opt/hangzhi/model-api-entrypoint.sh
+COPY serve_with_keys.py /opt/hangzhi/serve_with_keys.py
 ARG RUNNER_UID=1002
 ARG RUNNER_GID=1002
 RUN getent group ${RUNNER_GID} >/dev/null || groupadd --gid ${RUNNER_GID} hangzhi
