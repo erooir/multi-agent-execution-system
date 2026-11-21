@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentType,
@@ -8,11 +9,15 @@ import {
 import { RefreshCw, Settings2 } from "lucide-react";
 import { api, ApiError, post } from "./api";
 import { projectLabel } from "./projects";
-import type { User } from "./types";
+import type { Item, User } from "./types";
 import { Confirm, Empty, ErrorLine } from "./ui";
 import QuestionDesk from "./QuestionDesk";
 import TaskCaseDesk from "./TaskCaseDesk";
-import WbShell, { type WbDeskCommand, type WbDeskState } from "./WbShell";
+import WbShell, {
+  type WbDeskCommand,
+  type WbDeskState,
+  type WbTask,
+} from "./WbShell";
 import "./portal.css";
 
 type Project = { id: string; name: string };
@@ -116,6 +121,70 @@ export default function QuestionPortal({
     setCommand(null);
   }, [projectId, legacy]);
 
+  /* The management shell lists platform tasks while the desk lists case tasks.
+     Show both here so the sidebar history never disappears when the user
+     follows "新建任务" into the desk. */
+  const [platformHistory, setPlatformHistory] = useState<{
+    scope: string;
+    tasks: WbTask[];
+  } | null>(null);
+  const [platformTick, setPlatformTick] = useState(0);
+  const historyScope = user && user.role !== "requester" && projectId
+    ? `${user.id}/${projectId}`
+    : "";
+  useEffect(() => {
+    if (!historyScope) return;
+    const c = new AbortController();
+    api<{ tasks?: Item[] }>(
+      "/v2/bootstrap?scope=current&project_id=" + encodeURIComponent(projectId),
+      { signal: c.signal },
+    )
+      .then((payload) => {
+        if (c.signal.aborted) return;
+        setPlatformHistory({
+          scope: historyScope,
+          tasks: (payload.tasks || [])
+            .filter((t) => t.project_id === projectId)
+            .sort((a, b) =>
+              String(b.created_at || "").localeCompare(
+                String(a.created_at || ""),
+              ),
+            )
+            .slice(0, 6)
+            .map(
+              (t): WbTask => ({
+                id: String(t.id),
+                title: String(t.name || t.request?.name || t.id),
+                status: String(t.status || ""),
+                createdAt: t.created_at,
+                projectId: t.project_id,
+              }),
+            ),
+        });
+      })
+      .catch(() => {});
+    return () => c.abort();
+  }, [historyScope, projectId, platformTick]);
+
+  const platformTasks = platformHistory?.scope === historyScope
+    ? platformHistory.tasks
+    : undefined;
+  const shownTasks = useMemo(() => {
+    const deskIds = new Set(desk.items.map((t) => t.id));
+    return [
+      ...desk.items,
+      ...(platformTasks || []).filter((t) => !deskIds.has(t.id)),
+    ];
+  }, [desk.items, platformTasks]);
+  const selectTask = (id: string) => {
+    if (!desk.items.some((t) => t.id === id) && platformTasks?.some((t) => t.id === id)) {
+      const params = new URLSearchParams({ view: "tasks", project: projectId, task: id });
+      window.location.href = "/manage?" + params;
+      return;
+    }
+    sendCommand("select", id);
+  };
+
   if (checking)
     return (
       <div className="full-loading" role="status">
@@ -172,14 +241,17 @@ export default function QuestionPortal({
       projectLabel={projectLabel}
       onProjectChange={changeProject}
       title={legacy ? "历史问答" : "任务工作台"}
-      tasks={desk.items}
+      tasks={shownTasks}
       selectedTaskId={desk.selected}
-      onSelectTask={(id) => sendCommand("select", id)}
+      onSelectTask={selectTask}
       onNewTask={() => {
         if (legacy) window.location.href = "/";
         else sendCommand("compose");
       }}
-      onRefreshTasks={() => sendCommand("refresh")}
+      onRefreshTasks={() => {
+        sendCommand("refresh");
+        setPlatformTick((n) => n + 1);
+      }}
       tasksLoading={desk.loading}
       tasksError={desk.error || error}
       onLogout={() => setLogout(true)}

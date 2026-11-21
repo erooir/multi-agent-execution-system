@@ -245,6 +245,8 @@ export function FormModal({
   onSubmit,
   submit = "保存",
   wide = false,
+  embedded = false,
+  formId,
 }: {
   title: string;
   children: ReactNode;
@@ -252,6 +254,8 @@ export function FormModal({
   onSubmit: () => Promise<any>;
   submit?: string;
   wide?: boolean;
+  embedded?: boolean;
+  formId?: string;
 }) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -267,6 +271,18 @@ export function FormModal({
     } finally {
       setBusy(false);
     }
+  }
+  /* Embedded mode renders only the fields: a parent dialog supplies the
+     chrome and its own submit button via `form={formId}`. */
+  if (embedded) {
+    return (
+      <form id={formId} onSubmit={save}>
+        <fieldset disabled={busy}>
+          {children}
+          {error && <ErrorLine>{error}</ErrorLine>}
+        </fieldset>
+      </form>
+    );
   }
   return (
     <Modal

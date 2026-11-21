@@ -171,7 +171,9 @@ function ManagementApp() {
         ? (tab as "knowledge" | "data" | "discover")
         : "knowledge";
     }),
-    [taskId, setTaskId] = useState<string | null>(null),
+    [taskId, setTaskId] = useState<string | null>(() =>
+      new URLSearchParams(window.location.search).get("task"),
+    ),
     [agentId, setAgentId] = useState<string | null>(null),
     [agentTool, setAgentTool] = useState<string | null>(null),
     [caseTab, setCaseTab] = useState<CaseTab>("catalog"),
@@ -184,7 +186,7 @@ function ManagementApp() {
     [toast, setToast] = useState<{ text: string; error: boolean } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     currentUser = useRef<string | null>(null),
-    selectedProject = useRef(""),
+    selectedProject = useRef(new URLSearchParams(window.location.search).get("project") || ""),
     refreshSequence = useRef(0);
   currentUser.current = user?.id || null;
   const notify = useCallback((text: string, error = false) => {

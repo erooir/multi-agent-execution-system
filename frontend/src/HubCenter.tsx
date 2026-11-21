@@ -22,6 +22,12 @@ import { AgentsPage, WorkflowsPage } from "./AssetPages";
 import ExpertInterview, { businessLabel } from "./ExpertInterview";
 import ToolCatalog from "./ToolCatalog";
 import { JsonView } from "./ui";
+import { AgentCreateFields, WorkflowCreateFields } from "./Forms";
+import HubIcon, {
+  iconHue,
+  kindHue,
+  type HubIconKind,
+} from "./HubIcons";
 
 type HubItem = {
   id: string;
@@ -77,6 +83,32 @@ const FIELD_LABELS: Record<string, string> = {
 const MCP_LABELS: Record<string, string> = {
   "project-tables": "项目表格服务",
 };
+/* The three summary cards reuse the same illustration set as the item cards. */
+const HERO_ICON_KIND = new Map<LucideIcon, HubIconKind>([
+  [Bot, "agent"],
+  [Sparkles, "agent"],
+  [Workflow, "flow"],
+  [Layers3, "flow"],
+  [Wrench, "tool"],
+  [Boxes, "skill"],
+  [Plug, "mcp"],
+  [Database, "mcp"],
+]);
+/* 48 evenly spaced hue slots: one per item, chosen from a stable hash and
+   de-duplicated within the list, so colours stay distinct and well spread. */
+const HUE_SLOTS = 48;
+const MIN_SLOT_GAP = 14; /* >=105 degrees between neighbours */
+const slotHue = (id: string) =>
+  Math.round(((iconHue(id) % HUE_SLOTS) * 360) / HUE_SLOTS);
+function itemIconKind(
+  item: HubItem,
+  kind: HubKind,
+  category: string,
+): HubIconKind {
+  if (kind === "expert") return category === "workflow" ? "flow" : "agent";
+  if (kind === "skill") return item.bucket === "secondary" ? "skill" : "tool";
+  return "mcp";
+}
 const pretty = (value: string) =>
   taskTypes[value] || FIELD_LABELS[value] || MCP_LABELS[value] || value;
 
@@ -133,13 +165,14 @@ export default function HubCenter({
     "all" | "secondary" | "workflow"
   >("all");
   const [filterGroup, setFilterGroup] = useState("全部");
-  const [groupBy,setGroupBy] = useState("business");
+  const [groupBy, setGroupBy] = useState("business");
   const filterScrollRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<HubItem | null>(null);
   // Re-mount the native detail dialog when the same card is opened again.
   const [detailSeq, setDetailSeq] = useState(0);
   const [catalogTick, setCatalogTick] = useState(0);
   const [creating, setCreating] = useState(false);
+  const [interviewOpen, setInterviewOpen] = useState(false);
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState("");
   const [createForm, setCreateForm] = useState<Item>({
@@ -428,15 +461,54 @@ export default function HubCenter({
     return rows;
   }, [items, query, category, sort, filterGroup]);
 
-  const isExpertList = kind === "expert" && !isWorkflowView;
-  const groups: Record<string, HubItem[]> = {};
-  for (const item of visible) {
-    const agent = item.extra || {};
-    const label = !isExpertList ? "all" : groupBy === "business" ? businessLabel(agent) : pretty(agent.structure || "未分类");
-    (groups[label] ||= []).push(item);
-  }
+  /* 48 evenly spaced hue slots, one per item. A stable hash picks the slot;
+     neighbours must be at least ~105 degrees apart so the list never reads
+     as "all green". Gaps relax only if the palette runs out of room. */
+  const hues = useMemo(() => {
+    const used = new Set<number>();
+    let previous = -1;
+    return visible.map((item) => {
+      let slot = iconHue(item.id) % HUE_SLOTS;
+      let chosen = -1;
+      for (const gap of [MIN_SLOT_GAP, 10, 6, 0]) {
+        for (let guard = 0; guard < HUE_SLOTS; guard += 1) {
+          const distance =
+            previous < 0
+              ? HUE_SLOTS
+              : Math.min(
+                  (slot - previous + HUE_SLOTS) % HUE_SLOTS,
+                  (previous - slot + HUE_SLOTS) % HUE_SLOTS,
+                );
+          if (!used.has(slot) && distance >= gap) {
+            chosen = slot;
+            break;
+          }
+          slot = (slot + 1) % HUE_SLOTS;
+        }
+        if (chosen >= 0) break;
+      }
+      if (chosen < 0) chosen = slot;
+      used.add(chosen);
+      previous = chosen;
+      return Math.round((chosen * 360) / HUE_SLOTS);
+    });
+  }, [visible]);
+
   const meta = TAB_META[kind];
   const isWorkflow = kind === "expert" && category === "workflow";
+  const isAgentList = kind === "expert" && !isWorkflow;
+  const cardGroups = new Map<string, { item: HubItem; hue: number }[]>();
+  visible.forEach((item, index) => {
+    const agent = item.extra || {};
+    const group = !isAgentList
+      ? ""
+      : groupBy === "business"
+        ? businessLabel(agent)
+        : pretty(agent.structure || "未分类");
+    const cards = cardGroups.get(group) || [];
+    cards.push({ item, hue: hues[index] });
+    cardGroups.set(group, cards);
+  });
   const managePage = isWorkflow
     ? "workflows"
     : kind === "expert"
@@ -451,6 +523,13 @@ export default function HubCenter({
       : kind === "skill"
         ? "导入技能包"
         : "登记 MCP 服务";
+  const isCreateFull = Boolean(kind === "expert");
+  const closeCreate = () => {
+    setCreating(false);
+    setCreateError("");
+    setCatalogTick((n) => n + 1);
+    onCreated?.();
+  };
   const openDetail = (item: HubItem) => {
     setSelected(item);
     setDetailSeq((n) => n + 1);
@@ -476,8 +555,6 @@ export default function HubCenter({
     setCreateForm({
       name: "",
       description: "",
-      task_type: capabilities[0]?.id || "structured_transform",
-      agent_id: agents[0]?.id || "",
       capability: capabilities[0]?.id || "structured_transform",
       transport: "stdio",
       url: "",
@@ -491,28 +568,11 @@ export default function HubCenter({
 
   async function submitCreate(e: FormEvent) {
     e.preventDefault();
-    if (!projectId) return;
+    if (!projectId || isCreateFull) return;
     setCreateBusy(true);
     setCreateError("");
     try {
-      if (isWorkflow) {
-        await post("/v2/workflows", {
-          project_id: projectId,
-          name: createForm.name,
-          description: createForm.description || "",
-          task_type: createForm.task_type,
-          nodes: [
-            {
-              id: "process",
-              label: createForm.name,
-              agent_id: createForm.agent_id,
-              depends_on: [],
-              config: {},
-            },
-          ],
-        });
-        notify?.("流程已创建");
-      } else if (kind === "connector") {
+      if (kind === "connector") {
         await post("/v2/capability-definitions/mcp", {
           project_id: projectId,
           name: createForm.name,
@@ -551,7 +611,7 @@ export default function HubCenter({
       {categories.length > 0 && (
         <div className="hub-hero-row">
           {categories.map((cat) => {
-            const Icon = cat.icon;
+            const heroKind = HERO_ICON_KIND.get(cat.icon) || "agent";
             return (
               <div key={cat.title} className={`hub-hero tone-${cat.tone}`}>
                 <div className="hub-hero-top">
@@ -559,7 +619,7 @@ export default function HubCenter({
                     <strong>{cat.title}</strong>
                     <span>{cat.count} 项</span>
                   </div>
-                  <Icon size={36} />
+                  <HubIcon kind={heroKind} hue={kindHue(heroKind)} size={36} />
                 </div>
                 <div className="hub-hero-links">
                   {cat.links.length ? (
@@ -616,10 +676,18 @@ export default function HubCenter({
           >
             管理
           </button>
-          {(kind==="connector" ? isAdmin : canEdit) && <button className="hub-add" onClick={openCreate}>
-            <Plus size={14} />
-            {addLabel}
-          </button>}
+          {isAgentList && canEdit && (
+            <button className="hub-manage" onClick={() => setInterviewOpen(true)}>
+              <Sparkles size={14} />
+              问答创建
+            </button>
+          )}
+          {(kind === "connector" ? isAdmin : canEdit) && (
+            <button className="hub-add" onClick={openCreate}>
+              <Plus size={14} />
+              {addLabel}
+            </button>
+          )}
           <div className="hub-sort">
             {(["default", "hot", "new"] as const).map((value) => (
               <button
@@ -669,23 +737,31 @@ export default function HubCenter({
 
       <div className="hub-list-rule" />
 
-      {isExpertList && <label className="expert-group-select">智能体视图
-        <select value={groupBy} onChange={e=>setGroupBy(e.target.value)}>
-          <option value="business">按业务方向</option><option value="structure">按智能体类型</option>
-        </select></label>}
-      {visible.length ? Object.entries(groups).map(([group,rows])=>(
-        <section key={group} className="expert-group">
-          {isExpertList && <h3>{group} <small>({rows.length})</small></h3>}
-          <div className="hub-card-grid">
-          {rows.map((item, index) => (
+      {isAgentList && (
+        <label className="expert-group-select">
+          智能体视图
+          <select value={groupBy} onChange={(e) => setGroupBy(e.target.value)}>
+            <option value="business">按业务方向</option>
+            <option value="structure">按智能体类型</option>
+          </select>
+        </label>
+      )}
+      {cardGroups.size ? (
+        [...cardGroups].map(([group, cards]) => (
+          <section key={group} className={isAgentList ? "expert-group" : undefined}>
+            {isAgentList && <h3>{group} <small>({cards.length})</small></h3>}
+            <div className="hub-card-grid">
+          {cards.map(({ item, hue }) => (
             <button
-              key={item.id + "-" + index}
+              key={item.id}
               className="hub-card"
               onClick={() => openDetail(item)}
             >
-              <span className={`hub-card-avatar tone-${index % 4}`}>
-                {item.name.slice(0, 1)}
-              </span>
+              <HubIcon
+                kind={itemIconKind(item, kind, category)}
+                hue={hue}
+                size={48}
+              />
               <span className="hub-card-body">
                 <strong>{item.name}</strong>
                 <span className="hub-card-desc">{item.desc || "—"}</span>
@@ -703,9 +779,12 @@ export default function HubCenter({
               </span>
             </button>
           ))}
-          </div>
-        </section>
-      )) : <div className="hub-empty">没有匹配的条目，换个关键词或分类试试。</div>}
+            </div>
+          </section>
+        ))
+      ) : (
+        <div className="hub-empty">没有匹配的条目，换个关键词或分类试试。</div>
+      )}
 
       {selected && (
         <>
@@ -775,9 +854,19 @@ export default function HubCenter({
         </>
       )}
 
-      {creating && isExpertList && <ExpertInterview projectId={projectId} onClose={()=>setCreating(false)}
-        onSaved={()=>{setCreating(false); onCreated?.(); notify?.("智能体草稿已保存");}}/>}
-      {creating && !isExpertList && (
+      {interviewOpen && isAgentList && canEdit && (
+        <ExpertInterview
+          projectId={projectId}
+          onClose={() => setInterviewOpen(false)}
+          onSaved={() => {
+            setInterviewOpen(false);
+            onCreated?.();
+            notify?.("智能体草稿已保存");
+          }}
+        />
+      )}
+
+      {creating && (
         <div
           className="hub-modal-backdrop"
           onClick={() => setCreating(false)}
@@ -806,6 +895,45 @@ export default function HubCenter({
                 <X size={18} />
               </button>
             </div>
+            {isCreateFull ? (
+              <>
+                <div className="hub-modal-body hub-create-body">
+                  {isWorkflow ? (
+                    <WorkflowCreateFields
+                      projectId={projectId}
+                      agents={agents}
+                      mutate={mutate}
+                      onClose={closeCreate}
+                    />
+                  ) : (
+                    <AgentCreateFields
+                      projectId={projectId}
+                      agents={agents}
+                      capabilities={capabilities}
+                      offline={offline}
+                      mutate={mutate}
+                      onClose={closeCreate}
+                    />
+                  )}
+                </div>
+                <div className="hub-modal-foot">
+                  <button type="button" onClick={() => setCreating(false)}>
+                    取消
+                  </button>
+                  <button
+                    type="submit"
+                    form={
+                      isWorkflow
+                        ? "hub-workflow-create-form"
+                        : "hub-agent-create-form"
+                    }
+                    className="is-primary"
+                  >
+                    确认添加
+                  </button>
+                </div>
+              </>
+            ) : (
             <form onSubmit={submitCreate}>
               <div className="hub-modal-body">
                 {kind === "skill" ? (
@@ -995,6 +1123,7 @@ export default function HubCenter({
                 </button>
               </div>
             </form>
+            )}
           </div>
         </div>
       )}
@@ -1045,9 +1174,7 @@ function McpDetail({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="hub-modal-head">
-          <span className="hub-detail-icon">
-            <Plug size={19} />
-          </span>
+          <HubIcon kind="mcp" hue={slotHue(item.id)} size={38} />
           <div>
             <h2>{item.name}</h2>
             <small>MCP 服务 · 完整目录条目</small>
