@@ -677,7 +677,7 @@ export default function HubCenter({
             管理
           </button>
           {isAgentList && canEdit && (
-            <button className="hub-manage" onClick={() => setInterviewOpen(true)}>
+            <button className="hub-interview" onClick={() => setInterviewOpen(true)}>
               <Sparkles size={14} />
               问答创建
             </button>

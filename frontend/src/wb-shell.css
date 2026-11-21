@@ -1908,7 +1908,8 @@ code {
   align-items: center;
   gap: 12px;
 }
-.hub-manage {
+.hub-manage,
+.hub-interview {
   min-height: 32px;
   padding: 6px 11px;
   border: 1px solid var(--wb-line);
@@ -1918,11 +1919,13 @@ code {
   font-size: 12.5px;
   cursor: pointer;
 }
-.hub-manage:hover {
+.hub-manage:hover,
+.hub-interview:hover {
   border-color: #8fdcc8;
   color: var(--wb-accent);
   background: #f8fdfb;
 }
+.hub-interview { display: inline-flex; align-items: center; gap: 0.35rem; }
 .hub-add {
   display: inline-flex;
   align-items: center;
