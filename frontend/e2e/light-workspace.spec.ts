@@ -59,7 +59,7 @@ test("Light 工作空间：导航、说明展开、表单及移动布局", async
   const pages = [
     "工作台",
     "场景分析",
-    "智能体资产",
+    "智能体",
     "任务中心",
     "工作流",
     "工具箱",
@@ -71,12 +71,16 @@ test("Light 工作空间：导航、说明展开、表单及移动布局", async
   ];
   for (const [index, name] of pages.entries()) {
     await workspacePage(page, name);
-    await expect(
-      page.getByRole("heading", {
-        name: name === "我的资料" ? "上游数据目录" : name,
-        exact: true,
-      }),
-    ).toBeVisible();
+    if (name === "智能体") {
+      await expect(page.getByRole("button", { name: "新建智能体", exact: true })).toBeVisible();
+    } else {
+      await expect(
+        page.getByRole("heading", {
+          name: ({ "工作流": "流程与改进经验", "我的资料": "上游数据目录", "知识库": "检索与记忆", "扩展接入": "技能与工具扩展" } as Record<string, string>)[name] || name,
+          exact: true,
+        }),
+      ).toBeVisible();
+    }
     await expect(page.locator("main .error-line")).toHaveCount(0);
     if (name === "工作台") {
       await expect(currentGroup(page)).toHaveAttribute(

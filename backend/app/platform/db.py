@@ -283,6 +283,13 @@ class Repository:
             self.connection.execute(tables[kind].delete().where(tables[kind].c.id == record_id)).rowcount > 0
         )
 
+    def delete_project_records(self, project_id):
+        """Delete owned records, including versions, only for whole-project removal."""
+        for kind, table in tables.items():
+            if kind not in {"projects", "workers"}:
+                self.connection.execute(table.delete().where(table.c.project_id == project_id))
+        self.delete("projects", project_id)
+
     def event(self, task_id, event_type, payload=None, **refs):
         if self.connection is None:
             with self.transaction() as tx:

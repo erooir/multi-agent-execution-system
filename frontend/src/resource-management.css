@@ -1,0 +1,226 @@
+.wb-resource-page {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+  container-type: inline-size;
+  padding-bottom: 12px;
+}
+.wb-resource-page .section-title {
+  margin-bottom: 0;
+}
+.resource-summary,
+.resource-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  align-items: stretch;
+}
+@container (min-width: 530px) {
+  .resource-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container (min-width: 645px) {
+  .resource-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@container (min-width: 1120px) {
+  .resource-detail-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.resource-card {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  padding: 17px 19px;
+  border: 1px solid var(--wb-line);
+  border-radius: 14px;
+  background: var(--wb-surface);
+}
+.resource-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+}
+.resource-card h3 svg {
+  flex: none;
+  color: var(--wb-good);
+}
+.resource-card .resource-latency h4 {
+  margin: 0;
+  font-size: 13px;
+}
+.resource-card dl,
+.resource-card dd {
+  margin: 0;
+}
+.resource-card dt,
+.resource-card small,
+.resource-context span {
+  color: var(--wb-secondary);
+  font-size: 12px;
+}
+.resource-card strong,
+.resource-card dd {
+  font-variant-numeric: tabular-nums;
+}
+.resource-stat {
+  background: linear-gradient(145deg, #f2faf7, var(--wb-surface) 80%);
+}
+.resource-stat > strong {
+  font-size: clamp(26px, 3.15vw, 38px);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.resource-track,
+.resource-breakdown {
+  display: flex;
+  height: 8px;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e9f0ee;
+}
+.resource-track i,
+.resource-breakdown i {
+  display: block;
+  background: var(--wb-accent);
+}
+.resource-breakdown i:nth-child(2) {
+  background: #685bd1;
+}
+.resource-legend {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.resource-legend dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.resource-legend dt::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--wb-accent);
+}
+.resource-legend > div:nth-child(2) dt::before {
+  background: #685bd1;
+}
+.resource-legend dd {
+  margin-top: 4px;
+  font-size: 15px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.resource-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.resource-context strong {
+  font-size: 22px;
+  overflow-wrap: anywhere;
+}
+.resource-latency {
+  display: grid;
+  gap: 6px;
+}
+.resource-latency + .resource-latency {
+  border-top: 1px solid var(--wb-line);
+  padding-top: 10px;
+}
+.resource-latency-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 8px;
+}
+.resource-latency-title span {
+  color: var(--wb-secondary);
+  font-size: 12px;
+}
+.resource-latency dl {
+  display: grid;
+  gap: 6px;
+}
+.resource-latency dl > div {
+  display: grid;
+  grid-template-columns: 27px minmax(0, 1fr);
+  align-items: center;
+}
+.resource-latency dd {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(76px, auto);
+  align-items: center;
+  gap: 8px;
+}
+.resource-latency dd strong {
+  text-align: end;
+  font-size: 12px;
+}
+.resource-deployment {
+  grid-column: 1 / -1;
+}
+.resource-deployment-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.resource-deployment-head > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.resource-deployment-head strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.resource-deployment-head span {
+  background: var(--wb-accent-soft);
+  color: #08745f;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+.resource-deployment dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 142px), 1fr));
+  gap: 10px;
+}
+.resource-deployment dl > div {
+  background: var(--wb-surface-2);
+  border-radius: 9px;
+  padding: 10px 12px;
+}
+.resource-deployment dd {
+  font-size: 19px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.resource-note {
+  color: var(--wb-secondary);
+  margin: 0;
+  font-size: 13px;
+}
+.wb-resource-capacity summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.wb-resource-capacity p {
+  color: var(--wb-secondary);
+  font-size: 13px;
+}

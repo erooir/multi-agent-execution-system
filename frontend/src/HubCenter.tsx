@@ -6,9 +6,9 @@ import {
   ChevronRight,
   Database,
   Layers3,
-  Plug,
   Plus,
   Sparkles,
+  Search,
   Workflow,
   Wrench,
   X,
@@ -16,12 +16,16 @@ import {
 } from "lucide-react";
 import { api, post } from "./api";
 import { statusNames, taskTypes } from "./domain";
-import type { Item, Mutation } from "./types";
+import type { Item, Mutation, Notify } from "./types";
 import type { HubKind } from "./WbShell";
-import { AgentsPage, WorkflowsPage } from "./AssetPages";
+import { AgentDetailsDialog, WorkflowDetailsDialog } from "./AssetPages";
+import CapabilityPages from "./CapabilityPages";
+import { agentScopeLabel, candidateStatusLabels, isRestrictedAgent, isTaskScoped } from "./agentScopeModel";
+import { stageNames } from "./agentPreviewModel";
+import { mcpConnectorId } from "./toolCatalogModel";
 import ExpertInterview, { businessLabel } from "./ExpertInterview";
 import ToolCatalog from "./ToolCatalog";
-import { JsonView } from "./ui";
+import { Badge, Empty, ErrorLine, Field, FormModal, Modal } from "./ui";
 import { AgentCreateFields, WorkflowCreateFields } from "./Forms";
 import HubIcon, {
   iconHue,
@@ -42,13 +46,14 @@ type HubItem = {
   bucket: "primary" | "secondary";
   extra?: Item;
 };
-type HubLink = { id: string; name: string };
+type HubLink = { id: string; name: string; target: "asset" | "capability" };
 type HubCategory = {
   title: string;
   tone: string;
   icon: LucideIcon;
   count: number;
   links: HubLink[];
+  countUnit?: string;
 };
 
 const TAB_META: Record<
@@ -57,7 +62,7 @@ const TAB_META: Record<
 > = {
   expert: { primary: "智能体", secondary: "工作流", bucket: "工作流" },
   skill: { primary: "工具", secondary: "文档技能包", bucket: "技能包" },
-  connector: { primary: "MCP 服务", secondary: "", bucket: "" },
+  connector: { primary: "连接器", secondary: "", bucket: "" },
 };
 
 const FIELD_LABELS: Record<string, string> = {
@@ -80,9 +85,6 @@ const FIELD_LABELS: Record<string, string> = {
   local: "本地",
   cloud: "云端",
 };
-const MCP_LABELS: Record<string, string> = {
-  "project-tables": "项目表格服务",
-};
 /* The three summary cards reuse the same illustration set as the item cards. */
 const HERO_ICON_KIND = new Map<LucideIcon, HubIconKind>([
   [Bot, "agent"],
@@ -91,7 +93,6 @@ const HERO_ICON_KIND = new Map<LucideIcon, HubIconKind>([
   [Layers3, "flow"],
   [Wrench, "tool"],
   [Boxes, "skill"],
-  [Plug, "mcp"],
   [Database, "mcp"],
 ]);
 /* 48 evenly spaced hue slots: one per item, chosen from a stable hash and
@@ -110,11 +111,12 @@ function itemIconKind(
   return "mcp";
 }
 const pretty = (value: string) =>
-  taskTypes[value] || FIELD_LABELS[value] || MCP_LABELS[value] || value;
+  taskTypes[value] || FIELD_LABELS[value] || value;
 
-function asLinks(rows: Item[]): HubLink[] {
+function asLinks(rows: Item[], target: HubLink["target"] = "asset"): HubLink[] {
   return rows.slice(0, 3).map((row) => ({
     id: String(row.id || row.name || ""),
+    target,
     name: String(row.label || row.name || row.id || "未命名"),
   }));
 }
@@ -134,6 +136,7 @@ export default function HubCenter({
   offline = false,
   query = "",
   onOpenFullPage,
+  onWorkflow,
   onCreated,
   notify,
 }: {
@@ -149,30 +152,41 @@ export default function HubCenter({
   onTask: (id: string) => void;
   onAgent: (id: string, toolId?: string) => void;
   offline?: boolean;
-  connectors?: Item[];
   query?: string;
-  onOpenFullPage?: (page: string) => void;
+  onOpenFullPage?: (page: "tools" | "capabilities") => void;
+  onWorkflow: (id: string) => void;
   onCreated?: () => void;
-  notify?: (message: string, error?: boolean) => void;
+  notify: Notify;
 }) {
   const [catalog, setCatalog] = useState<{
     tools: Item[];
     skills: Item[];
-    mcp_servers: Item[];
-  }>({ tools: [], skills: [], mcp_servers: [] });
+  }>({ tools: [], skills: [] });
+  const [connectors, setConnectors] = useState<Item[]>([]);
+  const [connectorError, setConnectorError] = useState("");
   const [sort, setSort] = useState<"default" | "hot" | "new">("default");
   const [category, setCategory] = useState<
     "all" | "secondary" | "workflow"
   >("all");
   const [filterGroup, setFilterGroup] = useState("全部");
   const [groupBy, setGroupBy] = useState("business");
+  const [search, setSearch] = useState("");
+  const [purpose, setPurpose] = useState("all");
+  const [structure, setStructure] = useState("all");
+  const [status, setStatus] = useState("all");
+  const [stage, setStage] = useState("all");
+  const [strategy, setStrategy] = useState("all");
+  const [scope, setScope] = useState("all");
   const filterScrollRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<HubItem | null>(null);
-  // Re-mount the native detail dialog when the same card is opened again.
-  const [detailSeq, setDetailSeq] = useState(0);
+  const [capabilityId, setCapabilityId] = useState<string | null>(null);
+  const [managingConnector, setManagingConnector] = useState(false);
+  const [connectorTool, setConnectorTool] = useState<Item | null>(null);
   const [catalogTick, setCatalogTick] = useState(0);
   const [creating, setCreating] = useState(false);
   const [interviewOpen, setInterviewOpen] = useState(false);
+  const [dataServiceOpen, setDataServiceOpen] = useState(false);
+  const [dataService, setDataService] = useState({ name: "", base_url: "", description: "", automatic_intake: false, allow_public_results: false });
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState("");
   const [createForm, setCreateForm] = useState<Item>({
@@ -199,14 +213,21 @@ export default function HubCenter({
         setCatalog({
           tools: Array.isArray(value.tools) ? value.tools : [],
           skills: Array.isArray(value.skills) ? value.skills : [],
-          mcp_servers: Array.isArray(value.mcp_servers)
-            ? value.mcp_servers
-            : [],
         }),
       )
       .catch(() => {});
     return () => controller.abort();
   }, [projectId, catalogTick]);
+
+  useEffect(() => {
+    if (kind !== "connector") return;
+    const controller = new AbortController();
+    setConnectorError("");
+    api<Item[]>("/v2/project-connectors?project_id=" + encodeURIComponent(projectId), { signal: controller.signal })
+      .then((rows) => { if (!controller.signal.aborted) setConnectors(rows); })
+      .catch((error) => { if (!controller.signal.aborted) setConnectorError(error.message); });
+    return () => controller.abort();
+  }, [kind, projectId, catalogTick]);
 
   useEffect(() => {
     setCategory("all");
@@ -218,9 +239,8 @@ export default function HubCenter({
   }, [kind]);
 
   function switchCategory(next: "all" | "secondary" | "workflow") {
-    // The detail view mounts the original page component; leaving it mounted
-    // while switching tabs would re-open the last card's dialog on return.
     setSelected(null);
+    setCapabilityId(null);
     setCategory(next);
     setFilterGroup("全部");
   }
@@ -283,6 +303,8 @@ export default function HubCenter({
             name: String(a.name || a.id),
             desc: String(a.description || a.purpose || ""),
             tags: [
+              agentScopeLabel(a),
+              candidateStatusLabels[a.candidate_status] || a.candidate_status || "",
               String(a.structure || ""),
               String(a.purpose || ""),
               ...(Array.isArray(a.capabilities)
@@ -319,19 +341,17 @@ export default function HubCenter({
             tone: "blue",
             icon: Layers3,
             count: capabilities.length,
-            links: asLinks(capabilities),
+            countUnit: "类平台能力",
+            links: asLinks(capabilities, "capability"),
           },
         ] as HubCategory[],
       };
     }
     if (kind === "skill") {
-      const localTools = catalog.tools.filter((t) => !t.external);
-      const mcpTools = catalog.tools.filter(
-        (t) => t.kind === "mcp" || t.adapter === "mcp",
-      );
+      const tools = catalog.tools.filter((tool) => !mcpConnectorId(tool));
       return {
         items: [
-          ...catalog.tools.map(
+          ...tools.map(
             (t): HubItem => ({
               id: String(t.id),
               name: String(t.label || t.name || t.id),
@@ -372,8 +392,8 @@ export default function HubCenter({
             title: "工具",
             tone: "violet",
             icon: Wrench,
-            count: localTools.length,
-            links: asLinks(localTools),
+            count: tools.length,
+            links: asLinks(tools),
           },
           {
             title: "文档技能包",
@@ -382,35 +402,37 @@ export default function HubCenter({
             count: catalog.skills.length,
             links: asLinks(catalog.skills),
           },
-          {
-            title: "MCP 工具",
-            tone: "blue",
-            icon: Plug,
-            count: mcpTools.length,
-            links: asLinks(mcpTools),
-          },
         ] as HubCategory[],
       };
     }
-    // Connector: MCP services only. No duplicated capability / connector cards.
     return {
-      items: catalog.mcp_servers.map(
+      items: connectors.map(
         (m): HubItem => ({
           id: String(m.id),
-          name: String(m.label || MCP_LABELS[String(m.id)] || m.id),
+          name: String(m.label || m.name || m.id),
           techId: String(m.id),
-          desc: String(m.description || `传输方式：${pretty(String(m.transport || "stdio"))}`),
-          tags: ["MCP", pretty(String(m.transport || "stdio"))].filter(Boolean),
-          meta: m.external ? "外部服务" : "本地服务",
-          group: "MCP 服务",
-          weight: m.external ? 0 : 1,
+          desc: String(m.description || (m.builtin ? "对项目授权的表格执行筛选、去重和统计。" : "")),
+          tags: [m.kind === "mcp" ? "MCP" : "上游数据", pretty(String(m.transport || ""))].filter(Boolean),
+          meta: statusNames[m.status] || m.status,
+          group: "连接器",
+          weight: m.builtin ? 1 : 0,
           bucket: "primary" as const,
           extra: m,
         }),
       ),
       categories: [] as HubCategory[],
     };
-  }, [kind, agents, capabilities, workflows, catalog, category]);
+  }, [kind, agents, capabilities, workflows, catalog, connectors, category]);
+
+  const connectorLink = useRef(new URLSearchParams(window.location.search).get("connector"));
+  useEffect(() => {
+    if (kind !== "connector" || !connectorLink.current) return;
+    const found = items.find((item) => item.id === connectorLink.current);
+    if (found) {
+      setSelected(found);
+      connectorLink.current = null;
+    }
+  }, [kind, items]);
 
   // Secondary filter row (expert page only), built from real asset fields.
   const isWorkflowView = kind === "expert" && category === "workflow";
@@ -440,18 +462,36 @@ export default function HubCenter({
   }
 
   const visible = useMemo(() => {
+    const agentQuery = search.trim().toLowerCase();
     const q = query.trim().toLowerCase();
     let rows = items.filter(
-      (item) =>
-        (category === "workflow" ||
-          (category === "secondary"
-            ? item.bucket === "secondary"
-            : item.bucket === "primary")) &&
-        inFilterGroup(item) &&
-        (!q ||
-          [item.name, item.desc, item.techId || "", ...item.tags].some((v) =>
+      (item) => {
+        const a = item.extra || {};
+        if (kind === "expert" && category !== "workflow") {
+          if (a.status === "destroyed") return false;
+          const matchesAgent =
+            (purpose === "all" || a.purpose === purpose) &&
+            (structure === "all" || a.structure === structure) &&
+            (status === "all" || a.status === status) &&
+            (scope === "all" || (scope === "reusable" ? !isRestrictedAgent(a) : a.scope === scope)) &&
+            (stage === "all" || (a.case_role || "other") === stage) &&
+            (strategy === "all" ||
+              (strategy === "dual"
+                ? a.executor_bindings?.local && a.executor_bindings?.cloud
+                : (a.execution_strategy || "fixed") === strategy)) &&
+            (!agentQuery || [item.name, item.desc, a.role_contract?.case_id, a.role_contract?.operation]
+              .join(" ").toLowerCase().includes(agentQuery));
+          if (!matchesAgent) return false;
+        }
+        return (
+          (category === "workflow" ||
+            item.bucket === (category === "secondary" ? "secondary" : "primary")) &&
+          inFilterGroup(item) &&
+          (!q || [item.name, item.desc, item.techId || "", ...item.tags].some((v) =>
             v.toLowerCase().includes(q),
-          )),
+          ))
+        );
+      },
     );
     if (sort === "hot") rows = [...rows].sort((a, b) => b.weight - a.weight);
     if (sort === "new")
@@ -459,7 +499,7 @@ export default function HubCenter({
         String(b.createdAt || "").localeCompare(String(a.createdAt || "")),
       );
     return rows;
-  }, [items, query, category, sort, filterGroup]);
+  }, [items, query, kind, category, sort, filterGroup, search, purpose, structure, status, stage, strategy, scope]);
 
   /* 48 evenly spaced hue slots, one per item. A stable hash picks the slot;
      neighbours must be at least ~105 degrees apart so the list never reads
@@ -497,6 +537,22 @@ export default function HubCenter({
   const meta = TAB_META[kind];
   const isWorkflow = kind === "expert" && category === "workflow";
   const isAgentList = kind === "expert" && !isWorkflow;
+  const scoped = agents.filter((a) => a.status !== "destroyed");
+  const published = scoped.filter((a) => a.status === "published" && !isRestrictedAgent(a));
+  const hasFilters =
+    !!search ||
+    [purpose, structure, status, stage, strategy, scope].some(
+      (v) => v !== "all",
+    );
+  function clearFilters() {
+    setSearch("");
+    setPurpose("all");
+    setStructure("all");
+    setStatus("all");
+    setStage("all");
+    setStrategy("all");
+    setScope("all");
+  }
   const cardGroups = new Map<string, { item: HubItem; hue: number }[]>();
   visible.forEach((item, index) => {
     const agent = item.extra || {};
@@ -509,13 +565,6 @@ export default function HubCenter({
     cards.push({ item, hue: hues[index] });
     cardGroups.set(group, cards);
   });
-  const managePage = isWorkflow
-    ? "workflows"
-    : kind === "expert"
-      ? "agents"
-      : kind === "skill"
-        ? "tools"
-        : "capabilities";
   const addLabel = isWorkflow
     ? "新建流程"
     : kind === "expert"
@@ -530,26 +579,26 @@ export default function HubCenter({
     setCatalogTick((n) => n + 1);
     onCreated?.();
   };
+  function closeConnectorManager() {
+    setManagingConnector(false);
+    setCatalogTick((tick) => tick + 1);
+  }
   const openDetail = (item: HubItem) => {
     setSelected(item);
-    setDetailSeq((n) => n + 1);
   };
-  const openById = (id: string, fallbackName?: string) => {
-    const found = items.find((item) => item.id === id);
-    openDetail(
-      found || {
-        id,
-        name: fallbackName || pretty(id),
-        techId: id,
-        desc: "",
-        tags: [],
-        meta: "",
-        group: "",
-        weight: 0,
-        bucket: "primary",
-      },
-    );
-  };
+  function openHeroLink(link: HubLink) {
+    if (link.target === "capability") {
+      setCapabilityId(link.id);
+      return;
+    }
+    const item = items.find((item) => item.id === link.id);
+    if (item) openDetail(item);
+  }
+
+  const capability = capabilities.find((item) => item.id === capabilityId);
+  const matchingAgents = capability
+    ? scoped.filter((agent) => agent.capabilities?.includes(capability.id))
+    : [];
 
   const openCreate = () => {
     setCreateForm({
@@ -608,6 +657,7 @@ export default function HubCenter({
 
   return (
     <div className="hub-center">
+      {connectorError && <ErrorLine>{connectorError}</ErrorLine>}
       {categories.length > 0 && (
         <div className="hub-hero-row">
           {categories.map((cat) => {
@@ -617,7 +667,7 @@ export default function HubCenter({
                 <div className="hub-hero-top">
                   <div>
                     <strong>{cat.title}</strong>
-                    <span>{cat.count} 项</span>
+                    <span>{cat.count} {cat.countUnit || "项"}</span>
                   </div>
                   <HubIcon kind={heroKind} hue={kindHue(heroKind)} size={36} />
                 </div>
@@ -626,7 +676,7 @@ export default function HubCenter({
                     cat.links.map((link) => (
                       <button
                         key={link.id}
-                        onClick={() => openById(link.id, link.name)}
+                        onClick={() => openHeroLink(link)}
                       >
                         {link.name} <ChevronRight size={14} />
                       </button>
@@ -669,18 +719,20 @@ export default function HubCenter({
           </div>
         )}
         <div className="hub-head-actions">
-          <button
-            className="hub-manage"
-            title="打开完整管理页：编辑、发布、停用、删除等操作"
-            onClick={() => onOpenFullPage?.(managePage)}
-          >
-            管理
-          </button>
+          {kind === "skill" && (
+            <button className="hub-manage" onClick={() => onOpenFullPage?.("tools")}>工具箱</button>
+          )}
+          {kind === "skill" && canEdit && (
+            <button className="hub-interview" onClick={() => onOpenFullPage?.("capabilities")}>扩展管理</button>
+          )}
           {isAgentList && canEdit && (
             <button className="hub-interview" onClick={() => setInterviewOpen(true)}>
               <Sparkles size={14} />
-              问答创建
+              对话创建
             </button>
+          )}
+          {kind === "connector" && isAdmin && (
+            <button className="hub-add" onClick={() => setDataServiceOpen(true)}>接入数据服务</button>
           )}
           {(kind === "connector" ? isAdmin : canEdit) && (
             <button className="hub-add" onClick={openCreate}>
@@ -746,6 +798,140 @@ export default function HubCenter({
           </select>
         </label>
       )}
+      {isAgentList && (
+        <details className="hub-agent-filters">
+          <summary>智能体筛选与统计</summary>
+            <div className="agent-registry-counts" aria-label="当前项目资产概况">
+              <div>
+                <span>项目内定义</span>
+                <strong>{scoped.length}</strong>
+              </div>
+              <div>
+                <span>可复用 · 已发布</span>
+                <strong>{published.length}</strong>
+              </div>
+              <div>
+                <span>仅当前任务</span>
+                <strong>{scoped.filter(isTaskScoped).length}</strong>
+              </div>
+              <div>
+                <span>已发布 · 固定流程执行</span>
+                <strong>
+                  {
+                    published.filter(
+                      (a) =>
+                        (a.execution_strategy || "fixed") === "fixed" &&
+                        !(a.executor_bindings?.local && a.executor_bindings?.cloud),
+                    ).length
+                  }
+                </strong>
+              </div>
+              <div>
+                <span>已发布 · 自主选工具</span>
+                <strong>
+                  {
+                    published.filter(
+                      (a) =>
+                        a.execution_strategy === "tool_agent" &&
+                        !(a.executor_bindings?.local && a.executor_bindings?.cloud),
+                    ).length
+                  }
+                </strong>
+              </div>
+              <div>
+                <span>已发布 · 本地 / 云端双模式</span>
+                <strong>
+                  {
+                    published.filter(
+                      (a) => a.executor_bindings?.local && a.executor_bindings?.cloud,
+                    ).length
+                  }
+                </strong>
+              </div>
+            </div>
+            <div className="toolbar registry-filters">
+              <div className="search">
+                <Search size={17} />
+                <input
+                  aria-label="搜索智能体"
+                  placeholder="搜索名称、职责、用例编号或算法"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+              <select
+                aria-label="智能体使用范围"
+                value={scope}
+                onChange={(e) => setScope(e.target.value)}
+              >
+                <option value="all">全部使用范围</option>
+                <option value="reusable">可复用资产</option>
+                <option value="task">仅当前任务</option>
+                <option value="evaluation">仅独立评测</option>
+                <option value="candidate">候选未入库</option>
+              </select>
+              <select
+                aria-label="发布状态"
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+              >
+                <option value="all">全部状态</option>
+                <option value="published">已发布</option>
+                <option value="draft">草稿</option>
+                <option value="disabled">已停用</option>
+                <option value="retired">已退役</option>
+              </select>
+              <select
+                aria-label="执行方式筛选"
+                value={strategy}
+                onChange={(e) => setStrategy(e.target.value)}
+              >
+                <option value="all">全部执行方式</option>
+                <option value="fixed">固定流程执行</option>
+                <option value="tool_agent">云端工具循环（含双模式）</option>
+                <option value="dual">本地 / 云端双模式用例</option>
+              </select>
+              <select
+                aria-label="用例岗位分工"
+                value={stage}
+                onChange={(e) => setStage(e.target.value)}
+              >
+                <option value="all">全部用例岗位</option>
+                {Object.entries(stageNames).map(([id, label]) => (
+                  <option key={id} value={id}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="用途分类"
+                value={purpose}
+                onChange={(e) => setPurpose(e.target.value)}
+              >
+                <option value="all">全部用途</option>
+                <option value="general">通用智能体</option>
+                <option value="specialized">任务专用智能体</option>
+              </select>
+              <select
+                aria-label="结构分类"
+                value={structure}
+                onChange={(e) => setStructure(e.target.value)}
+              >
+                <option value="all">全部结构</option>
+                <option value="atomic">元智能体</option>
+                <option value="composite">复合智能体</option>
+              </select>
+              <span className="muted" aria-live="polite">
+                显示 {visible.length} / {scoped.length}
+              </span>
+              {hasFilters && (
+                <button className="text-button" onClick={clearFilters}>
+                  清除筛选
+                </button>
+              )}
+            </div>
+        </details>
+      )}
       {cardGroups.size ? (
         [...cardGroups].map(([group, cards]) => (
           <section key={group} className={isAgentList ? "expert-group" : undefined}>
@@ -782,41 +968,70 @@ export default function HubCenter({
             </div>
           </section>
         ))
-      ) : (
+      ) : kind !== "connector" || query ? (
         <div className="hub-empty">没有匹配的条目，换个关键词或分类试试。</div>
+      ) : null}
+
+      {capability && (
+        <Modal
+          title={`能力详情 · ${capability.name || capability.id}`}
+          onClose={() => setCapabilityId(null)}
+        >
+          <div className="modal-body">
+            {capability.description && <p>{capability.description}</p>}
+            <h3>声明此能力的智能体 · {matchingAgents.length}</h3>
+            {matchingAgents.length ? matchingAgents.map((agent) => (
+              <article className="record row-between" key={agent.id}>
+                <div>
+                  <strong>{agent.name}</strong>
+                  <p className="muted">{agentScopeLabel(agent)}</p>
+                </div>
+                <div className="actions">
+                  <Badge status={agent.status} />
+                  <button onClick={() => onAgent(agent.id)}>查看智能体</button>
+                </div>
+              </article>
+            )) : (
+              <Empty title="当前工作空间暂无声明此能力的智能体" />
+            )}
+          </div>
+        </Modal>
       )}
 
       {selected && (
         <>
           {kind === "expert" && category !== "workflow" && (
             <div className="hub-native-dialog">
-              <AgentsPage
-                key={`agent-${selected.id}-${detailSeq}`}
+              <AgentDetailsDialog
+                key={selected.id}
                 projectId={projectId}
                 agents={agents}
                 capabilities={capabilities}
                 canEdit={canEdit}
                 mutate={mutate}
-                notify={notify || (() => {})}
+                notify={notify}
                 onTask={onTask}
                 workflows={workflows}
                 assets={assets}
                 initialId={selected.id}
+                onClose={() => setSelected(null)}
+                onWorkflow={onWorkflow}
                 offline={offline}
               />
             </div>
           )}
           {kind === "expert" && category === "workflow" && (
             <div className="hub-native-dialog">
-              <WorkflowsPage
-                key={`flow-${selected.id}-${detailSeq}`}
+              <WorkflowDetailsDialog
+                key={selected.id}
                 projectId={projectId}
                 workflows={workflows}
                 agents={agents}
                 canEdit={canEdit}
                 mutate={mutate}
-                notify={notify || (() => {})}
+                notify={notify}
                 initialId={selected.id}
+                onClose={() => setSelected(null)}
               />
             </div>
           )}
@@ -836,7 +1051,7 @@ export default function HubCenter({
                 关闭详情
               </button>
               <ToolCatalog
-                key={`tool-${selected.id}-${detailSeq}`}
+                key={selected.id}
                 projectId={projectId}
                 agents={agents}
                 canEdit={canEdit}
@@ -849,21 +1064,82 @@ export default function HubCenter({
             </div>
           )}
           {kind === "connector" && (
-            <McpDetail item={selected} onClose={() => setSelected(null)} />
+            <ConnectorDetail
+              item={items.find((item) => item.id === selected.id) || selected}
+              tools={catalog.tools.filter((tool) => mcpConnectorId(tool) === selected.id)}
+              onManage={isAdmin && selected.extra?.kind === "mcp" && !selected.extra.builtin
+                ? () => setManagingConnector(true)
+                : undefined}
+              onTool={setConnectorTool}
+              onClose={() => setSelected(null)}
+            />
           )}
         </>
+      )}
+
+      {selected && connectorTool && (
+        <Modal wide title={connectorTool.remote_name || connectorTool.label || connectorTool.name}
+          onClose={() => setConnectorTool(null)}>
+          <div className="modal-body">
+            <ToolCatalog
+              projectId={projectId}
+              connectorId={selected.id}
+              initialId={connectorTool.id}
+              agents={agents}
+              canEdit={canEdit}
+              onAgent={onAgent}
+            />
+          </div>
+          <div className="modal-foot">
+            <button onClick={() => setConnectorTool(null)}>返回连接器详情</button>
+          </div>
+        </Modal>
+      )}
+
+      {selected && managingConnector && (
+        <Modal wide title={`管理连接器 · ${selected.name}`} onClose={closeConnectorManager}>
+          <div className="modal-body">
+            <CapabilityPages
+              projectId={projectId}
+              connectorId={selected.id}
+              canEdit={canEdit}
+              isAdmin={isAdmin}
+              mutate={mutate}
+              notify={notify}
+            />
+          </div>
+          <div className="modal-foot">
+            <button onClick={closeConnectorManager}>返回连接器详情</button>
+          </div>
+        </Modal>
       )}
 
       {interviewOpen && isAgentList && canEdit && (
         <ExpertInterview
           projectId={projectId}
           onClose={() => setInterviewOpen(false)}
-          onSaved={() => {
+          onSaved={(agent) => {
             setInterviewOpen(false);
             onCreated?.();
-            notify?.("智能体草稿已保存");
+            notify?.(`已创建 ${agent.name}`);
           }}
         />
+      )}
+
+      {dataServiceOpen && (
+        <FormModal title="接入上游数据服务" onClose={() => setDataServiceOpen(false)} onSubmit={async () => {
+          await post("/v2/connectors", { ...dataService, project_id: projectId, kind: "http_knowledge" });
+          setCatalogTick((tick) => tick + 1);
+          onCreated?.();
+          notify?.("数据服务已登记");
+          setDataService({ name: "", base_url: "", description: "", automatic_intake: false, allow_public_results: false });
+        }}>
+          <Field label="服务名称"><input required value={dataService.name} onChange={(e) => setDataService({ ...dataService, name: e.target.value })}/></Field>
+          <Field label="服务地址"><input required type="url" value={dataService.base_url} onChange={(e) => setDataService({ ...dataService, base_url: e.target.value })}/></Field>
+          <Field label="说明"><input value={dataService.description} onChange={(e) => setDataService({ ...dataService, description: e.target.value })}/></Field>
+          <label><input type="checkbox" checked={dataService.automatic_intake} onChange={(e) => setDataService({ ...dataService, automatic_intake: e.target.checked })}/>允许任务自动检索</label>
+          <label><input type="checkbox" checked={dataService.allow_public_results} onChange={(e) => setDataService({ ...dataService, allow_public_results: e.target.checked })}/>接受服务声明的公开分类</label>
+        </FormModal>
       )}
 
       {creating && (
@@ -1131,80 +1407,59 @@ export default function HubCenter({
   );
 }
 
-/* Connector cards show the real MCP server catalog entry. There is no separate
-   definition-version dialog for these rows, so the full raw record is shown. */
-function McpDetail({
+function ConnectorDetail({
   item,
+  tools,
   onClose,
+  onManage,
+  onTool,
 }: {
   item: HubItem;
+  tools: Item[];
   onClose: () => void;
+  onManage?: () => void;
+  onTool: (tool: Item) => void;
 }) {
   const raw = item.extra || {};
-  const fields: [string, string][] = [
-    ["服务标识", String(raw.id || item.techId || item.id)],
-    ["中文名称", item.name],
-    [
-      "传输方式",
-      raw.transport === "stdio"
-        ? "本地进程（stdio）"
-        : String(raw.transport || "—"),
-    ],
-    ["目录版本", raw.version != null ? `v${raw.version}` : "—"],
-    [
-      "运行时契约版本",
-      raw.runtime_contract_version != null
-        ? `v${raw.runtime_contract_version}`
-        : "—",
-    ],
-    ["部署位置", raw.external ? "外部服务" : "本项目本地"],
-    ["版本校验值", String(raw.checksum || "—")],
-  ];
+  const fields = [
+    ["连接器标识", item.id],
+    ["状态", statusNames[raw.status] || raw.status],
+    ["传输方式", raw.transport],
+    ["版本", raw.current_version ? `v${raw.current_version}` : null],
+    ["来源", raw.builtin ? "平台内置" : "项目接入"],
+    ["自动接入", raw.kind === "http_knowledge" ? (raw.automatic_intake ? "已启用" : "未启用") : null],
+  ].filter(([, value]) => value);
   return (
-    <div
-      className="hub-modal-backdrop"
-      onClick={onClose}
-      role="presentation"
-    >
-      <div
-        className="hub-modal hub-detail-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={item.name}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="hub-modal-head">
-          <HubIcon kind="mcp" hue={slotHue(item.id)} size={38} />
-          <div>
-            <h2>{item.name}</h2>
-            <small>MCP 服务 · 完整目录条目</small>
-          </div>
-          <button
-            className="hub-modal-close"
-            aria-label="关闭详情"
-            onClick={onClose}
-          >
-            <X size={18} />
-          </button>
+    <Modal wide title={item.name} onClose={onClose}>
+      <div className="modal-body hub-detail-body">
+        {item.desc && <p className="hub-detail-lead">{item.desc}</p>}
+        <div className="hub-detail-grid">
+          {fields.map(([label, value]) => (
+            <div key={label}>
+              <span>{label}</span>
+              <strong>{value}</strong>
+            </div>
+          ))}
         </div>
-        <div className="hub-modal-body hub-detail-body">
-          <p className="hub-detail-lead">
-            {item.desc || "本项目已登记的 MCP 服务，工具调用受版本与授权约束。"}
-          </p>
-          <div className="hub-detail-grid">
-            {fields.map(([label, value]) => (
-              <div key={label}>
-                <span>{label}</span>
-                <strong>{value}</strong>
-              </div>
+        {tools.length > 0 && (
+          <section className="hub-connector-tools">
+            <h3>连接器提供的工具</h3>
+            {tools.map((tool) => (
+              <article className="record" key={tool.id}>
+                <div className="row-between">
+                  <strong>{tool.remote_name || tool.label || tool.name}</strong>
+                  <button className="link-button" onClick={() => onTool(tool)}>查看工具详情</button>
+                </div>
+                {tool.description && <p>{tool.description}</p>}
+              </article>
             ))}
-          </div>
-          <JsonView value={raw} label="完整目录条目（接口原始数据）" />
-        </div>
-        <div className="hub-modal-foot">
-          <button onClick={onClose}>关闭</button>
-        </div>
+          </section>
+        )}
       </div>
-    </div>
+      <div className="modal-foot">
+        <button onClick={onClose}>关闭</button>
+        {onManage && <button className="primary" onClick={onManage}>管理连接器</button>}
+      </div>
+    </Modal>
   );
 }

@@ -16,9 +16,10 @@ test("接入能力：Calculator登记、发布与不可变版本", async ({ page
   await workspacePage(page, "扩展接入");
   await page
     .getByRole("main")
-    .getByRole("button", { name: "扩展接入", exact: true })
+    .getByRole("button", { name: "接入工具", exact: true })
     .click();
   let dialog = page.getByRole("dialog");
+  await dialog.getByLabel("接入类型").selectOption("agno_toolkit");
   await dialog.getByLabel("名称").fill("原生计算器");
   await dialog.getByLabel("允许功能").fill("add");
   await dialog.getByRole("button", { name: "保存", exact: true }).click();

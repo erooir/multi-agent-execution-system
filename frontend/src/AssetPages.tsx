@@ -3,12 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import {
   Plus,
   Search,
-  Bot,
   Layers3,
   Archive,
   Pencil,
   ArrowUpRight,
-  Workflow,
 } from "lucide-react";
 import { api, idPath, post, remove, readAssetContent } from "./api";
 import { taskTypes, time } from "./domain";
@@ -27,13 +25,7 @@ import { AgentForm, WorkflowForm } from "./Forms";
 import Graph from "./Graph";
 import { AgentDetails, AgentVersions } from "./AssetDetails";
 import { ParameterSummary } from "./ToolParameters";
-import { stageNames } from "./agentPreviewModel";
-import {
-  agentScopeLabel,
-  candidateStatusLabels,
-  isTaskScoped,
-  isRestrictedAgent,
-} from "./agentScopeModel";
+import { isRestrictedAgent } from "./agentScopeModel";
 import "./agent-registry.css";
 type Props = {
   projectId: string;
@@ -41,7 +33,7 @@ type Props = {
   mutate: Mutation;
   notify: Notify;
 };
-export function AgentsPage({
+export function AgentDetailsDialog({
   projectId,
   agents,
   capabilities,
@@ -54,6 +46,7 @@ export function AgentsPage({
   onWorkflow,
   initialId,
   initialToolId,
+  onClose,
   offline = false,
 }: Props & {
   agents: Item[];
@@ -62,37 +55,19 @@ export function AgentsPage({
   workflows?: Item[];
   assets?: Item[];
   onWorkflow?: (id: string) => void;
-  initialId?: string | null;
+  initialId: string;
+  onClose: () => void;
   initialToolId?: string | null;
   offline?: boolean;
 }) {
-  const [search, setSearch] = useState(""),
-    [purpose, setPurpose] = useState("all"),
-    [structure, setStructure] = useState("all"),
-    [status, setStatus] = useState("all"),
-    [stage, setStage] = useState("all"),
-    [strategy, setStrategy] = useState("all"),
-    [scope, setScope] = useState("all"),
-    [edit, setEdit] = useState<Item | null | undefined>(),
-    [selected, setSelected] = useState<Item | null>(null),
+  const [edit, setEdit] = useState<Item>(),
+    [selectedId, setSelectedId] = useState(initialId),
     [versions, setVersions] = useState<Item[]>([]),
     [instances, setInstances] = useState<Item[]>([]),
     [tab, setTab] = useState("definition"),
     [detailError, setDetailError] = useState(""),
     [action, setAction] = useState<{ item: Item; type: string } | null>(null);
-  const scoped = agents.filter(
-    (a) => a.project_id === projectId && a.status !== "destroyed",
-  );
-  const published = scoped.filter(
-    (a) => a.status === "published" && !isRestrictedAgent(a),
-  );
-  const fresh = scoped.find((a) => a.id === selected?.id);
-  useEffect(() => {
-    if (initialId) {
-      setSelected({ id: initialId });
-      setTab("definition");
-    }
-  }, [initialId, initialToolId]);
+  const fresh = agents.find((a) => a.id === selectedId && a.project_id === projectId);
   useEffect(() => {
     if (!fresh) return;
     let active = true;
@@ -114,36 +89,6 @@ export function AgentsPage({
       active = false;
     };
   }, [fresh?.id, fresh?.current_version, fresh?.updated_at]);
-  const hasFilters =
-    !!search ||
-    [purpose, structure, status, stage, strategy, scope].some(
-      (v) => v !== "all",
-    );
-  function clearFilters() {
-    setSearch("");
-    setPurpose("all");
-    setStructure("all");
-    setStatus("all");
-    setStage("all");
-    setStrategy("all");
-    setScope("all");
-  }
-  const list = scoped.filter(
-    (a) =>
-      (purpose === "all" || a.purpose === purpose) &&
-      (structure === "all" || a.structure === structure) &&
-      (status === "all" || a.status === status) &&
-      (scope === "all" ||
-        (scope === "reusable" ? !isRestrictedAgent(a) : a.scope === scope)) &&
-      (stage === "all" || (a.case_role || "other") === stage) &&
-      (strategy === "all" ||
-        (strategy === "dual"
-          ? a.executor_bindings?.local && a.executor_bindings?.cloud
-          : (a.execution_strategy || "fixed") === strategy)) &&
-      `${a.name} ${a.description} ${a.role_contract?.case_id || ""} ${a.role_contract?.operation || ""}`
-        .toLowerCase()
-        .includes(search.trim().toLowerCase()),
-  );
   const actionName: Record<string, string> = {
     publish: "发布新版本",
     disable: "停用",
@@ -153,235 +98,6 @@ export function AgentsPage({
   };
   return (
     <>
-      <SectionTitle
-        eyebrow="AGENT REGISTRY"
-        title="智能体资产"
-        description="查看可复用智能体与任务专属智能体的冻结授权、版本、实例和独立评测状态。任务专属智能体通过评测入库后才可跨任务复用。"
-        actions={
-          canEdit && (
-            <button className="primary" onClick={() => setEdit(null)}>
-              <Plus size={18} />
-              创建智能体
-            </button>
-          )
-        }
-      />
-      <div className="agent-registry-counts" aria-label="当前项目资产概况">
-        <div>
-          <span>项目内定义</span>
-          <strong>{scoped.length}</strong>
-        </div>
-        <div>
-          <span>可复用 · 已发布</span>
-          <strong>{published.length}</strong>
-        </div>
-        <div>
-          <span>仅当前任务</span>
-          <strong>{scoped.filter(isTaskScoped).length}</strong>
-        </div>
-        <div>
-          <span>已发布 · 固定流程执行</span>
-          <strong>
-            {
-              published.filter(
-                (a) =>
-                  (a.execution_strategy || "fixed") === "fixed" &&
-                  !(a.executor_bindings?.local && a.executor_bindings?.cloud),
-              ).length
-            }
-          </strong>
-        </div>
-        <div>
-          <span>已发布 · 自主选工具</span>
-          <strong>
-            {
-              published.filter(
-                (a) =>
-                  a.execution_strategy === "tool_agent" &&
-                  !(a.executor_bindings?.local && a.executor_bindings?.cloud),
-              ).length
-            }
-          </strong>
-        </div>
-        <div>
-          <span>已发布 · 本地 / 云端双模式</span>
-          <strong>
-            {
-              published.filter(
-                (a) => a.executor_bindings?.local && a.executor_bindings?.cloud,
-              ).length
-            }
-          </strong>
-        </div>
-      </div>
-      <div className="toolbar registry-filters">
-        <div className="search">
-          <Search size={17} />
-          <input
-            aria-label="搜索智能体"
-            placeholder="搜索名称、职责、用例编号或算法"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        <select
-          aria-label="智能体使用范围"
-          value={scope}
-          onChange={(e) => setScope(e.target.value)}
-        >
-          <option value="all">全部使用范围</option>
-          <option value="reusable">可复用资产</option>
-          <option value="task">仅当前任务</option>
-          <option value="evaluation">仅独立评测</option>
-          <option value="candidate">候选未入库</option>
-        </select>
-        <select
-          aria-label="发布状态"
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-        >
-          <option value="all">全部状态</option>
-          <option value="published">已发布</option>
-          <option value="draft">草稿</option>
-          <option value="disabled">已停用</option>
-          <option value="retired">已退役</option>
-        </select>
-        <select
-          aria-label="执行方式筛选"
-          value={strategy}
-          onChange={(e) => setStrategy(e.target.value)}
-        >
-          <option value="all">全部执行方式</option>
-          <option value="fixed">固定流程执行</option>
-          <option value="tool_agent">云端工具循环（含双模式）</option>
-          <option value="dual">本地 / 云端双模式用例</option>
-        </select>
-        <select
-          aria-label="用例岗位分工"
-          value={stage}
-          onChange={(e) => setStage(e.target.value)}
-        >
-          <option value="all">全部用例岗位</option>
-          {Object.entries(stageNames).map(([id, label]) => (
-            <option key={id} value={id}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="用途分类"
-          value={purpose}
-          onChange={(e) => setPurpose(e.target.value)}
-        >
-          <option value="all">全部用途</option>
-          <option value="general">通用智能体</option>
-          <option value="specialized">任务专用智能体</option>
-        </select>
-        <select
-          aria-label="结构分类"
-          value={structure}
-          onChange={(e) => setStructure(e.target.value)}
-        >
-          <option value="all">全部结构</option>
-          <option value="atomic">元智能体</option>
-          <option value="composite">复合智能体</option>
-        </select>
-        <span className="muted" aria-live="polite">
-          显示 {list.length} / {scoped.length}
-        </span>
-        {hasFilters && (
-          <button className="text-button" onClick={clearFilters}>
-            清除筛选
-          </button>
-        )}
-      </div>
-      {list.length ? (
-        <div className="asset-grid">
-          {list.map((a) => (
-            <button
-              className="asset-card"
-              key={a.id}
-              onClick={() => {
-                setSelected(a);
-                setTab("definition");
-              }}
-            >
-              <div className="row-between">
-                <span className="asset-icon">
-                  {a.structure === "composite" ? (
-                    <Layers3 size={24} />
-                  ) : (
-                    <Bot size={24} />
-                  )}
-                </span>
-                <Badge status={a.status} />
-              </div>
-              <h3>{a.name}</h3>
-              <p>{a.description || "尚未填写职责说明"}</p>
-              <div className="tags">
-                <span className={isTaskScoped(a) ? "agent-task-tag" : ""}>
-                  {agentScopeLabel(a)}
-                </span>
-                {a.candidate_status && (
-                  <span>
-                    {candidateStatusLabels[a.candidate_status] ||
-                      a.candidate_status}
-                  </span>
-                )}
-                <span
-                  className={
-                    a.execution_strategy === "tool_agent"
-                      ? "agent-autonomous-tag"
-                      : ""
-                  }
-                >
-                  {a.executor_bindings?.local && a.executor_bindings?.cloud
-                    ? "本地固定工具 / 云端领域 Agent"
-                    : a.execution_strategy === "tool_agent"
-                      ? "自主选工具"
-                      : "固定流程执行"}
-                </span>
-                <span>
-                  {stageNames[a.case_role] ||
-                    (a.purpose === "general" ? "通用" : "任务专用")}
-                </span>
-                <span>
-                  {a.structure === "atomic" ? "元智能体" : "复合智能体"}
-                </span>
-              </div>
-              <div className="card-footer">
-                <span>
-                  {(a.capabilities || [])
-                    .map((x: string) => taskTypes[x] || x)
-                    .join(" / ")}
-                </span>
-                <strong>
-                  {a.current_version
-                    ? `${a.status === "draft" ? "上次发布 " : ""}v${a.current_version}`
-                    : "未发布"}
-                </strong>
-              </div>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <Empty
-          title="没有符合条件的智能体"
-          description={
-            hasFilters
-              ? "试试其他关键词或清除筛选条件。"
-              : "创建定义、声明能力并发布版本，让后续任务复用经过验证的配置。"
-          }
-          action={
-            canEdit && (
-              <button onClick={() => setEdit(null)}>
-                <Plus size={16} />
-                创建智能体
-              </button>
-            )
-          }
-        />
-      )}
       {edit !== undefined && (
         <AgentForm
           projectId={projectId}
@@ -394,7 +110,7 @@ export function AgentsPage({
         />
       )}
       {fresh && (
-        <Modal wide title={fresh.name} onClose={() => setSelected(null)}>
+        <Modal wide title={fresh.name} onClose={onClose}>
           <div className="modal-body">
             <div className="row-between">
               <Badge status={fresh.status} />
@@ -416,7 +132,7 @@ export function AgentsPage({
               </details>}
             {fresh.management_profile && <dl className="catalog-fields">
               <dt>业务方向</dt><dd>{businessLabel(fresh)}</dd>
-              <dt>创建方式</dt><dd>{fresh.management_profile.creation_method==="interview" ? "问答生成，人工确认" : "管理配置"}</dd>
+              <dt>创建方式</dt><dd>{fresh.management_profile.creation_method==="interview" ? "对话生成" : "管理配置"}</dd>
               <dt>创建或分类原因</dt><dd>{fresh.management_profile.reason}</dd>
             </dl>}
             {detailError && (
@@ -441,13 +157,13 @@ export function AgentsPage({
                 agents={agents}
                 workflows={workflows}
                 onAgent={(id) => {
-                  setSelected(agents.find((agent) => agent.id === id) || null);
+                  setSelectedId(id);
                   setTab("definition");
                 }}
                 onWorkflow={
                   onWorkflow
                     ? (id) => {
-                        setSelected(null);
+                        onClose();
                         onWorkflow(id);
                       }
                     : undefined
@@ -470,7 +186,7 @@ export function AgentsPage({
                       <button
                         className="link-button"
                         onClick={() => {
-                          setSelected(null);
+                          onClose();
                           onTask(i.task_id);
                         }}
                       >
@@ -567,10 +283,11 @@ export function AgentsPage({
           }
         />
       )}
+      {!fresh && <Modal title="智能体详情" onClose={onClose}><div className="modal-body"><Empty title="当前工作空间找不到该智能体" /></div></Modal>}
     </>
   );
 }
-export function WorkflowsPage({
+export function WorkflowDetailsDialog({
   projectId,
   workflows,
   agents,
@@ -578,19 +295,13 @@ export function WorkflowsPage({
   mutate,
   notify,
   initialId,
-}: Props & { workflows: Item[]; agents: Item[]; initialId?: string | null }) {
-  const [edit, setEdit] = useState<Item | null | undefined>(),
-    [selected, setSelected] = useState<Item | null>(null),
+  onClose,
+}: Props & { workflows: Item[]; agents: Item[]; initialId: string; onClose: () => void }) {
+  const [edit, setEdit] = useState<Item>(),
     [versions, setVersions] = useState<Item[]>([]),
     [record, setRecord] = useState<Item | null>(null),
     [publish, setPublish] = useState<Item | null>(null);
-  const fresh = workflows.find((w) => w.id === selected?.id) || selected;
-  useEffect(() => {
-    if (initialId)
-      setSelected(
-        workflows.find((workflow) => workflow.id === initialId) || null,
-      );
-  }, [initialId]);
+  const fresh = workflows.find((workflow) => workflow.id === initialId);
   useEffect(() => {
     if (!fresh) return;
     let active = true;
@@ -604,58 +315,6 @@ export function WorkflowsPage({
   }, [fresh?.id, fresh?.current_version]);
   return (
     <>
-      <SectionTitle
-        eyebrow="WORKFLOW LIBRARY"
-        title="工作流"
-        description="用明确的依赖关系组合能力，发布后冻结图结构及智能体版本。"
-        actions={
-          canEdit && (
-            <button className="primary" onClick={() => setEdit(null)}>
-              <Plus size={18} />
-              创建流程
-            </button>
-          )
-        }
-      />
-      {workflows.length ? (
-        <div className="asset-grid">
-          {workflows.map((w) => (
-            <button
-              className="asset-card"
-              key={w.id}
-              onClick={() => setSelected(w)}
-            >
-              <div className="row-between">
-                <span className="asset-icon">
-                  <Workflow size={24} />
-                </span>
-                <Badge status={w.status} />
-              </div>
-              <h3>{w.name}</h3>
-              <p>{w.description || "未填写流程说明"}</p>
-              <div className="card-footer">
-                <span>
-                  {taskTypes[w.task_type]} · {w.nodes?.length || 0} 个节点
-                </span>
-                <strong>v{w.current_version || "—"}</strong>
-              </div>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <Empty
-          title="建立第一条可复用流程"
-          description="先发布智能体，再将它们组织成单节点或组合协作流程。"
-          action={
-            canEdit && (
-              <button onClick={() => setEdit(null)}>
-                <Plus size={16} />
-                创建流程
-              </button>
-            )
-          }
-        />
-      )}
       {edit !== undefined && (
         <WorkflowForm
           projectId={projectId}
@@ -666,7 +325,7 @@ export function WorkflowsPage({
         />
       )}
       {fresh && (
-        <Modal wide title={fresh.name} onClose={() => setSelected(null)}>
+        <Modal wide title={fresh.name} onClose={onClose}>
           <div className="modal-body">
             <div className="row-between">
               <Badge status={fresh.status} />
@@ -736,7 +395,7 @@ export function WorkflowsPage({
               <p className="muted">尚无发布版本。</p>
             )}
           </div>
-          {canEdit && (
+          {canEdit && !fresh.task_case_id && (
             <div className="modal-foot">
               <button onClick={() => setEdit(fresh)}>
                 <Pencil size={16} />
@@ -795,6 +454,7 @@ export function WorkflowsPage({
           }
         />
       )}
+      {!fresh && <Modal title="流程详情" onClose={onClose}><div className="modal-body"><Empty title="当前工作空间找不到该流程" /></div></Modal>}
     </>
   );
 }

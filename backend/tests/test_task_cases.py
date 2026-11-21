@@ -1,5 +1,6 @@
 """Real TaskCase intake, authorization and worker behavior on synthetic data."""
 
+import asyncio
 import importlib
 import json
 
@@ -64,6 +65,84 @@ async def drain(db, worker):
             break
         result = await runtime.process_claim(db, claim, worker)
     return result
+
+
+async def test_corrected_dag_runs_two_branches_together_and_saves_flow(db, monkeypatch):
+    p = setup(db, monkeypatch)
+    case = create(db, p, goal="解释如何制定阅读计划", public_egress_authorized=True)
+    parallel_started = set()
+    overlap = asyncio.Event()
+    completed = set()
+    corrected = []
+    edges = {
+        "prepare": [],
+        "left": ["prepare"],
+        "right": ["prepare"],
+        "join": ["left", "right"],
+        "delivery": ["join"],
+    }
+
+    async def complete(prompt, *, purpose, **kwargs):
+        if purpose == "task_case_requirements":
+            result = no_data_analysis()
+        elif purpose in {"task_case_planning", "task_case_plan_correction"}:
+            dependencies = dict(edges)
+            if purpose == "task_case_planning":
+                dependencies["prepare"] = ["join"]
+            else:
+                assert "dependency_cycle" in prompt
+                corrected.append(purpose)
+            result = {
+                "rationale": "独立准备后汇总",
+                "missing_data": [],
+                "delivery_node": "delivery",
+                "steps": [
+                    {
+                        "id": name,
+                        "label": name,
+                        "depends_on": deps,
+                        "instructions": "解释制定阅读计划的方法",
+                        "input_description": "任务目标与前置说明",
+                        "output_description": "阅读计划说明",
+                        "success_criteria": ["说明清楚"],
+                    }
+                    for name, deps in dependencies.items()
+                ],
+            }
+        else:
+            result = {"verdict": "passed", "issues": [], "evidence_refs": [], "suggested_changes": []}
+        return {"text": json.dumps(result, ensure_ascii=False), "model": "fixture", "request_id": purpose}
+
+    async def run_agent(agent, prompt, bindings, **kwargs):
+        name = agent["name"]
+        assert set(edges[name]) <= completed
+        previous = json.loads(prompt)["previous_outputs"]
+        assert [item["content"]["text"] for item in previous] == [
+            f"阅读规划步骤：{dep}" for dep in edges[name]
+        ]
+        if name in {"left", "right"}:
+            parallel_started.add(name)
+            if len(parallel_started) == 2:
+                current = db.get("tasks", kwargs["context"]["run_id"])
+                assert set(current["in_flight"]) == {"left", "right"}
+                overlap.set()
+            await asyncio.wait_for(overlap.wait(), timeout=2)
+        completed.add(name)
+        return {
+            "text": json.dumps({"text": f"阅读规划步骤：{name}", "citations": [], "missing_information": []}),
+            "model": "fixture",
+            "request_id": name,
+        }
+
+    monkeypatch.setattr(runtime.model_gateway, "complete", complete)
+    monkeypatch.setattr(runtime.model_gateway, "run_agent", run_agent)
+    run = await drain(db, "parallel-dag-test")
+    assert run["status"] == "succeeded", run.get("result")
+    assert completed == edges.keys() and overlap.is_set() and len(corrected) == 1
+    flow = db.get("workflows", run["snapshot"]["workflow"]["id"])
+    assert flow["source"] == "task_planning" and flow["task_case_id"] == case["id"]
+    assert {node["id"]: node["depends_on"] for node in flow["nodes"]} == edges
+    assert flow["delivery_node"] == "delivery"
 
 
 def test_missing_data_resume_idempotency_and_task_private_assets(db, monkeypatch):

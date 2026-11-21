@@ -168,8 +168,11 @@ def reused_plan(item):
     return {
         "rationale": "任务目标、验收配置和资料格式与已评测流程匹配；使用已发布版本处理本次输入。",
         "missing_data": [],
+        "delivery_node": item["flow"].get("delivery_node") or item["flow"]["nodes"][-1]["id"],
         "steps": [
             {
+                "id": node["id"],
+                "depends_on": node.get("depends_on", []),
                 "label": node["label"],
                 "instructions": agent["instructions"],
                 "reuse_agent_id": agent["id"],

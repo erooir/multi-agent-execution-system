@@ -1,14 +1,16 @@
 """Acceptance evidence from generated scans and project-scoped execution records."""
 
 import io
+import json
 import time
 
 import pytest
 from PIL import Image, ImageDraw, ImageFont
 
 from backend.app.casework.monitor import activity, capability_usage
-from backend.app.platform import service
+from backend.app.platform import expert_design, service
 from backend.app.platform.expert_design import ConfirmInterview, ExpertInterview, confirm, draft
+from backend.app.platform.knowledge import project_connectors
 from backend.app.platform.ocr import run_ocr
 from backend.app.platform.quality import deterministic_quality
 from backend.tests import test_v2_platform as fixtures
@@ -78,6 +80,72 @@ def test_expert_interview_confirms_separately_and_executes_with_grant(db):
     service.agent_action(saved["id"], "publish", ADMIN, db)
     ver = db.get("agent_versions", saved["id"] + ":1")
     assert ver["management_profile"]["creation_method"] == "interview"
+
+
+async def test_text_creation_saves_once_with_shared_asset_contract(db, monkeypatch):
+    p = project(db)
+    requests = []
+
+    async def complete(prompt, **kwargs):
+        requests.append(json.loads(prompt)["request"])
+        return {
+            "text": json.dumps(
+                {
+                    "name": "报表智能体",
+                    "model_policy": "local",
+                    "capabilities": ["structured_transform"],
+                    "instructions": "整理报表",
+                    "business": "general",
+                    "reason": "处理多个业务的报表",
+                }
+            )
+        }
+
+    monkeypatch.setattr(expert_design.model_gateway, "complete", complete)
+    request = expert_design.TextAgentRequest(
+        project_id=p["id"], prompt="请创建整理报表的智能体", idempotency_key="interview-example-1"
+    )
+    saved = await expert_design.create_from_text(request, ADMIN, db)
+    assert (await expert_design.create_from_text(request, ADMIN, db))["id"] == saved["id"]
+    assert requests == [request.prompt]
+    assert saved["status"] == "draft" and saved["tool_ids"] == ["structured_transform"]
+    assert saved["management_profile"]["creation_method"] == "interview"
+
+
+def test_workspace_removal_refuses_live_tasks_then_removes_owned_versions(db):
+    p = project(db)
+    other = project(db)
+    task = db.put("tasks", {"project_id": p["id"], "status": "running", "idempotency_key": "active"})
+    assert p["id"] in service.active_project_runs([p["id"], other["id"]], db)
+    with pytest.raises(service.DomainError, match="正在运行"):
+        service.delete_project(p["id"], ADMIN, db)
+    assert db.get("projects", p["id"]) and db.list("workflow_versions", p["id"])
+    db.put("tasks", {**task, "status": "cancelled"})
+    service.delete_project(p["id"], ADMIN, db)
+    assert not db.get("projects", p["id"]) and not db.list("workflow_versions", p["id"])
+    assert db.get("projects", other["id"]) and db.list("workflow_versions", other["id"])
+
+
+def test_connector_inventory_only_shows_project_services(db):
+    p = project(db)
+    other = project(db)
+    mcp = db.put(
+        "capability_definitions",
+        {"project_id": p["id"], "name": "Service", "kind": "mcp_server", "status": "draft"},
+    )
+    http = db.put(
+        "connectors", {"project_id": p["id"], "name": "Data", "kind": "http_knowledge", "status": "ready"}
+    )
+    db.put(
+        "capability_definitions", {"project_id": p["id"], "name": "Skill", "kind": "skill", "status": "draft"}
+    )
+    db.put(
+        "connectors",
+        {"project_id": other["id"], "name": "Private", "kind": "http_knowledge", "status": "ready"},
+    )
+    listing = {row["id"]: row for row in project_connectors(p["id"], ADMIN, db)}
+    assert set(listing) == {"project-tables", mcp["id"], http["id"]}
+    assert listing[mcp["id"]]["status"] == "draft" and listing[http["id"]]["status"] == "ready"
 
 
 def test_usage_counts_actual_calls_and_distinct_tasks(db):

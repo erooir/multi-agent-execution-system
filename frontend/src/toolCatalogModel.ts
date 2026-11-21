@@ -1,5 +1,10 @@
 import type { Item } from "./types";
 
+export function mcpConnectorId(tool: Item): string | null {
+  if (tool.kind !== "mcp" && tool.adapter !== "mcp") return null;
+  return tool.server_id || "project-tables";
+}
+
 export const toolGroups = {
   sources: "通用资料",
   mcp: "MCP 表格",

@@ -72,14 +72,15 @@ test("用例岗位对照显示共享算法和不同权限，当前专员可执�
       a.role_contract?.stage === "analyze",
   );
   expect(specialist).toBeTruthy();
-  await workspacePage(page, "智能体资产");
+  await workspacePage(page, "智能体");
+  await page.locator(".hub-agent-filters summary").click();
   await page.getByLabel("执行方式筛选").selectOption("dual");
   await page.getByLabel("用例岗位分工").selectOption("analyze");
   await page.getByLabel("发布状态").selectOption("published");
   await page.getByLabel("搜索智能体").fill("T01");
-  await expect(page.locator(".asset-card")).toHaveCount(1);
+  await expect(page.locator(".hub-card")).toHaveCount(1);
   await page
-    .locator(".asset-card")
+    .locator(".hub-card")
     .filter({ hasText: specialist.name })
     .click();
   const dlg = page.getByRole("dialog");

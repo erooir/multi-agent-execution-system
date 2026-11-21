@@ -1,6 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import {
+  Activity,
+  ChartNoAxesColumn,
+  Clock,
+  Cpu,
+  Database,
+  Gauge,
+  RefreshCw,
+  Wallet,
+} from "lucide-react";
 import { api } from "./api";
-import { ErrorLine, Panel, SectionTitle } from "./ui";
+import { ErrorLine, SectionTitle } from "./ui";
+import "./resource-management.css";
 
 type Latency = {
   samples: number;
@@ -40,22 +51,102 @@ type Resources = {
 };
 
 const val = (n: number | null) =>
-  n === null ? "暂无样本" : n.toLocaleString("zh-CN");
-function timings(data: Latency) {
-  return data.samples
-    ? `${val(data.p50_ms)} / ${val(data.p95_ms)} 毫秒（${data.samples} 次）`
-    : "暂无耗时样本";
-}
-function Metrics({ rows }: { rows: [string, string | number][] }) {
+  n === null ? "—" : n.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
+const percent = (part: number, total: number) =>
+  total > 0 ? Math.max(0, Math.min(100, (part / total) * 100)) : 0;
+const money = (n: number) =>
+  n.toLocaleString("zh-CN", {
+    style: "currency",
+    currency: "CNY",
+    minimumFractionDigits: 6,
+    maximumFractionDigits: 6,
+  });
+
+function Track({ value, total }: { value: number; total: number }) {
   return (
-    <dl className="facts">
-      {rows.map(([name, v]) => (
-        <div key={name}>
-          <dt>{name}</dt>
-          <dd>{v}</dd>
-        </div>
-      ))}
-    </dl>
+    <div className="resource-track" aria-hidden="true">
+      <i style={{ width: percent(value, total) + "%" }} />
+    </div>
+  );
+}
+
+function MeterBreakdown({
+  parts,
+  format = val,
+}: {
+  parts: [string, number][];
+  format?: (value: number) => string;
+}) {
+  const total = parts.reduce((sum, [, value]) => sum + value, 0);
+  return (
+    <>
+      <div className="resource-breakdown" aria-hidden="true">
+        {parts.map(([label, value]) => (
+          <i key={label} style={{ width: percent(value, total) + "%" }} />
+        ))}
+      </div>
+      <dl className="resource-legend">
+        {parts.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{format(value)}</dd>
+          </div>
+        ))}
+      </dl>
+    </>
+  );
+}
+
+function DetailCard({
+  title,
+  icon: Icon,
+  children,
+}: {
+  title: string;
+  icon: typeof Cpu;
+  children: ReactNode;
+}) {
+  return (
+    <section className="resource-card">
+      <h3>
+        <Icon size={18} aria-hidden="true" />
+        {title}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+function LatencyRows({ title, data }: { title: string; data: Latency }) {
+  const max = Math.max(data.p50_ms ?? 0, data.p95_ms ?? 0);
+  return (
+    <div className="resource-latency">
+      <div className="resource-latency-title">
+        <h4>{title}</h4>
+        <span>{data.samples ? val(data.samples) + " 次样本" : "暂无样本"}</span>
+      </div>
+      {data.samples > 0 && (
+        <dl>
+          {(
+            [
+              ["p50", data.p50_ms],
+              ["p95", data.p95_ms],
+            ] as const
+          ).map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>
+                <Track value={value ?? 0} total={max} />
+                <strong>
+                  {val(value)}
+                  {value !== null && " ms"}
+                </strong>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
   );
 }
 
@@ -94,82 +185,154 @@ export default function ResourceManagement({
   const current = data?.project_id === projectId ? data : null;
   const g = current?.gateway;
   return (
-    <section aria-label="资源计量">
+    <section className="wb-resource-page" aria-label="资源计量">
       <SectionTitle
         title="资源计量"
         actions={
-          <button onClick={() => setTick((i) => i + 1)}>刷新用量</button>
+          <button onClick={() => setTick((i) => i + 1)}>
+            <RefreshCw size={15} /> 刷新用量
+          </button>
         }
       />
       {error && <ErrorLine>{error}</ErrorLine>}
       {!current && !error && <p role="status">正在读取项目资源记录…</p>}
       {current && (
         <>
-          <Panel title="任务与部署容量">
-            <Metrics
-              rows={[
-                ["当前项目执行中", current.active_tasks],
-                ["全平台任务并发上限", current.policy.task_slots],
-                ["网关模型", current.policy.model],
-                [
-                  "模型来源",
-                  current.policy.provider === "intranet"
-                    ? "内网服务"
-                    : "DeepSeek 云端",
-                ],
-                ["同机模型请求并发上限", current.policy.model_slots],
-                [
-                  "单次上下文窗口（部署值）",
-                  val(current.policy.context_tokens),
-                ],
-                ["单次输出硬上限", val(current.policy.output_tokens)],
-                ["本地模式任务数", current.local.tasks],
-                ["本地任务耗时 p50 / p95", timings(current.local.elapsed)],
-              ]}
-            />
-          </Panel>
-          <Panel title="项目模型调用">
-            {g && !g.resource_schema_available && (
-              <p>
-                历史账本尚无资源记录，当前可查看既有 Token
-                和费用；当次窗口与请求耗时不可用。
-              </p>
-            )}
-            {g ? (
-              <Metrics
-                rows={[
-                  ["累计请求", g.requests],
-                  ["其中内网服务请求", g.intranet_requests],
-                  ["用量已确认 / 待确认", `${g.reported} / ${g.unconfirmed}`],
-                  [
-                    "已确认输入 / 输出 Token",
-                    `${val(g.input_tokens)} / ${val(g.output_tokens)}`,
-                  ],
-                  ["单次实报输入与输出合计峰值", val(g.peak_context_tokens)],
-                  [
-                    "实报峰值占当次窗口",
-                    g.peak_context_ratio === null
-                      ? "暂无样本"
-                      : (g.peak_context_ratio * 100).toFixed(2) + "%",
-                  ],
-                  [
-                    "提交前上下文估算上界峰值",
-                    g.estimated_samples
-                      ? `${val(g.estimated_peak_upper)}（${g.estimated_samples} 次）`
-                      : "暂无估算样本",
-                  ],
-                  ["模型请求耗时 p50 / p95", timings(g.latency)],
-                  [
-                    "已计费用 / 待确认预留（元）",
-                    `${g.settled_cny.toFixed(6)} / ${g.reserved_cny.toFixed(6)}`,
-                  ],
-                ]}
+          <div className="resource-summary" aria-label="项目资源概览">
+            <section className="resource-card resource-stat">
+              <h3>
+                <Activity size={18} aria-hidden="true" />
+                当前项目运行任务
+              </h3>
+              <strong>{val(current.active_tasks)}</strong>
+              <Track
+                value={current.active_tasks}
+                total={current.policy.task_slots}
               />
-            ) : (
-              <p>{current.gateway_error || "当前部署未连接历史模型账本。"}</p>
+              <small>全平台任务并发上限 {val(current.policy.task_slots)}</small>
+            </section>
+            <section className="resource-card resource-stat">
+              <h3>
+                <Cpu size={18} aria-hidden="true" />
+                累计模型请求
+              </h3>
+              <strong>{val(g?.requests ?? null)}</strong>
+              {g && <small>其中内网服务 {val(g.intranet_requests)} 次</small>}
+            </section>
+            <section className="resource-card resource-stat">
+              <h3>
+                <Database size={18} aria-hidden="true" />
+                已确认 Token
+              </h3>
+              <strong>
+                {val(g ? g.input_tokens + g.output_tokens : null)}
+              </strong>
+              {g && (
+                <MeterBreakdown
+                  parts={[
+                    ["输入", g.input_tokens],
+                    ["输出", g.output_tokens],
+                  ]}
+                />
+              )}
+            </section>
+          </div>
+
+          {g && !g.resource_schema_available && (
+            <p className="resource-note">
+              历史账本可查看 Token 和费用。当次上下文窗口和请求耗时暂无记录。
+            </p>
+          )}
+          {!g && (
+            <p className="resource-note">
+              {current.gateway_error || "当前部署未连接历史模型账本。"}
+            </p>
+          )}
+
+          <div className="resource-detail-grid">
+            {g && (
+              <>
+                <DetailCard title="请求用量确认" icon={ChartNoAxesColumn}>
+                  <MeterBreakdown
+                    parts={[
+                      ["已确认", g.reported],
+                      ["待确认", g.unconfirmed],
+                    ]}
+                  />
+                </DetailCard>
+                <DetailCard title="上下文用量" icon={Gauge}>
+                  <div className="resource-context">
+                    <strong>{val(g.peak_context_tokens)}</strong>
+                    <span>单次实报输入与输出合计峰值</span>
+                  </div>
+                  {g.peak_context_ratio !== null && (
+                    <>
+                      <Track value={g.peak_context_ratio} total={1} />
+                      <small>
+                        占当次窗口 {val(g.peak_context_ratio * 100)}%
+                      </small>
+                    </>
+                  )}
+                  <small>
+                    提交前估算上界{" "}
+                    {g.estimated_samples
+                      ? val(g.estimated_peak_upper) +
+                        "（" +
+                        val(g.estimated_samples) +
+                        " 次）"
+                      : "暂无样本"}
+                  </small>
+                </DetailCard>
+                <DetailCard title="模型调用费用" icon={Wallet}>
+                  <MeterBreakdown
+                    parts={[
+                      ["已计费用", g.settled_cny],
+                      ["待确认预留", g.reserved_cny],
+                    ]}
+                    format={money}
+                  />
+                </DetailCard>
+              </>
             )}
-          </Panel>
-          <Panel title="内网模型容量估算">
+            <DetailCard title="耗时分布" icon={Clock}>
+              {g && <LatencyRows title="模型请求" data={g.latency} />}
+              <LatencyRows title="本地任务" data={current.local.elapsed} />
+            </DetailCard>
+            <section className="resource-card resource-deployment">
+              <div className="resource-deployment-head">
+                <h3>
+                  <Cpu size={18} aria-hidden="true" />
+                  部署容量
+                </h3>
+                <div>
+                  <strong>{current.policy.model}</strong>
+                  <span>
+                    {current.policy.provider === "intranet"
+                      ? "内网服务"
+                      : "DeepSeek 云端"}
+                  </span>
+                </div>
+              </div>
+              <dl>
+                {(
+                  [
+                    ["同机模型请求并发上限", current.policy.model_slots],
+                    ["单次上下文窗口", current.policy.context_tokens],
+                    ["单次输出硬上限", current.policy.output_tokens],
+                    ["本地模式任务数", current.local.tasks],
+                  ] as const
+                ).map(([label, value]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>{val(value)}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          </div>
+
+          <details className="resource-card wb-resource-capacity">
+            <summary>内网模型容量估算</summary>
             {current.host && (
               <p>
                 平台主机 · {val(current.host.logical_cpu)} 个逻辑处理器 ·
@@ -206,7 +369,7 @@ export default function ResourceManagement({
                 ? `按给定内存估算可容纳 ${fit} 路并发；吞吐量需用代表性任务压测。`
                 : "等待推理设备实测参数"}
             </p>
-          </Panel>
+          </details>
         </>
       )}
     </section>

@@ -5,7 +5,7 @@ import { parseObject, splitList, taskTypes } from "./domain";
 import type { Item, Mutation } from "./types";
 import type { components } from "./generated/api";
 import { Field, FormModal, Modal } from "./ui";
-import {businessLabels} from "./ExpertInterview";
+import { businessKey, businessLabels } from "./ExpertInterview";
 import ToolParameters from "./ToolParameters";
 import WorkflowBuilder from "./WorkflowBuilder";
 import { workflowIssues } from "./workflowEditorModel";
@@ -53,7 +53,7 @@ export function AgentForm({
     members: [],
     ...item,
   });
-  const [business,setBusiness] = useState<string>(item?.management_profile?.business || "");
+  const [business,setBusiness] = useState<string>(() => businessKey(item || {}));
   const [reason,setReason] = useState<string>(item?.management_profile?.reason || "");
   const [extensions, setExtensions] = useState<Item>({ tools: [], skills: [] });
   const [extensionError, setExtensionError] = useState("");
@@ -130,9 +130,8 @@ export function AgentForm({
           );
         if (form.execution_strategy === "tool_agent" && !form.tool_refs.length)
           throw Error("自主工具型智能体至少需要一项版本化工具授权。");
-        if (business && reason.trim().length < 2) throw Error("请填写创建或分类原因");
         const body = {
-          ...(business ? { management_profile:{ business, reason, creation_method:item?.management_profile?.creation_method || "manual" }} : {}),
+          management_profile: { business, reason: reason.trim() || "手动配置", creation_method: item?.management_profile?.creation_method || "manual" },
           ...Object.fromEntries(
             [
               "name",
@@ -166,7 +165,7 @@ export function AgentForm({
     >
       <div className="form-grid">
         <Field label="业务方向"><select value={business} onChange={e=>setBusiness(e.target.value)}>
-        <option value="" disabled={!!item?.management_profile}>待分类</option>{Object.entries(businessLabels).map(([id,label])=><option key={id} value={id}>{label}</option>)}
+        {Object.entries(businessLabels).map(([id,label])=><option key={id} value={id}>{label}</option>)}
       </select></Field>
       {business && <Field label="创建或分类原因"><input value={reason} maxLength={500} onChange={e=>setReason(e.target.value)}/></Field>}
       <Field
@@ -847,6 +846,7 @@ export function TaskForm({
               .filter(
                 (w) =>
                   w.status === "published" &&
+                  !w.task_case_id &&
                   w.task_type === form.task_type &&
                   (form.task_type !== "case_analysis" ||
                     w.id ===

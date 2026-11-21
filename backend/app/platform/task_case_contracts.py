@@ -47,6 +47,10 @@ class InlineSubmissionInput(Contract):
 
 
 class PlanningStep(Contract):
+    id: str | None = Field(default=None, pattern=r"^[a-zA-Z][a-zA-Z0-9_-]{0,39}$")
+    depends_on: list[str] | None = Field(default=None, max_length=20)
+    input_description: str = Field(default="", max_length=500)
+    output_description: str = Field(default="", max_length=500)
     label: str = Field(min_length=1, max_length=100)
     instructions: str = Field(min_length=1, max_length=3000)
     tool_ids: list[str] = Field(default_factory=list, max_length=16)
@@ -57,7 +61,8 @@ class PlanningStep(Contract):
 
 class ExecutionPlan(Contract):
     rationale: str = Field(min_length=1, max_length=2000)
-    steps: list[PlanningStep] = Field(min_length=1, max_length=4)
+    steps: list[PlanningStep] = Field(min_length=1, max_length=16)
+    delivery_node: str | None = None
     missing_data: list[str] = Field(default_factory=list, max_length=10)
 
 

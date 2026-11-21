@@ -219,7 +219,8 @@ test("任务专属与独立评测快照不冒充复用资产，工具缺依赖�
   page,
 }) => {
   await management(page);
-  await workspacePage(page, "智能体资产");
+  await workspacePage(page, "智能体");
+  await page.locator(".hub-agent-filters summary").click();
   await expect(
     page
       .locator(".agent-registry-counts")
@@ -227,8 +228,8 @@ test("任务专属与独立评测快照不冒充复用资产，工具缺依赖�
       .locator(".."),
   ).toContainText("0");
   await page.getByLabel("智能体使用范围").selectOption("task");
-  await expect(page.locator(".asset-card")).toHaveCount(1);
-  await page.locator(".asset-card").click();
+  await expect(page.locator(".hub-card")).toHaveCount(1);
+  await page.locator(".hub-card").click();
   const dialog = page.getByRole("dialog");
   await expect(
     dialog.getByRole("heading", { name: "任务专属智能体" }),

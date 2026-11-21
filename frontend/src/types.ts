@@ -25,15 +25,14 @@ export interface Bootstrap {
   users?: Item[];
 }
 export type Page =
+  | "intake"
   | "overview"
   | "hub"
   | "workdesk"
   | "library"
   | "casework"
-  | "agents"
   | "tools"
   | "tasks"
-  | "workflows"
   | "capabilities"
   | "data"
   | "knowledge"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import logging
 import os
 import uuid
 from collections import Counter
@@ -12,10 +13,11 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .contracts import AgentInput, AssetInput, TaskInput, ToolParameters, WorkflowInput
-from .db import QUEUE_AGING_SECONDS, QUEUE_POLICY_VERSION, ROOT, TERMINAL, now, repo
+from .db import QUEUE_AGING_SECONDS, QUEUE_POLICY_VERSION, ROOT, TERMINAL, json_scalar, now, repo, tables
 from .tool_registry import freeze_bindings, permissions, validate_frozen
 
 ASSET_DIR = ROOT / ".local" / "platform-assets"
+log = logging.getLogger(__name__)
 TOOLS = {
     "autonomous_analysis",
     "structured_transform",
@@ -34,7 +36,7 @@ CAPABILITIES = [
         "available": True,
         "modes": ["cloud"],
         "tool_id": "autonomous_analysis",
-        "description": "依据用户目标规划顺序步骤，调用授权工具，独立审核并针对问题修订；允许无参考数据的推理任务",
+        "description": "依据用户目标规划依赖图，并行执行独立步骤，调用授权工具并自动审核修订",
     },
     {
         "id": "structured_transform",
@@ -421,12 +423,69 @@ def bootstrap_projects(user, repository=None):
     with repository.transaction() as tx:
         tx.lock_project_initialization()
         projects = accessible(tx)
-        if not projects:
+        if not projects and not any(
+            record.get("action") == "project.deleted"
+            and (user["role"] == "admin" or user["id"] in record.get("detail", {}).get("former_members", []))
+            for record in tx.list("audits", "platform")
+        ):
             # Only executable templates are initialized, never runs or input data.
             projects = [
                 create_project({"name": "我的工作空间", "description": "独立项目权限和任务数据"}, user, tx)
             ]
         return projects
+
+
+def active_project_runs(project_ids, repository):
+    current = datetime.now(UTC).timestamp()
+    return {
+        task["project_id"]
+        for task in repository.operational_tasks(project_ids)
+        if task["status"] not in TERMINAL
+        and (
+            task["status"] in {"planning", "running", "evaluating", "revising"}
+            or (task.get("lease_owner") and (task.get("lease_until") or 0) >= current)
+        )
+    }
+
+
+def delete_project(project_id, user, repository=None):
+    from sqlalchemy import select
+
+    repository = repository or repo
+    if user["role"] != "admin":
+        fail("permission_denied", "只有平台管理员可以永久删除工作空间", 403)
+    with repository.transaction() as tx:
+        # Worker claims use the same gate. Project writes lock the project row.
+        tx.lock_project_initialization()
+        project = project_access(project_id, user, True, tx)
+        if active_project_runs([project_id], tx):
+            fail("project_running", "工作空间有任务正在运行，暂不能删除", 409)
+        owned_files = []
+        assets = tables["data_assets"]
+        for row in tx.list("data_assets", project_id):
+            reference = row.get("content_ref")
+            if not reference:
+                continue
+            path = Path(reference)
+            if path.name != row["id"] or path.is_symlink() or path.resolve().parent != ASSET_DIR.resolve():
+                continue
+            shared = tx.connection.scalar(
+                select(assets.c.id)
+                .where(
+                    assets.c.project_id != project_id,
+                    json_scalar(tx.engine, assets.c.payload, "content_ref") == reference,
+                )
+                .limit(1)
+            )
+            if not shared:
+                owned_files.append(path)
+        tx.delete_project_records(project_id)
+        audit(tx, "platform", "project.deleted", project_id, user, {"former_members": project["members"]})
+    for path in owned_files:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            log.warning("Deleted workspace asset file could not be removed")
 
 
 def rename_project(project_id, name, user, repository=None):
@@ -602,6 +661,12 @@ def save_agent(body, user, agent_id=None, repository=None, *, interview=False):
         if body.get("management_profile"):
             previous_method = (old.get("management_profile") or {}).get("creation_method", "manual")
             body["management_profile"]["creation_method"] = "interview" if interview else previous_method
+        elif not old.get("management_profile"):
+            body["management_profile"] = {
+                "business": "general",
+                "creation_method": "manual",
+                "reason": "通用任务能力",
+            }
         validate_agent(body, tx, agent_id)
         result = tx.put(
             "agents", {**old, **body, "status": "draft", "current_version": old.get("current_version", 0)}
@@ -724,6 +789,8 @@ def save_workflow(body, user, workflow_id=None, repository=None):
     with repository.transaction() as tx:
         project_access(body["project_id"], user, True, tx)
         old = required("workflows", workflow_id, user, True, tx) if workflow_id else {}
+        if old.get("source") == "task_planning":
+            fail("generated_workflow_locked", "任务自动保存的执行版本只可查看", 409)
         if old and old["project_id"] != body["project_id"]:
             fail("immutable_project", "不能移动流程所属项目")
         validate_nodes(body["nodes"], tx, body["project_id"])
@@ -738,6 +805,8 @@ def publish_workflow(workflow_id, user, repository=None):
     repository = repository or repo
     with repository.transaction() as tx:
         workflow = required("workflows", workflow_id, user, True, tx)
+        if workflow.get("source") == "task_planning":
+            fail("generated_workflow_locked", "任务自动保存的执行版本只可查看", 409)
         validate_nodes(workflow["nodes"], tx, workflow["project_id"])
         next_version = (
             max((v["version"] for v in tx.list("workflow_versions", definition_id=workflow_id)), default=0)
@@ -786,12 +855,13 @@ def create_asset(body, user, repository=None, file_data=None):
         checksum=hashlib.sha256(file_data or serialized).hexdigest(),
         bytes=len(file_data or serialized),
     )
-    if file_data:
-        ASSET_DIR.mkdir(parents=True, exist_ok=True)
-        target = ASSET_DIR / body["id"]
-        target.write_bytes(file_data)
-        body["content_ref"] = str(target)
     with repository.transaction() as tx:
+        project_access(body["project_id"], user, True, tx)
+        if file_data:
+            ASSET_DIR.mkdir(parents=True, exist_ok=True)
+            target = ASSET_DIR / body["id"]
+            target.write_bytes(file_data)
+            body["content_ref"] = str(target)
         asset = tx.put("data_assets", body)
         audit(tx, body["project_id"], "data.registered", asset["id"], user)
     return asset

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "./api";
 import { ErrorLine, Panel } from "./ui";
 import { time } from "./domain";
+import type { Item } from "./types";
 import TaskAgentCandidates from "./TaskAgentCandidates";
 
 type Ref = { id: string; version: string | number; checksum: string };
@@ -44,13 +45,14 @@ type Overview = {
     id: string;
     status: string;
     phase?: string;
+    workflow_id?: string;
     task_id: string;
     version: number;
     created_at: string;
   }[];
   publications: { candidate_id: string; name: string; workflow_id: string }[];
 };
-type Tab = "plans" | "publications" | "evaluate";
+type Tab = "library" | "plans" | "publications" | "evaluate";
 const statusLabels: Record<string, string> = {
   frozen: "已冻结",
   rejected: "规划被拒绝",
@@ -68,6 +70,9 @@ type Props = {
   canEdit?: boolean;
   isAdmin?: boolean;
   onTask?: (id: string) => void;
+  workflows: Item[];
+  onWorkflow: (id: string) => void;
+  onCreateWorkflow: () => void;
 };
 
 export default function WorkflowLearning(props: Props) {
@@ -79,13 +84,17 @@ function ProjectLearning({
   canEdit = false,
   isAdmin = false,
   onTask,
+  workflows,
+  onWorkflow,
+  onCreateWorkflow,
 }: Props) {
-  const [tab, setTab] = useState<Tab>("plans"),
+  const [tab, setTab] = useState<Tab>("library"),
     [summary, setSummary] = useState<Overview | null>(null);
   const [selected, setSelected] = useState(""),
     [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState(""),
-    [refresh, setRefresh] = useState(0);
+    [refresh, setRefresh] = useState(0),
+    [workflowFilter, setWorkflowFilter] = useState("");
   useEffect(() => {
     const ctr = new AbortController();
     setError("");
@@ -102,8 +111,8 @@ function ProjectLearning({
           setSummary(s);
           setSelected(
             tab === "plans"
-              ? s.plans[0]?.id || ""
-              : s.publications[0]?.candidate_id || "",
+              ? s.plans.find((plan) => !workflowFilter || plan.workflow_id === workflowFilter)?.id || ""
+              : tab === "publications" ? s.publications[0]?.candidate_id || "" : "",
           );
         }
       })
@@ -111,9 +120,9 @@ function ProjectLearning({
         if (!ctr.signal.aborted) setError(e.message);
       });
     return () => ctr.abort();
-  }, [projectId, tab, refresh]);
+  }, [projectId, tab, refresh, workflowFilter]);
   useEffect(() => {
-    if (!selected || tab === "evaluate") return;
+    if (!selected || (tab !== "plans" && tab !== "publications")) return;
     const ctr = new AbortController();
     setDetail(null);
     setError("");
@@ -130,14 +139,23 @@ function ProjectLearning({
     return () => ctr.abort();
   }, [projectId, selected, tab, refresh]);
   const tabs: { id: Tab; title: string }[] = [
+    { id: "library", title: "工作流库" },
     { id: "plans", title: "任务拆解" },
     { id: "publications", title: "已固化流程" },
   ];
   if (canEdit && onTask) tabs.push({ id: "evaluate", title: "评测与入库" });
+  const plans = summary?.plans.filter((plan) => !workflowFilter || plan.workflow_id === workflowFilter) || [];
   return (
     <Panel
       title="流程与改进经验"
-      actions={<button onClick={() => setRefresh((n) => n + 1)}>刷新</button>}
+      actions={
+        <>
+          {tab === "library" && canEdit && (
+            <button className="primary" onClick={onCreateWorkflow}>创建流程</button>
+          )}
+          <button onClick={() => setRefresh((n) => n + 1)}>刷新</button>
+        </>
+      }
     >
       <div className="segmented">
         {tabs.map((t) => (
@@ -148,6 +166,7 @@ function ProjectLearning({
             onClick={() => {
               setSelected("");
               setDetail(null);
+              setWorkflowFilter("");
               setTab(t.id);
             }}
           >
@@ -155,6 +174,26 @@ function ProjectLearning({
           </button>
         ))}
       </div>
+      {tab === "library" && (
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th>工作流</th><th>来源</th><th>版本</th><th>操作</th></tr></thead>
+            <tbody>{workflows.filter((workflow) => !workflow.task_case_id || workflow.source === "task_planning").map((workflow) => (
+              <tr key={workflow.id}>
+                <td>{workflow.name}</td>
+                <td>{workflow.source === "task_planning" ? "任务自动生成" : "项目工作流"}</td>
+                <td>{workflow.current_version ? `v${workflow.current_version}` : "草稿"}</td>
+                <td className="actions">
+                  <button onClick={() => onWorkflow(workflow.id)}>查看流程</button>
+                  {summary?.plans.some((plan) => plan.workflow_id === workflow.id) && (
+                    <button onClick={() => { setWorkflowFilter(workflow.id); setTab("plans"); }}>执行与经验</button>
+                  )}
+                </td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
       {tab === "evaluate" && canEdit && onTask && (
         <TaskAgentCandidates
           projectId={projectId}
@@ -164,20 +203,20 @@ function ProjectLearning({
         />
       )}
       {error && <ErrorLine>{error}</ErrorLine>}
-      {tab !== "evaluate" && !summary && !error && (
+      {(tab === "plans" || tab === "publications") && !summary && !error && (
         <p role="status">正在读取流程记录…</p>
       )}
-      {tab !== "evaluate" && summary && (
+      {(tab === "plans" || tab === "publications") && summary && (
         <div>
           {tab === "plans" ? (
-            summary.plans.length ? (
+            plans.length ? (
               <label className="field">
                 <span>最近 50 个计划版本</span>
                 <select
                   value={selected}
                   onChange={(e) => setSelected(e.target.value)}
                 >
-                  {summary.plans.map((p) => (
+                  {plans.map((p) => (
                     <option key={p.id} value={p.id}>
                       {time(p.created_at)} ·{" "}
                       {p.phase === "requirements" ? "资料需求" : "执行规划"} ·{" "}

@@ -11,6 +11,6 @@ Build the production Hangzhi agent management platform on self-hosted Agno Agent
 - Verify with small synthetic/public-safe data; never send private background materials to models.
 - Every meaningful change requires appropriate verification. Keep docs/IMPLEMENTATION_PLAN.md updated.
 - Work on `codex/platform-management-20261118` based on UI commit `816f3a4`. No merges without a new explicit instruction.
-- Upstream applications supply tasks and authorized sources through interfaces. Keep the management UI for governance and observation. Execution steps remain ordered, workers and models are subject to shared admission limits.
+- Upstream applications supply tasks and authorized sources through interfaces. Keep the management UI for governance and observation. Respect graph dependencies, allow independent steps to run together, and preserve shared worker and model admission limits.
 - Generated data-processing scripts may run only through the controlled isolated script tool. Document Skills do not grant arbitrary host execution. New task agents require independent evaluation before reuse.
 

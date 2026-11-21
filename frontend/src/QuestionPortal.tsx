@@ -11,7 +11,6 @@ import { api, ApiError, post } from "./api";
 import { projectLabel } from "./projects";
 import type { Item, User } from "./types";
 import { Confirm, Empty, ErrorLine } from "./ui";
-import QuestionDesk from "./QuestionDesk";
 import TaskCaseDesk from "./TaskCaseDesk";
 import WbShell, {
   type WbDeskCommand,
@@ -35,10 +34,10 @@ const EMPTY_DESK: WbDeskState = {
 
 export default function QuestionPortal({
   Login,
-  legacy = false,
+  onManage,
 }: {
   Login: LoginComponent;
-  legacy?: boolean;
+  onManage: (projectId: string) => void;
 }) {
   const [user, setUser] = useState<User | null>(null);
   const [checking, setChecking] = useState(true);
@@ -119,7 +118,7 @@ export default function QuestionPortal({
   useEffect(() => {
     setDesk(EMPTY_DESK);
     setCommand(null);
-  }, [projectId, legacy]);
+  }, [projectId]);
 
   /* The management shell lists platform tasks while the desk lists case tasks.
      Show both here so the sidebar history never disappears when the user
@@ -213,14 +212,11 @@ export default function QuestionPortal({
   };
   const headerRight = (
     <>
-      <a className="desk-link" href={legacy ? "/" : "/questions"}>
-        {legacy ? "任务工作台" : "历史问答"}
-      </a>
       {user.role !== "requester" && (
-        <a className="desk-link" href="/manage">
+        <button className="desk-link" onClick={() => onManage(projectId)}>
           <Settings2 size={15} />
           管理工作台
-        </a>
+        </button>
       )}
       <button
         className="icon-button"
@@ -240,14 +236,12 @@ export default function QuestionPortal({
       projectId={projectId}
       projectLabel={projectLabel}
       onProjectChange={changeProject}
-      title={legacy ? "历史问答" : "任务工作台"}
+      onOpenWorkdesk={user.role !== "requester" ? () => onManage(projectId) : undefined}
+      title="任务工作台"
       tasks={shownTasks}
       selectedTaskId={desk.selected}
       onSelectTask={selectTask}
-      onNewTask={() => {
-        if (legacy) window.location.href = "/";
-        else sendCommand("compose");
-      }}
+      onNewTask={() => sendCommand("compose")}
       onRefreshTasks={() => {
         sendCommand("refresh");
         setPlatformTick((n) => n + 1);
@@ -270,24 +264,14 @@ export default function QuestionPortal({
         </ErrorLine>
       )}
       {projectId && projects?.some((p) => p.id === projectId) ? (
-        legacy ? (
-          <QuestionDesk
-            key={user.id + "/" + projectId}
-            projectId={projectId}
-            canSubmit={user.role !== "reviewer"}
-            onState={onDeskState}
-            command={command}
-          />
-        ) : (
-          <TaskCaseDesk
-            key={user.id + "/" + projectId}
-            projectId={projectId}
-            canSubmit={user.role !== "reviewer"}
-            onState={onDeskState}
-            command={command}
-            chromeInSidebar
-          />
-        )
+        <TaskCaseDesk
+          key={user.id + "/" + projectId}
+          projectId={projectId}
+          canSubmit={user.role !== "reviewer"}
+          onState={onDeskState}
+          command={command}
+          chromeInSidebar
+        />
       ) : projects?.length === 0 ? (
         <Empty
           title="尚未分配项目"

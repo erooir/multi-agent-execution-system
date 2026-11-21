@@ -174,10 +174,16 @@ code {
   color: #b3b6bb;
 }
 
+.wb-sidebar-fixed {
+  flex: none;
+  min-width: 0;
+}
 .wb-sidebar-scroll {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  min-width: 0;
+  overflow: hidden auto;
+  overscroll-behavior-y: contain;
   padding: 4px 0 24px;
   scrollbar-width: thin;
   scrollbar-color: #e2e4e6 transparent;
@@ -259,17 +265,18 @@ code {
 }
 .wb-task-rows {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1px;
 }
 .wb-task-row {
-  width: calc(100% + 20px);
+  width: 100%;
+  min-width: 0;
   min-height: 42px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin: 0 -10px;
-  padding: 8px 10px;
+  padding: 8px 4px;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -288,7 +295,7 @@ code {
   font-weight: 600;
 }
 .wb-task-row.is-indented {
-  padding-left: 40px;
+  padding-left: 28px;
   font-size: 14.5px;
   min-height: 38px;
 }
@@ -330,20 +337,31 @@ code {
   padding: 0 3px;
   font-size: 12px;
 }
-.wb-fold {
-  margin-top: 6px;
-  padding: 8px 0;
-  justify-content: flex-start;
+.wb-side-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 4px;
+  margin: 0 0 4px;
   border: 0;
+  border-radius: 6px;
   background: transparent;
-  color: #8b8f96;
-  font-size: 14px;
-  cursor: pointer;
+  color: var(--wb-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
 }
-.wb-fold:hover {
-  color: var(--wb-accent);
-  background: transparent;
-  border-color: transparent;
+.wb-side-toggle:hover {
+  background: var(--wb-surface-2);
+  color: var(--wb-text);
+}
+.wb-side-toggle[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+@media (max-height: 700px) {
+  .wb-quick-nav .wb-nav-row { min-height: 36px; padding-block: 6px; }
+  .wb-sidebar-head { padding-top: 12px; }
 }
 .wb-group-block {
   margin-bottom: 18px;
@@ -2268,8 +2286,22 @@ code {
 .expert-interview {
   display: grid;
   gap: 1rem;
-  padding-block: 1rem;
+  padding: 1.25rem 1.5rem;
 }
+.expert-interview-actions { display: flex; justify-content: flex-end; }
+.wb-current-workspace {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  margin: .4rem .65rem 1rem;
+  padding: .7rem .65rem;
+  background: var(--wb-green-soft, #eaf8f4);
+  color: var(--wb-accent);
+  border-radius: .6rem;
+  font-weight: 600;
+}
+.wb-current-workspace span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-current-project { margin-left: auto; color: var(--wb-accent); }
 .expert-interview label { display: grid; gap: 0.4rem; }
 .expert-interview textarea { min-height: 5rem; }
 .expert-interview dl {
@@ -2299,3 +2331,13 @@ code {
 }
 .agent-frequency button { text-align: left; }
 .agent-frequency meter { width: 100%; accent-color: var(--accent, #545dd5); }
+
+.hub-agent-filters { margin: 0 0 24px; }
+.hub-agent-filters > summary {
+  cursor: pointer;
+  color: var(--wb-secondary);
+  font-size: 13px;
+}
+.hub-agent-filters[open] > summary { margin-bottom: 12px; }
+.hub-connector-tools { margin-top: 18px; }
+.hub-connector-tools .record { margin-top: 8px; }

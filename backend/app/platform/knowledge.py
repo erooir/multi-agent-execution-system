@@ -15,6 +15,54 @@ from .quality import text_of
 from .service import DomainError, audit, fail, project_access, required, timestamp, usable_asset
 
 
+def project_connectors(project_id, user, repository):
+    """Project connector identities, shared by knowledge and capability navigation."""
+    from .tool_registry import catalog
+
+    project_access(project_id, user, repository=repository)
+    result = [
+        {
+            "id": server["id"],
+            "name": "项目表格服务",
+            "kind": "mcp",
+            "status": "published",
+            "transport": server["transport"],
+            "current_version": server["version"],
+            "builtin": True,
+        }
+        for server in catalog(include_readiness=False)["mcp_servers"]
+    ]
+    for row in repository.list("capability_definitions", project_id):
+        if row["kind"] != "mcp_server":
+            continue
+        result.append(
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "description": row.get("description", ""),
+                "kind": "mcp",
+                "status": row["status"],
+                "current_version": row.get("current_version"),
+                "transport": row.get("spec", {}).get("transport"),
+            }
+        )
+    for row in repository.list("connectors", project_id):
+        if row["kind"] != "http_knowledge":
+            continue
+        result.append(
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "description": row.get("description", ""),
+                "kind": "http_knowledge",
+                "status": row["status"],
+                "transport": "http",
+                "automatic_intake": row.get("automatic_intake", False),
+            }
+        )
+    return result
+
+
 def offline_host_allowed(host):
     if os.environ.get("HANGZHI_OFFLINE", "").lower() != "true":
         return True

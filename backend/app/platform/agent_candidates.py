@@ -34,7 +34,7 @@ def _safe_agent(source, index):
         name=f"可复用资料分析步骤 {index + 1}",
         description="来自通过审核任务的工具与技能组合；已移除任务原文、来源与产物。",
         instructions=(
-            "仅根据本次用户目标、授权输入及前一步结果完成本步骤。先阅读适用技能，使用已授权工具。"
+            "仅根据本次用户目标、授权输入及各前置步骤结果完成本步骤。先阅读适用技能，使用已授权工具。"
             "输出可溯源证据与明确缺口，不复用任何历史任务的数值、来源或结论。"
             "最终步骤须覆盖本次全部交付要求；无输入的概念推理不得编造引用。"
         ),
@@ -45,6 +45,35 @@ def _safe_agent(source, index):
         candidate_status="candidate",
     )
     return spec
+
+
+def _topology(workflow):
+    nodes = workflow["nodes"]
+    labels = {node["id"]: f"step{index + 1}" for index, node in enumerate(nodes)}
+    delivery = workflow.get("delivery_node") or nodes[-1]["id"]
+    return [
+        {
+            "id": labels[node["id"]],
+            "depends_on": [labels[dep] for dep in node["depends_on"]],
+            "delivery": node["id"] == delivery,
+        }
+        for node in nodes
+    ]
+
+
+def _replay_node(spec, index, agent_id):
+    graph = spec.pop("flow_node", None) or {
+        "id": f"step{index + 1}",
+        "depends_on": [f"step{index}"] if index else [],
+    }
+    return {
+        "id": graph["id"],
+        "depends_on": graph["depends_on"],
+        "label": spec["name"],
+        "agent_id": agent_id,
+        "agent_version": 1,
+        "config": {},
+    }
 
 
 def create_from_run(tx, task):
@@ -63,17 +92,19 @@ def create_from_run(tx, task):
     if existing:
         return existing
     frozen = {a["id"]: a for a in task["snapshot"]["agents"]}
-    nodes = task["snapshot"]["workflow"]["nodes"]
+    workflow = task["snapshot"]["workflow"]
+    nodes = workflow["nodes"]
     specs = [_safe_agent(frozen[n["agent_id"]], i) for i, n in enumerate(nodes)]
-    for node, spec in zip(nodes, specs, strict=True):
+    for node, spec, topology in zip(nodes, specs, _topology(workflow), strict=True):
         original = frozen[node["agent_id"]]
         validate_frozen(original, tx)
         spec["runtime_bindings"] = copy.deepcopy(original["runtime_bindings"])
+        spec["flow_node"] = topology
     candidate = {
         "id": cid,
         "project_id": task["project_id"],
         "status": "candidate",
-        "kind": "sequential_agent_team",
+        "kind": "dependency_agent_team",
         "name": "任务工具流程候选 " + task["id"][:8],
         "source_task_id": task["id"],
         "source_task_case_id": task["task_case_id"],
@@ -136,6 +167,7 @@ def _install_evaluation_flow(tx, source_case, source_task, evaluation_id, arm, s
         except ValueError:
             s.fail("candidate_binding_changed", "候选或基线依赖已变化，请以当前有效版本重新形成样本", 409)
         aid = f"eval-{evaluation_id}-{arm}-{index}"
+        nodes.append(_replay_node(spec, index, aid))
         spec.update(
             id=aid,
             project_id=source_case["project_id"],
@@ -159,16 +191,6 @@ def _install_evaluation_flow(tx, source_case, source_task, evaluation_id, arm, s
                 "checksum": s.digest(spec),
             },
         )
-        nodes.append(
-            {
-                "id": f"step{index + 1}",
-                "label": spec["name"],
-                "agent_id": aid,
-                "agent_version": 1,
-                "depends_on": [f"step{index}"] if index else [],
-                "config": {},
-            }
-        )
     wid = f"eval-{evaluation_id}-{arm}"
     flow = {
         "id": wid,
@@ -180,6 +202,10 @@ def _install_evaluation_flow(tx, source_case, source_task, evaluation_id, arm, s
         "scope": "evaluation",
         "task_case_id": source_case["id"],
         "nodes": nodes,
+        "delivery_node": next(
+            (spec["flow_node"]["id"] for spec in specs if spec.get("flow_node", {}).get("delivery")),
+            nodes[-1]["id"],
+        ),
     }
     tx.put("workflows", flow)
     tx.put(
@@ -279,7 +305,11 @@ def evaluate(cid, case_ids, max_cost_cny, user, repository):
         per_run = round(max_cost_cny / (2 * len(samples)), 6)
         for sample_index, (case, baseline, signature) in enumerate(samples):
             frozen = {a["id"]: a for a in baseline["snapshot"]["agents"]}
-            baseline_specs = [frozen[n["agent_id"]] for n in baseline["snapshot"]["workflow"]["nodes"]]
+            baseline_flow = baseline["snapshot"]["workflow"]
+            baseline_specs = [
+                {**frozen[node["agent_id"]], "flow_node": topology}
+                for node, topology in zip(baseline_flow["nodes"], _topology(baseline_flow), strict=True)
+            ]
             sample_id = f"{eid}-{sample_index}"
             arms = {}
             for arm, specs in (("baseline", baseline_specs), ("candidate", candidate["specs"])):
@@ -468,6 +498,7 @@ def promote(cid, user, repository):
             spec = copy.deepcopy(source)
             validate_frozen(spec, tx)
             aid = f"reusable-{cid.removeprefix('candidate-')}-{index}"
+            nodes.append(_replay_node(spec, index, aid))
             spec.update(
                 id=aid,
                 scope="reusable",
@@ -488,22 +519,12 @@ def promote(cid, user, repository):
                     "checksum": s.digest(spec),
                 },
             )
-            nodes.append(
-                {
-                    "id": f"step{index + 1}",
-                    "label": spec["name"],
-                    "agent_id": aid,
-                    "agent_version": 1,
-                    "depends_on": [f"step{index}"] if index else [],
-                    "config": {},
-                }
-            )
         wid = "reusable-" + cid.removeprefix("candidate-")
         flow = {
             "id": wid,
             "project_id": candidate["project_id"],
             "name": candidate["name"],
-            "description": "通过独立开发/留出真实评测的顺序流程",
+            "description": "通过独立开发与留出样本评测的流程",
             "task_type": "autonomous_analysis",
             "scope": "reusable",
             "status": "published",
@@ -511,6 +532,14 @@ def promote(cid, user, repository):
             "candidate_id": cid,
             "evaluation_id": evaluation["id"],
             "nodes": nodes,
+            "delivery_node": next(
+                (
+                    spec["flow_node"]["id"]
+                    for spec in candidate["specs"]
+                    if spec.get("flow_node", {}).get("delivery")
+                ),
+                nodes[-1]["id"],
+            ),
         }
         tx.put("workflows", flow)
         tx.put(

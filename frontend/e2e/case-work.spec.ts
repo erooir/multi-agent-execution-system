@@ -72,8 +72,7 @@ test("用例任务：真实提交、三节点审核、来源证据与智能体�
   expect(detail.artifacts).toHaveLength(1);
   expect(detail.artifacts[0].content.products.anomaly.difference).toBe(-3);
   expect(detail.quality_verdict.passed).toBe(true);
-  await workspacePage(page, "场景分析");
-  await page.getByRole("button", { name: "智能体运行监测" }).click();
+  await workspacePage(page, "智能体监测");
   const monitored = page
     .locator("tbody tr")
     .filter({ hasText: "独立证据核查员" });

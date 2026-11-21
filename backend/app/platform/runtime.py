@@ -19,7 +19,7 @@ import subprocess
 import time
 import uuid
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -44,6 +44,7 @@ from .tool_registry import permissions as agent_permissions
 
 ASSET_ROOT = ROOT / ".local" / "platform-assets"
 MAX_FILE_BYTES = 20 * 1024 * 1024
+MAX_TASK_MODEL_REQUESTS = 20
 GOAL_GUIDANCE = (
     "只按用户显式目标和quality要求交付，不自行增加完成标准；"
     "目标含糊时说明采用的假设或缺失信息，避免无依据地反复验证。"
@@ -324,6 +325,7 @@ class Execution:
     failure: BaseException | None = None
     case_plan: dict | None = None
     recovery: dict | None = None
+    parallel_node: bool = False
 
     @property
     def request(self):
@@ -412,7 +414,7 @@ class Execution:
         with self.repository.transaction() as tx:
             task = tx.fenced(self.task["id"], self.worker_id, self.token)
             count = task.get("model_request_count", 0)
-            if count >= 20:
+            if count >= MAX_TASK_MODEL_REQUESTS:
                 raise ModelCallError("model_call_limit", "已达到任务最多20次模型请求限制")
             task["model_request_count"] = count + 1
             self.task = tx.put("tasks", task)
@@ -420,6 +422,14 @@ class Execution:
     def update(self, event_type: str, payload: dict | None = None, **changes):
         with self.repository.transaction() as tx:
             task = tx.fenced(self.task["id"], self.worker_id, self.token)
+            if self.parallel_node and "in_flight" in changes:
+                pending = dict(task.get("in_flight") or {})
+                if changes["in_flight"]:
+                    pending[self.active_node_id] = changes["in_flight"]
+                else:
+                    pending.pop(self.active_node_id, None)
+                changes["in_flight"] = pending or None
+                payload = {**(payload or {}), "node_id": self.active_node_id}
             task.update(changes)
             self.task = tx.put("tasks", task)
             tx.event(task["id"], event_type, payload or {})
@@ -1336,7 +1346,8 @@ async def _execute_graph(execution: Execution, revision: int, reuse_revision: in
     if execution.request["task_type"] == "case_analysis":
         execution.case_plan = _case_plan_for_revision(execution, revision)
     outputs = {}
-    for plan in _graph(execution):
+
+    def prepare(plan):
         if revision and execution.case_plan and plan["id"] in execution.case_plan["reused_nodes"]:
             execution.check()
             prior = _prior_case_node(execution, revision - 1, plan["id"])
@@ -1347,7 +1358,7 @@ async def _execute_graph(execution: Execution, revision: int, reuse_revision: in
             ):
                 raise TaskFailure("repair_checkpoint_changed", "复用检查点与冻结节点版本不一致")
             outputs[plan["id"]] = _remember_output(execution, prior, prior["output"])
-            continue
+            return None
         previous = [outputs[dep] for dep in plan.get("depends_on", [])]
         for item in previous:
             gate = deterministic_quality(
@@ -1404,14 +1415,58 @@ async def _execute_graph(execution: Execution, revision: int, reuse_revision: in
                 raise TaskFailure(
                     "internal_output_invalid", "上游节点输出未通过结构与来源检查，已停止下游调用"
                 )
-        agent = _agent(execution, plan["agent_id"], plan.get("agent_version"))
-        outputs[plan["id"]] = await _run_node(
-            execution, plan, agent, previous, revision, reuse_revision=reuse_revision
-        )
+        return previous
+
+    pending = _graph(execution)
+    while pending:
+        ready = pending[:1]
+        if execution.request["task_type"] != "case_analysis":
+            ready = [plan for plan in pending if all(dep in outputs for dep in plan.get("depends_on", []))][
+                :2
+            ]
+        calls = []
+        for plan in ready:
+            pending.remove(plan)
+            previous = prepare(plan)
+            if plan["id"] in outputs:
+                continue
+            if previous is None:
+                return
+            agent = _agent(execution, plan["agent_id"], plan.get("agent_version"))
+            calls.append((plan, agent, previous))
+        if len(calls) == 1:
+            plan, agent, previous = calls[0]
+            outputs[plan["id"]] = await _run_node(
+                execution, plan, agent, previous, revision, reuse_revision=reuse_revision
+            )
+        elif calls:
+            branches = [replace(execution, active_node_id=None, parallel_node=True) for _ in calls]
+            results = await asyncio.gather(
+                *(
+                    _run_node(branch, *call, revision, reuse_revision=reuse_revision)
+                    for branch, call in zip(branches, calls, strict=True)
+                ),
+                return_exceptions=True,
+            )
+            failures = []
+            for branch, (plan, _, _), result in zip(branches, calls, results, strict=True):
+                if isinstance(result, BaseException):
+                    failures.append((branch, result))
+                else:
+                    outputs[plan["id"]] = result
+            execution.task = execution.current()
+            if failures:
+                for branch, failure in failures:
+                    feedback = _recovery_feedback(failure)
+                    if feedback and revision < execution.request.get("max_revisions", 0):
+                        _finish_failed_attempt(branch, revision, feedback["code"])
+                execution.active_node_id = failures[0][0].active_node_id
+                raise failures[0][1]
+    delivery = execution.task["snapshot"]["workflow"].get("delivery_node")
     execution.outputs = (
         [outputs["review"]]
         if execution.request["task_type"] == "case_analysis"
-        else [outputs[_graph(execution)[-1]["id"]]]
+        else [outputs[delivery or _graph(execution)[-1]["id"]]]
         if execution.request["task_type"] == "autonomous_analysis"
         else list(outputs.values())
     )

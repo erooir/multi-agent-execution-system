@@ -337,7 +337,7 @@ class ExecutorBinding(Contract):
 
 
 class ManagementProfile(Contract):
-    business: Literal["science", "historical", "public_sources", "general"]
+    business: Literal["general", "battlefield", "science", "geographic", "historical", "public_sources"]
     creation_method: Literal["interview", "manual"] = "manual"
     reason: str = Field(min_length=2, max_length=500)
 

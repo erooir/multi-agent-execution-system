@@ -29,6 +29,7 @@ def index(project_id: str, user: dict = read):
                 task_id.label("task_id"),
                 json_scalar(tx.engine, plans.c.payload, "version").label("version"),
                 json_scalar(tx.engine, plans.c.payload, "phase").label("phase"),
+                json_scalar(tx.engine, plans.c.payload, "workflow_id").label("workflow_id"),
             )
             .select_from(plans.join(cases, cases.c.id == case_id).join(tasks, tasks.c.id == task_id))
             .where(

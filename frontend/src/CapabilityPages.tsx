@@ -3,6 +3,7 @@ import { Boxes, Plus, RefreshCw } from "lucide-react";
 import { api, idPath, post } from "./api";
 import { parseObject, splitList, time } from "./domain";
 import type { Item, Mutation, Notify } from "./types";
+import { mcpConnectorId } from "./toolCatalogModel";
 import {
   Badge,
   Empty,
@@ -21,6 +22,7 @@ type Props = {
   isAdmin: boolean;
   mutate: Mutation;
   notify: Notify;
+  connectorId?: string;
 };
 
 const kindNames: Record<string, string> = {
@@ -36,11 +38,13 @@ export default function CapabilityPages({
   isAdmin,
   mutate,
   notify,
+  connectorId,
 }: Props) {
   const [definitions, setDefinitions] = useState<Item[]>([]),
     [catalog, setCatalog] = useState<Item>({ tools: [], skills: [] }),
+    [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
-    [create, setCreate] = useState<string | null>(null),
+    [create, setCreate] = useState<"skill" | "http_tool" | "agno_toolkit" | null>(null),
     [publish, setPublish] = useState<Item | null>(null),
     [versions, setVersions] = useState<Item | null>(null),
     [mapping, setMapping] = useState("{}"),
@@ -51,28 +55,31 @@ export default function CapabilityPages({
       const query = encodeURIComponent(projectId);
       const [items, available] = await Promise.all([
         api<Item[]>(`/v2/capability-definitions?project_id=${query}`),
-        api<Item>(`/v2/capabilities?project_id=${query}`),
+        connectorId ? null : api<Item>(`/v2/capabilities?project_id=${query}`),
       ]);
-      setDefinitions(items);
-      setCatalog(available);
+      setDefinitions(items.filter((item) => connectorId
+        ? item.kind === "mcp_server" && item.id === connectorId
+        : item.kind !== "mcp_server",
+      ));
+      if (available) setCatalog(available);
       setError("");
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setLoading(false);
     }
   }
   useEffect(() => {
     void load();
-  }, [projectId]);
+  }, [projectId, connectorId]);
 
-  function open(kind: string) {
+  function open(kind: NonNullable<typeof create>) {
     setForm({
       name: "",
       description: "",
       provider: "calculator",
       include_tools: "",
-      transport: "stdio",
       url: "",
-      launcher_id: "",
       secret_ref: "",
       input_schema: '{"type":"object","properties":{}}',
       output_schema: '{"type":"object"}',
@@ -90,10 +97,8 @@ export default function CapabilityPages({
 
   return (
     <>
-      <SectionTitle
-        eyebrow="NATIVE CAPABILITIES"
-        title="扩展接入"
-        description="优先使用文档技能包、Agno 工具包与 MCP 服务；项目负责版本、权限、审计和撤销。"
+      {!connectorId && <SectionTitle
+        title="技能与工具扩展"
         actions={
           <>
             <button aria-label="刷新接入能力目录" onClick={() => void load()}>
@@ -103,31 +108,32 @@ export default function CapabilityPages({
               <button onClick={() => open("skill")}>导入文档技能包</button>
             )}
             {isAdmin && (
-              <button className="primary" onClick={() => open("agno_toolkit")}>
-                <Plus size={17} /> 扩展接入
+              <button className="primary" onClick={() => open("http_tool")}>
+                <Plus size={17} /> 接入工具
               </button>
             )}
           </>
         }
-      />
+      />}
       {error && <ErrorLine>{error}</ErrorLine>}
-      <div className="metric-grid three">
+      {!connectorId && <div className="metric-grid three">
         <div className="metric">
           <span>已登记接入能力</span>
           <strong>{definitions.length}</strong>
         </div>
         <div className="metric">
-          <span>可授权工具 / MCP</span>
-          <strong>{catalog.tools?.length || 0}</strong>
+          <span>可授权工具</span>
+          <strong>{catalog.tools?.filter((tool: Item) => !mcpConnectorId(tool)).length || 0}</strong>
         </div>
         <div className="metric">
           <span>可授权技能（Skill）</span>
           <strong>{catalog.skills?.length || 0}</strong>
         </div>
-      </div>
-      <Panel title="项目接入能力">
+      </div>}
+      {loading && <p role="status">正在读取接入配置…</p>}
+      {!loading && <Panel title={connectorId ? undefined : "项目接入配置"}>
         {definitions.length ? (
-          <div className="asset-grid">
+          <div className={connectorId ? undefined : "asset-grid"}>
             {definitions.map((item) => (
               <Panel key={item.id}>
                 <div className="row-between">
@@ -201,11 +207,11 @@ export default function CapabilityPages({
           </div>
         ) : (
           <Empty
-            title="尚未接入外部能力"
-            description="可导入文档技能包，或由管理员登记 Agno 工具包、只读 HTTP JSON 工具和 MCP 服务。"
+            title={connectorId ? "未找到此连接器的配置" : "尚未接入外部能力"}
+            description={connectorId ? undefined : "可导入文档技能包，或由管理员接入只读 HTTP JSON 工具。"}
           />
         )}
-      </Panel>
+      </Panel>}
 
       {create && (
         <FormModal
@@ -233,11 +239,7 @@ export default function CapabilityPages({
                 description: form.description,
               };
               const path =
-                create === "agno_toolkit"
-                  ? "toolkits"
-                  : create === "http_tool"
-                    ? "tools"
-                    : "mcp";
+                create === "agno_toolkit" ? "toolkits" : "tools";
               const body =
                 create === "agno_toolkit"
                   ? {
@@ -245,27 +247,13 @@ export default function CapabilityPages({
                       provider: form.provider,
                       include_tools: splitList(form.include_tools),
                     }
-                  : create === "http_tool"
-                    ? {
-                        ...base,
-                        url: form.url,
-                        secret_ref: form.secret_ref || null,
-                        input_schema: parseObject(
-                          form.input_schema,
-                          "输入 Schema",
-                        ),
-                        output_schema: parseObject(
-                          form.output_schema,
-                          "输出 Schema",
-                        ),
-                      }
-                    : {
-                        ...base,
-                        transport: form.transport,
-                        url: form.url,
-                        launcher_id: form.launcher_id,
-                        secret_ref: form.secret_ref || null,
-                      };
+                  : {
+                      ...base,
+                      url: form.url,
+                      secret_ref: form.secret_ref || null,
+                      input_schema: parseObject(form.input_schema, "输入 Schema"),
+                      output_schema: parseObject(form.output_schema, "输出 Schema"),
+                    };
               await mutate(
                 () => post(`/v2/capability-definitions/${path}`, body),
                 "接入能力已保存",
@@ -290,18 +278,15 @@ export default function CapabilityPages({
             </Field>
           ) : (
             <>
-              {create !== "agno_toolkit" && (
-                <Field label="接入类型">
+              <Field label="接入类型">
                   <select
                     value={create}
-                    onChange={(e) => setCreate(e.target.value)}
+                    onChange={(e) => setCreate(e.target.value === "agno_toolkit" ? "agno_toolkit" : "http_tool")}
                   >
                     <option value="agno_toolkit">Agno 工具包</option>
                     <option value="http_tool">只读 HTTP JSON 工具</option>
-                    <option value="mcp_server">MCP 服务</option>
                   </select>
                 </Field>
-              )}
               <Field label="名称">
                 <input
                   required
@@ -386,51 +371,6 @@ export default function CapabilityPages({
                       value={form.output_schema}
                       onChange={(e) =>
                         setForm({ ...form, output_schema: e.target.value })
-                      }
-                    />
-                  </Field>
-                </>
-              )}
-              {create === "mcp_server" && (
-                <>
-                  <Field label="传输">
-                    <select
-                      value={form.transport}
-                      onChange={(e) =>
-                        setForm({ ...form, transport: e.target.value })
-                      }
-                    >
-                      <option value="stdio">stdio · 管理员预装 launcher</option>
-                      <option value="streamable_http">Streamable HTTP</option>
-                    </select>
-                  </Field>
-                  {form.transport === "stdio" ? (
-                    <Field label="Launcher ID">
-                      <input
-                        required
-                        value={form.launcher_id}
-                        onChange={(e) =>
-                          setForm({ ...form, launcher_id: e.target.value })
-                        }
-                      />
-                    </Field>
-                  ) : (
-                    <Field label="MCP URL">
-                      <input
-                        required
-                        type="url"
-                        value={form.url}
-                        onChange={(e) =>
-                          setForm({ ...form, url: e.target.value })
-                        }
-                      />
-                    </Field>
-                  )}
-                  <Field label="密钥引用">
-                    <input
-                      value={form.secret_ref}
-                      onChange={(e) =>
-                        setForm({ ...form, secret_ref: e.target.value })
                       }
                     />
                   </Field>

@@ -2462,6 +2462,38 @@
         }
       }
     },
+    "/api/v2/projects/{project_id}": {
+      "delete": {
+        "summary": "Delete Project",
+        "operationId": "delete_project_api_v2_projects__project_id__delete",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/agents": {
       "get": {
         "summary": "Agents",
@@ -2559,6 +2591,42 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ConfirmInterview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/expert-design/create": {
+      "post": {
+        "summary": "Expert Create",
+        "operationId": "expert_create_api_v2_expert_design_create_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TextAgentRequest"
               }
             }
           },
@@ -4016,6 +4084,43 @@
         }
       }
     },
+    "/api/v2/project-connectors": {
+      "get": {
+        "summary": "Project Connectors",
+        "operationId": "project_connectors_api_v2_project_connectors_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/knowledge/search": {
       "post": {
         "summary": "Knowledge Search",
@@ -5306,10 +5411,12 @@
           "business": {
             "type": "string",
             "enum": [
+              "general",
+              "battlefield",
               "science",
+              "geographic",
               "historical",
-              "public_sources",
-              "general"
+              "public_sources"
             ],
             "title": "Business"
           },
@@ -6385,6 +6492,35 @@
           "ready"
         ],
         "title": "TaskPreflight"
+      },
+      "TextAgentRequest": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "prompt": {
+            "type": "string",
+            "maxLength": 5000,
+            "minLength": 5,
+            "title": "Prompt"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 16,
+            "pattern": "^[a-zA-Z0-9-]+$",
+            "title": "Idempotency Key"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_id",
+          "prompt",
+          "idempotency_key"
+        ],
+        "title": "TextAgentRequest"
       },
       "ToolCallDetail": {
         "properties": {

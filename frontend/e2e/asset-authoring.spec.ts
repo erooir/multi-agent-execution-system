@@ -20,9 +20,9 @@ test("真实资产编排：定义表单、不可变版本差异、可视化依�
   const project = await response.json();
   await page.reload();
   await group(page, project.id).click();
-  await workspacePage(page, "智能体资产");
-  await page.getByRole("button", { name: "创建智能体", exact: true }).click();
-  let dialog = page.getByRole("dialog", { name: "创建智能体", exact: true });
+  await workspacePage(page, "智能体");
+  await page.getByRole("button", { name: "新建智能体", exact: true }).click();
+  let dialog = page.getByRole("dialog", { name: "新建智能体", exact: true });
   await dialog.getByLabel("名称", { exact: true }).fill(name);
   await dialog
     .getByLabel("职责说明", { exact: true })
@@ -35,7 +35,7 @@ test("真实资产编排：定义表单、不可变版本差异、可视化依�
     (r) =>
       r.request().method() === "POST" && r.url().endsWith("/api/v2/agents"),
   );
-  await dialog.getByRole("button", { name: "保存定义", exact: true }).click();
+  await dialog.getByRole("button", { name: "确认添加", exact: true }).click();
   expect((await agentSaved).ok()).toBeTruthy();
   await expect(dialog).not.toBeVisible({ timeout: 15000 });
   await page
@@ -176,7 +176,8 @@ test("真实资产编排：定义表单、不可变版本差异、可视化依�
   expect(workflow.nodes[1].depends_on).toEqual([workflow.nodes[0].id]);
   expect(workflow.nodes[0].depends_on).toEqual([]);
   await page
-    .getByRole("button", { name: new RegExp(`${name}-双节点`) })
+    .getByRole("row").filter({ hasText: `${name}-双节点` })
+    .getByRole("button", { name: "查看流程", exact: true })
     .click();
   details = page.getByRole("dialog", { name: `${name}-双节点`, exact: true });
   await details

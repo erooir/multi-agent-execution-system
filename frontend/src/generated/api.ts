@@ -1003,6 +1003,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/projects/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Project */
+        delete: operations["delete_project_api_v2_projects__project_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/agents": {
         parameters: {
             query?: never;
@@ -1049,6 +1066,23 @@ export interface paths {
         put?: never;
         /** Expert Confirm */
         post: operations["expert_confirm_api_v2_expert_design_confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/expert-design/create": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Expert Create */
+        post: operations["expert_create_api_v2_expert_design_create_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1586,6 +1620,23 @@ export interface paths {
         put?: never;
         /** Create Connector */
         post: operations["create_connector_api_v2_connectors_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/project-connectors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Project Connectors */
+        get: operations["project_connectors_api_v2_project_connectors_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2143,7 +2194,7 @@ export interface components {
              * Business
              * @enum {string}
              */
-            business: "science" | "historical" | "public_sources" | "general";
+            business: "general" | "battlefield" | "science" | "geographic" | "historical" | "public_sources";
             /**
              * Creation Method
              * @default manual
@@ -2573,6 +2624,15 @@ export interface components {
             checks?: string[];
             /** Warnings */
             warnings?: string[];
+        };
+        /** TextAgentRequest */
+        TextAgentRequest: {
+            /** Project Id */
+            project_id: string;
+            /** Prompt */
+            prompt: string;
+            /** Idempotency Key */
+            idempotency_key: string;
         };
         /** ToolCallDetail */
         ToolCallDetail: {
@@ -4663,6 +4723,35 @@ export interface operations {
             };
         };
     };
+    delete_project_api_v2_projects__project_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     agents_api_v2_agents_get: {
         parameters: {
             query?: never;
@@ -4759,6 +4848,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ConfirmInterview"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    expert_create_api_v2_expert_design_create_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TextAgentRequest"];
             };
         };
         responses: {
@@ -5976,6 +6098,37 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    project_connectors_api_v2_project_connectors_get: {
+        parameters: {
+            query: {
+                project_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

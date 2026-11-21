@@ -32,27 +32,19 @@ type Common = {
 };
 export function KnowledgePage({
   projectId,
-  connectors,
+  onConnectors,
   memories,
   assets,
   canEdit,
   mutate,
   notify,
-}: Common & { connectors: Item[]; memories: Item[]; assets: Item[] }) {
+}: Common & { onConnectors: () => void; memories: Item[]; assets: Item[] }) {
   const [tab, setTab] = useState("search"),
     [query, setQuery] = useState(""),
     [results, setResults] = useState<any>(null),
     [busy, setBusy] = useState(false),
-    [create, setCreate] = useState<"connector" | "memory" | null>(null);
-  const [connector, setConnector] = useState({
-      name: "",
-      kind: "local_assets",
-      automatic_intake: false,
-      allow_public_results: false,
-      base_url: "",
-      description: "",
-    }),
-    [memory, setMemory] = useState({
+    [create, setCreate] = useState<"memory" | null>(null);
+  const [memory, setMemory] = useState({
       content: "",
       source_refs: [] as string[],
       retention_days: 7,
@@ -81,19 +73,13 @@ export function KnowledgePage({
     <>
       <SectionTitle
         eyebrow="KNOWLEDGE & MEMORY"
-        title="知识库"
-        description="通过授权连接器检索来源，保存有依据且有保留期限的核心信息。"
+        title="检索与记忆"
+        description="检索当前工作空间的资料和已接入数据服务。"
         actions={
           canEdit && (
             <>
               <button onClick={() => setCreate("memory")}>保存核心记忆</button>
-              <button
-                className="primary"
-                onClick={() => setCreate("connector")}
-              >
-                <Plus size={18} />
-                登记连接器
-              </button>
+              <button onClick={onConnectors}>连接器管理</button>
             </>
           )
         }
@@ -103,7 +89,6 @@ export function KnowledgePage({
         onChange={setTab}
         items={[
           { id: "search", label: "授权检索" },
-          { id: "connectors", label: `连接器 · ${connectors.length}` },
           { id: "memories", label: `核心记忆 · ${memories.length}` },
         ]}
       />
@@ -122,7 +107,7 @@ export function KnowledgePage({
               aria-label="知识检索内容"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="在当前项目的授权数据与记忆中检索"
+              placeholder="在工作空间的授权资料中检索"
             />
             <button className="primary" disabled={busy}>
               {busy ? "正在检索…" : "检索来源"}
@@ -164,36 +149,6 @@ export function KnowledgePage({
           </Panel>
         </>
       )}
-      {tab === "connectors" && (
-        <div className="asset-grid">
-          {connectors.length ? (
-            connectors.map((c) => (
-              <Panel key={c.id}>
-                <div className="row-between">
-                  <span className="asset-icon">
-                    <Database size={24} />
-                  </span>
-                  <Badge status={c.status} />
-                </div>
-                <h3>{c.name}</h3>
-                <p>{c.description}</p>
-                <p className="muted">
-                  {c.kind === "local_assets"
-                    ? "本地授权数据目录"
-                    : "上游知识接口"}
-                </p>
-                {c.base_url && <code className="wrap-text">{c.base_url}</code>}
-                <JsonView value={c} />
-              </Panel>
-            ))
-          ) : (
-            <Empty
-              title="尚未登记连接器"
-              description="可登记本地数据检索连接器或待对接的上游知识接口。"
-            />
-          )}
-        </div>
-      )}
       {tab === "memories" && (
         <Panel>
           {memories.length ? (
@@ -214,91 +169,6 @@ export function KnowledgePage({
             />
           )}
         </Panel>
-      )}
-      {create === "connector" && (
-        <FormModal
-          title="登记知识连接器"
-          onClose={() => setCreate(null)}
-          onSubmit={() =>
-            mutate(
-              () =>
-                post("/v2/connectors", { ...connector, project_id: projectId }),
-              "连接器已登记",
-            )
-          }
-        >
-          <Field label="名称">
-            <input
-              required
-              value={connector.name}
-              onChange={(e) =>
-                setConnector({ ...connector, name: e.target.value })
-              }
-            />
-          </Field>
-          <Field label="连接器类型">
-            <select
-              value={connector.kind}
-              onChange={(e) =>
-                setConnector({ ...connector, kind: e.target.value })
-              }
-            >
-              <option value="local_assets">本地授权数据</option>
-              <option value="http_knowledge">上游 HTTP 知识服务</option>
-            </select>
-          </Field>
-          {connector.kind === "http_knowledge" && (
-            <>
-              <Field label="内网服务地址">
-                <input
-                  type="url"
-                  value={connector.base_url}
-                  onChange={(e) =>
-                    setConnector({ ...connector, base_url: e.target.value })
-                  }
-                  placeholder="http://internal-service/knowledge"
-                />
-              </Field>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={connector.automatic_intake}
-                  onChange={(e) =>
-                    setConnector({
-                      ...connector,
-                      automatic_intake: e.target.checked,
-                    })
-                  }
-                />
-                允许任务按需向此服务发送检索条件
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={connector.allow_public_results}
-                  onChange={(e) =>
-                    setConnector({
-                      ...connector,
-                      allow_public_results: e.target.checked,
-                    })
-                  }
-                />
-                信任此来源逐条声明的公开分类（云端仍需任务授权）
-              </label>
-              <p className="note">
-                登记接口不代表完成对接；实际状态由服务端适配器验证。凭据只在服务端配置。
-              </p>
-            </>
-          )}
-          <Field label="说明">
-            <textarea
-              value={connector.description}
-              onChange={(e) =>
-                setConnector({ ...connector, description: e.target.value })
-              }
-            />
-          </Field>
-        </FormModal>
       )}
       {create === "memory" && (
         <FormModal
@@ -725,6 +595,7 @@ export function OperationsPage({
     [renaming, setRenaming] = useState<Item | null>(null),
     [projectName, setProjectName] = useState(""),
     [members, setMembers] = useState<Item | null>(null),
+    [deleting, setDeleting] = useState<Item | null>(null),
     [memberText, setMemberText] = useState(""),
     [audits, setAudits] = useState<Item[]>([]);
   const [connection, setConnection] = useState<Item | null>(null);
@@ -1024,7 +895,7 @@ export function OperationsPage({
                           </button>
                         )}
                         {user.role === "admin" && (
-                          <button
+                          <><button
                             onClick={() => {
                               setMembers(p);
                               setMemberText((p.members || []).join(", "));
@@ -1032,6 +903,11 @@ export function OperationsPage({
                           >
                             管理成员
                           </button>
+                          <button disabled={p.running_tasks} className="danger"
+                            title={p.running_tasks ? "有任务正在运行" : "永久删除工作空间"}
+                            onClick={() => setDeleting(p)}>
+                            {p.running_tasks ? "运行中，无法删除" : "删除"}
+                          </button></>
                         )}
                       </div>
                     </td>
@@ -1061,6 +937,14 @@ export function OperationsPage({
             <Empty title="暂无可见审计记录" />
           )}
         </Panel>
+      )}
+      {deleting && (
+        <Confirm title={`删除「${deleting.name}」`} confirm="永久删除" danger
+          description="此空间的任务、资料登记、工作流及成员关系将永久删除。"
+          onClose={() => setDeleting(null)} onConfirm={async () => {
+            await mutate(() => api(idPath("projects", deleting.id), { method: "DELETE" }), "工作空间已删除");
+            setDeleting(null);
+          }}/>
       )}
       {createProject && (
         <FormModal

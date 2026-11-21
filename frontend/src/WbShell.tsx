@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -8,7 +9,6 @@ import {
 import {
   Activity,
   ArrowRight,
-  Bot,
   BookOpen,
   Boxes,
   ChevronRight,
@@ -21,7 +21,6 @@ import {
   Layers3,
   LogOut,
   Menu,
-  MessageSquare,
   Network,
   Plus,
   Settings2,
@@ -173,6 +172,7 @@ export default function WbShell({
 }: WbShellProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const recentTasksId = useId();
   const [recentCollapsed, setRecentCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [budgetData, setBudgetData] = useState<Item | null>(budget);
@@ -201,15 +201,13 @@ export default function WbShell({
 
   const label = (project: WbProject) =>
     projectLabel ? projectLabel(project, projects) : project.name;
+  const currentProject = projects.find((project) => project.id === projectId);
   const displayName = user.name || user.username || "用户";
   const groupedTasks = allTasks || tasks;
-  const recent = useMemo(
-    () => (recentCollapsed ? [] : tasks.slice(0, 6)),
-    [tasks, recentCollapsed],
-  );
+  const recent = tasks.slice(0, 6);
   const groups = useMemo(
     () =>
-      projects.map((project) => ({
+      [...projects].sort((a, b) => Number(b.id === projectId) - Number(a.id === projectId)).map((project) => ({
         project,
         rows: groupedTasks
           .filter((t) =>
@@ -258,7 +256,6 @@ export default function WbShell({
       ? Math.min(100, Math.max(0, (spent / limit) * 100))
       : null;
   const isManage = window.location.pathname.replace(/\/$/, "") === "/manage";
-  const isLegacy = window.location.pathname.replace(/\/$/, "") === "/questions";
 
   return (
     <div className="wb-app">
@@ -286,10 +283,16 @@ export default function WbShell({
           </div>
         </div>
 
-        <div className="wb-sidebar-scroll">
+        <div className="wb-sidebar-fixed">
+          {currentProject && (
+            <div className="wb-current-workspace" title={label(currentProject)}>
+              <Folder size={16} /><span>{label(currentProject)}</span>
+            </div>
+          )}
           <nav className="wb-quick-nav" aria-label="主导航">
             <button
               className="wb-nav-row"
+              disabled={!onNewTask}
               onClick={() => {
                 setMobileOpen(false);
                 onNewTask?.();
@@ -300,7 +303,7 @@ export default function WbShell({
               </span>
               新建任务
             </button>
-            <button
+            {user.role !== "requester" && <><button
               className={`wb-nav-row ${activeNav === "workdesk" ? "is-active" : ""}`}
               onClick={openWorkdesk}
             >
@@ -316,7 +319,7 @@ export default function WbShell({
               <span className="wb-nav-icon">
                 <Network size={19} />
               </span>
-              专家·技能·连接器
+              智能体·技能·连接器
             </button>
             <button
               className={`wb-nav-row ${activeNav === "library" ? "is-active" : ""}`}
@@ -325,7 +328,7 @@ export default function WbShell({
               <span className="wb-nav-icon">
                 <BookOpen size={19} />
               </span>
-              知识库·资料库·发现
+              知识库
             </button>
             <button
               className="wb-nav-row"
@@ -344,51 +347,52 @@ export default function WbShell({
                 <Boxes size={19} />
               </span>
               场景分析
-            </button>
+            </button></>}
           </nav>
+        </div>
 
+        <div className="wb-sidebar-scroll" aria-label="最近任务与工作空间">
           <div className="wb-side-section">
-            <div className="wb-side-label">最近</div>
-            {tasksError && (
-              <p className="wb-task-error">
-                {tasksError}
-                {onRefreshTasks && (
-                  <button onClick={onRefreshTasks}>重新连接</button>
-                )}
-              </p>
-            )}
-            {tasksLoading && !tasks.length ? (
-              <p className="wb-task-empty" role="status">
-                正在读取任务记录…
-              </p>
-            ) : recent.length ? (
-              <div className="wb-task-rows">
-                {recent.map((task) => (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    selected={task.id === selectedTaskId}
-                    onSelect={selectTask}
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="wb-task-empty">
-                {recentCollapsed ? "已收起" : "还没有任务记录"}
-              </p>
-            )}
-            {tasks.length > 0 && (
-              <button
-                className="wb-fold"
-                onClick={() => setRecentCollapsed(!recentCollapsed)}
-              >
-                {recentCollapsed ? "展开" : "收起"}
-              </button>
-            )}
+            <button
+              className="wb-side-toggle"
+              type="button"
+              aria-expanded={!recentCollapsed}
+              aria-controls={recentTasksId}
+              onClick={() => setRecentCollapsed((collapsed) => !collapsed)}
+            >
+              <span>最近任务</span>
+              <ChevronRight size={15} aria-hidden="true" />
+            </button>
+            <div id={recentTasksId} hidden={recentCollapsed}>
+              {tasksError && (
+                <p className="wb-task-error">
+                  {tasksError}
+                  {onRefreshTasks && (
+                    <button onClick={onRefreshTasks}>重新连接</button>
+                  )}
+                </p>
+              )}
+              {tasksLoading && !tasks.length ? (
+                <p className="wb-task-empty" role="status">正在读取任务记录…</p>
+              ) : recent.length ? (
+                <div className="wb-task-rows">
+                  {recent.map((task) => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      selected={task.id === selectedTaskId}
+                      onSelect={selectTask}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="wb-task-empty">还没有任务记录</p>
+              )}
+            </div>
           </div>
 
           <div className="wb-side-section">
-            <div className="wb-side-label">分组</div>
+            <div className="wb-side-label">工作空间</div>
             {groups.length ? (
               groups.map(({ project, rows }) => (
                 <div className="wb-group-block" key={project.id}>
@@ -401,6 +405,7 @@ export default function WbShell({
                   >
                     <Folder size={18} />
                     <span>{label(project)}</span>
+                    {project.id === projectId && <small className="wb-current-project">当前</small>}
                   </button>
                   {rows.length > 0 && (
                     <div className="wb-task-rows">
@@ -489,26 +494,16 @@ export default function WbShell({
             <span>设置</span>
             <ChevronRight size={14} />
           </button>
-          <div className="wb-menu-sep" />
-          {!isManage && (
-            <a className="wb-menu-row" href="/manage">
-              <Activity size={16} />
-              <span>管理工作台</span>
-              <ArrowRight size={14} />
-            </a>
+          {!isManage && user.role !== "requester" && (
+            <>
+              <div className="wb-menu-sep" />
+              <button className="wb-menu-row" onClick={openWorkdesk}>
+                <Activity size={16} />
+                <span>管理工作台</span>
+                <ArrowRight size={14} />
+              </button>
+            </>
           )}
-          {!isLegacy && (
-            <a className="wb-menu-row" href="/questions">
-              <MessageSquare size={16} />
-              <span>历史问答</span>
-              <ArrowRight size={14} />
-            </a>
-          )}
-          <a className="wb-menu-row" href="/manage?view=agents">
-            <Bot size={16} />
-            <span>智能体资产</span>
-            <ArrowRight size={14} />
-          </a>
           <div className="wb-menu-sep" />
           <button
             className="wb-menu-row is-danger"

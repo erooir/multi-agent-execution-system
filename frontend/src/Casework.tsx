@@ -6,10 +6,9 @@ import { SectionTitle, Empty } from "./ui";
 import { TaskForm } from "./Forms";
 import SemanticEvidence from "./SemanticEvidence";
 import { CaseRoleComparison, caseRoleAgent, RoleFacts } from "./CaseRoles";
-import AgentActivity from "./AgentActivity";
 import "./case-catalog.css";
 
-export type CaseTab = "catalog" | "roles" | "monitor" | "semantic";
+export type CaseTab = "catalog" | "roles" | "semantic";
 
 const families: Record<string, string> = {
   B: "事件与历史",
@@ -28,7 +27,6 @@ export default function Casework({
   offline,
   initialTab = "catalog",
   onTask,
-  onAgent,
 }: {
   projectId: string;
   canEdit: boolean;
@@ -40,7 +38,6 @@ export default function Casework({
   offline: boolean;
   initialTab?: CaseTab;
   onTask: (id: string) => void;
-  onAgent: (id: string) => void;
 }) {
   const [catalog, setCatalog] = useState<Item[]>([]),
     [tools, setTools] = useState<Item[]>([]),
@@ -170,14 +167,6 @@ export default function Casework({
         >
           <Users size={16} />
           用例岗位对照
-        </button>
-        <button
-          className={tab === "monitor" ? "selected" : ""}
-          aria-pressed={tab === "monitor"}
-          onClick={() => setTab("monitor")}
-        >
-          <Activity size={16} />
-          智能体运行监测
         </button>
         {canEdit && !offline && (
           <button
@@ -386,13 +375,7 @@ export default function Casework({
           offline={offline}
           onTask={onTask}
         />
-      ) : (
-        <AgentActivity
-          projectId={projectId}
-          onAgent={onAgent}
-          onTask={onTask}
-        />
-      )}
+      ) : null}
       {profile && (
         <TaskForm
           projectId={projectId}

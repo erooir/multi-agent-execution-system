@@ -15,6 +15,7 @@ import { agentScopeLabel } from "./agentScopeModel";
 import {
   catalogMatches,
   eligibleAgents,
+  mcpConnectorId,
   toolGroup,
   toolGroups,
   type CatalogKind,
@@ -29,7 +30,6 @@ type Readiness = {
 type Catalog = {
   tools: Item[];
   skills: Item[];
-  mcp_servers: Item[];
   readiness?: {
     tools: Record<string, Readiness>;
     skills: Record<string, Readiness>;
@@ -42,6 +42,7 @@ type Props = {
   onAgent: (id: string, toolId?: string) => void;
   initialId?: string;
   initialKind?: CatalogKind;
+  connectorId?: string;
 };
 
 const baseParameters: Record<string, string> = {
@@ -62,6 +63,7 @@ export default function ToolCatalog({
   onAgent,
   initialId,
   initialKind,
+  connectorId,
 }: Props) {
   const [response, setResponse] = useState<{
     project: string;
@@ -76,7 +78,7 @@ export default function ToolCatalog({
   const [group, setGroup] = useState("");
   const [onlyGranted, setOnlyGranted] = useState(false);
   const [selectedId, setSelectedId] = useState("");
-  // Deep link from the expert/skill/connector center: preselect one catalog entry.
+  // Start the detail view on the requested catalog entry.
   useEffect(() => {
     if (!initialId) return;
     if (initialKind) setKind(initialKind);
@@ -107,7 +109,9 @@ export default function ToolCatalog({
   },[projectId,revision]);
   const current = response?.project === projectId ? response : undefined;
   const catalog = current?.catalog;
-  const tools = catalog?.tools || [];
+  const tools = (catalog?.tools || []).filter((tool) =>
+    connectorId ? mcpConnectorId(tool) === connectorId && tool.id === initialId : !mcpConnectorId(tool),
+  );
   const skills = catalog?.skills || [];
   const items = kind === "tools" ? tools : skills;
   const grants = new Map(
@@ -143,12 +147,12 @@ export default function ToolCatalog({
     setKind(next);
   }
   return (
-    <div className="tool-catalog">
-      <SectionTitle
+    <div className="tool-catalog" data-connector-tool={connectorId || undefined}>
+      {!connectorId && <SectionTitle
         eyebrow="项目能力"
         title="工具箱"
         description="工具执行具体操作，文档技能包提供步骤和参考知识。选择一个版本可查看项目授权和实际使用次数。"
-      />
+      />}
       {current?.error ? (
         <div role="alert" className="error-line">
           工具目录未能读取。{current.error}{" "}
@@ -160,15 +164,15 @@ export default function ToolCatalog({
         </p>
       ) : (
         <>
-          <Tabs
+          {!connectorId && <Tabs
             value={kind}
             onChange={(id) => chooseKind(id as CatalogKind)}
             items={[
               { id: "tools", label: "工具 · " + tools.length },
               { id: "skills", label: "文档技能包 · " + skills.length },
             ]}
-          />
-          {catalog.readiness && (
+          />}
+          {!connectorId && catalog.readiness && (
             <p className="catalog-readiness-summary">
               当前部署已就绪{" "}
               {
@@ -180,7 +184,7 @@ export default function ToolCatalog({
               / {items.length} 项。实际执行还需满足任务授权、输入条件与预算。
             </p>
           )}
-          <div className="toolbar catalog-controls">
+          {!connectorId && <div className="toolbar catalog-controls">
             <label className="search">
               <Search size={17} aria-hidden="true" />
               <input
@@ -197,7 +201,7 @@ export default function ToolCatalog({
                 onChange={(e) => setGroup(e.target.value)}
               >
                 <option value="">全部分类</option>
-                {Object.entries(toolGroups).map(([id, label]) => {
+                {Object.entries(toolGroups).filter(([id]) => id !== "mcp").map(([id, label]) => {
                   const count = tools.filter(
                     (tool) => toolGroup(tool) === id,
                   ).length;
@@ -222,16 +226,16 @@ export default function ToolCatalog({
             <span role="status" className="muted">
               {visible.length} 项匹配
             </span>
-          </div>
+          </div>}
           {!selected ? (
             <Empty
-              title="没有匹配项"
-              description="可调整关键词或项目授权筛选。"
-              action={<button onClick={resetFilters}>清除筛选</button>}
+              title={connectorId ? "此连接器的工具当前不可用" : "没有匹配项"}
+              description={connectorId ? undefined : "可调整关键词或项目授权筛选。"}
+              action={connectorId ? undefined : <button onClick={resetFilters}>清除筛选</button>}
             />
           ) : (
             <div className="catalog-layout">
-              <div className="catalog-index" aria-label="目录条目">
+              {!connectorId && <div className="catalog-index" aria-label="目录条目">
                 {visible.map((item) => (
                   <button
                     key={item.id}
@@ -264,7 +268,7 @@ export default function ToolCatalog({
                     <ChevronRight size={16} aria-hidden="true" />
                   </button>
                 ))}
-              </div>
+              </div>}
               <section
                 className="panel catalog-detail"
                 aria-label="所选目录条目"
@@ -280,7 +284,7 @@ export default function ToolCatalog({
                     ? toolGroups[toolGroup(selected)]
                     : "文档技能包"}
                 </span>
-                <h2>{selected.label || selected.name}</h2>
+                {!connectorId && <h2>{selected.label || selected.name}</h2>}
                 <p className="catalog-identifier">
                   <code>{selected.id}</code>
                   <span>v{selected.version}</span>
@@ -357,23 +361,6 @@ export default function ToolCatalog({
                         output: selected.output_schema,
                       }}
                     />
-                    {selected.kind === "mcp" &&
-                      catalog.mcp_servers.length > 0 && (
-                        <p className="catalog-note">
-                          已登记 MCP 服务 ·{" "}
-                          {catalog.mcp_servers
-                            .map(
-                              (s) =>
-                                s.id +
-                                " v" +
-                                s.version +
-                                " (" +
-                                s.transport +
-                                ")",
-                            )
-                            .join("、")}
-                        </p>
-                      )}
                   </>
                 ) : (
                   <>

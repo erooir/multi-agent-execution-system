@@ -3,6 +3,47 @@
     "PlanningStep": {
       "additionalProperties": false,
       "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,39}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "depends_on": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 20,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Depends On"
+        },
+        "input_description": {
+          "default": "",
+          "maxLength": 500,
+          "title": "Input Description",
+          "type": "string"
+        },
+        "output_description": {
+          "default": "",
+          "maxLength": 500,
+          "title": "Output Description",
+          "type": "string"
+        },
         "label": {
           "maxLength": 100,
           "minLength": 1,
@@ -75,10 +116,22 @@
       "items": {
         "$ref": "#/$defs/PlanningStep"
       },
-      "maxItems": 4,
+      "maxItems": 16,
       "minItems": 1,
       "title": "Steps",
       "type": "array"
+    },
+    "delivery_node": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Delivery Node"
     },
     "missing_data": {
       "items": {

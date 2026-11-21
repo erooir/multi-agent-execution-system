@@ -40,7 +40,8 @@ import {
 } from "./domain";
 import type { Bootstrap, Item, Mutation, Page, User } from "./types";
 import { Badge, Confirm, Empty, ErrorLine, Panel, SectionTitle } from "./ui";
-import { AgentsPage, DataPage, WorkflowsPage } from "./AssetPages";
+import { AgentDetailsDialog, DataPage, WorkflowDetailsDialog } from "./AssetPages";
+import { WorkflowForm } from "./Forms";
 import TasksPage from "./TaskPages";
 import CapabilityPages from "./CapabilityPages";
 import ResourceManagement from "./ResourceManagement";
@@ -51,6 +52,7 @@ import Casework, { type CaseTab } from "./Casework";
 import ToolCatalog from "./ToolCatalog";
 import WorkspaceEntry from "./WorkspaceEntry";
 import QuestionPortal from "./QuestionPortal";
+import TaskCaseDesk from "./TaskCaseDesk";
 import WbShell, { type WbTask, type HubKind } from "./WbShell";
 import HubCenter from "./HubCenter";
 import "./task-experience.css";
@@ -63,7 +65,7 @@ const nav: { id: Page; name: string; icon: any; group: string }[] = [
   { id: "overview", name: "工作台", icon: Gauge, group: "工作空间" },
   {
     id: "hub",
-    name: "专家 · 技能 · 连接器",
+    name: "智能体 · 技能 · 连接器",
     icon: Sparkles,
     group: "工作空间",
   },
@@ -75,14 +77,12 @@ const nav: { id: Page; name: string; icon: any; group: string }[] = [
   },
   {
     id: "library",
-    name: "知识库 · 资料库 · 发现",
+    name: "知识库",
     icon: Database,
     group: "工作空间",
   },
   { id: "casework", name: "场景分析", icon: Layers3, group: "工作空间" },
-  { id: "agents", name: "智能体资产", icon: Bot, group: "工作空间" },
   { id: "tasks", name: "任务中心", icon: Activity, group: "工作空间" },
-  { id: "workflows", name: "工作流", icon: Workflow, group: "资产与知识" },
   { id: "tools", name: "工具箱", icon: Wrench, group: "资产与知识" },
   { id: "capabilities", name: "扩展接入", icon: Sparkles, group: "资产与知识" },
   { id: "data", name: "我的资料", icon: Database, group: "资产与知识" },
@@ -105,18 +105,17 @@ const workdeskTabs: { key: WorkdeskTab; label: string; icon: any }[] =
     { key: "resources", label: "资源计量", icon: Gauge },
   ];
 const centerTabs: { key: HubKind; label: string; icon: any }[] = [
-  { key: "expert", label: "专家", icon: Sparkles },
+  { key: "expert", label: "智能体", icon: Sparkles },
   { key: "skill", label: "技能", icon: Wrench },
   { key: "connector", label: "连接器", icon: Network },
 ];
 const libraryTabs: {
-  key: "knowledge" | "data" | "discover";
+  key: "knowledge" | "data";
   label: string;
   icon: any;
 }[] = [
-  { key: "knowledge", label: "知识库", icon: Layers3 },
-  { key: "data", label: "资料库", icon: Database },
-  { key: "discover", label: "发现", icon: Sparkles },
+  { key: "data", label: "资料与版本", icon: Database },
+  { key: "knowledge", label: "检索与记忆", icon: Layers3 },
 ];
 const roles: Record<string, string> = {
   requester: "应用账户",
@@ -125,12 +124,22 @@ const roles: Record<string, string> = {
   reviewer: "只读观察员",
 };
 export default function App() {
-  return window.location.pathname.replace(/\/$/, "") === "/manage" ? (
+  const [location, setLocation] = useState(window.location.pathname);
+  useEffect(() => {
+    const onPop = () => setLocation(window.location.pathname);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  return location.replace(/\/$/, "") === "/manage" ? (
     <ManagementApp />
   ) : (
     <QuestionPortal
       Login={Login}
-      legacy={window.location.pathname.replace(/\/$/, "") === "/questions"}
+      onManage={(projectId) => {
+        const query = new URLSearchParams({ view: "workdesk", project: projectId });
+        window.history.pushState(null, "", "/manage?" + query);
+        setLocation("/manage");
+      }}
     />
   );
 }
@@ -144,12 +153,15 @@ function ManagementApp() {
     [projectId, setProjectId] = useState(""),
     [page, setPage] = useState<Page>(() => {
       const view = new URLSearchParams(window.location.search).get("view");
-      return nav.some((item) => item.id === view)
+      if (view === "agents") return "hub";
+      if (view === "workflows") return "workdesk";
+      return view === "intake" || (view !== "overview" && nav.some((item) => item.id === view))
         ? (view as Page)
-        : "overview";
+        : "workdesk";
     }),
     [workdeskTab, setWorkdeskTab] = useState<WorkdeskTab>(() => {
       const params = new URLSearchParams(window.location.search);
+      if (params.get("view") === "workflows") return "learning";
       return workdeskTabs.find(t => params.get("view")==="workdesk" && t.key === params.get("tab"))?.key ?? "overview";
     }),
     [hubKind, setHubKind] = useState<HubKind>(() => {
@@ -162,14 +174,14 @@ function ManagementApp() {
     }),
     [hubQuery, setHubQuery] = useState(""),
     [libraryTab, setLibraryTab] = useState<
-      "knowledge" | "data" | "discover"
+      "knowledge" | "data"
     >(() => {
       const params = new URLSearchParams(window.location.search);
       const tab = params.get("tab");
       return params.get("view") === "library" &&
         libraryTabs.some((item) => item.key === tab)
-        ? (tab as "knowledge" | "data" | "discover")
-        : "knowledge";
+        ? (tab as "knowledge" | "data")
+        : "data";
     }),
     [taskId, setTaskId] = useState<string | null>(() =>
       new URLSearchParams(window.location.search).get("task"),
@@ -178,12 +190,14 @@ function ManagementApp() {
     [agentTool, setAgentTool] = useState<string | null>(null),
     [caseTab, setCaseTab] = useState<CaseTab>("catalog"),
     [workflowId, setWorkflowId] = useState<string | null>(null),
+    [creatingWorkflow, setCreatingWorkflow] = useState(false),
     [error, setError] = useState(""),
     [lastSync, setLastSync] = useState(""),
     [refreshing, setRefreshing] = useState(false),
     [logout, setLogout] = useState(false),
     [mobile, setMobile] = useState(false),
-    [toast, setToast] = useState<{ text: string; error: boolean } | null>(null);
+    [toast, setToast] = useState<{ text: string; error: boolean } | null>(null),
+    [composeSequence, setComposeSequence] = useState(0);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     currentUser = useRef<string | null>(null),
     selectedProject = useRef(new URLSearchParams(window.location.search).get("project") || ""),
@@ -253,6 +267,9 @@ function ManagementApp() {
         setWorkflowId(null);
       }
       selectedProject.current = active;
+      try {
+        if (expected) sessionStorage.setItem("hangzhi-question-project-" + expected, active);
+      } catch {}
       setProjectId(active);
       setLastSync(new Date().toISOString());
     } catch (e) {
@@ -307,6 +324,9 @@ function ManagementApp() {
       window.location.replace("/");
       return;
     }
+    if (!selectedProject.current) {
+      try { selectedProject.current = sessionStorage.getItem("hangzhi-question-project-" + user.id) || ""; } catch {}
+    }
     void refresh().catch(() => {});
     const timer = setInterval(() => void refresh().catch(() => {}), 10000);
     return () => clearInterval(timer);
@@ -336,6 +356,7 @@ function ManagementApp() {
     setTaskId(null);
     setAgentId(null);
     setWorkflowId(null);
+    setCreatingWorkflow(false);
   }
   function openWorkdesk() {
     setWorkdeskTab("overview");
@@ -348,8 +369,13 @@ function ManagementApp() {
     go("hub");
     setMobile(false);
   }
+  function openConnectors() {
+    setHubKind("connector");
+    setHubQuery("");
+    go("hub");
+  }
   function openLibrary() {
-    setLibraryTab("knowledge");
+    setLibraryTab("data");
     go("library");
     setMobile(false);
   }
@@ -362,7 +388,12 @@ function ManagementApp() {
     setTaskId(null);
     setAgentId(null);
     setWorkflowId(null);
+    setCreatingWorkflow(false);
     void refresh().catch(() => {});
+  }
+  function openIntake(compose = false) {
+    go("intake");
+    setComposeSequence((sequence) => compose ? sequence + 1 : 0);
   }
   if (checking)
     return (
@@ -434,7 +465,6 @@ function ManagementApp() {
     openAgent = (id: string, toolId?: string) => {
       setAgentId(id);
       setAgentTool(toolId || null);
-      setPage("agents");
     },
     openCasework = (tab: CaseTab) => {
       go("casework");
@@ -452,9 +482,7 @@ function ManagementApp() {
       allTasks={recentTasks}
       selectedTaskId={page === "tasks" ? taskId || "" : ""}
       onSelectTask={openTask}
-      onNewTask={() => {
-        window.location.href = "/";
-      }}
+      onNewTask={canEdit && projectId ? () => openIntake(true) : undefined}
       onRefreshTasks={() => void refresh().catch(() => {})}
       tasksLoading={!data}
       tasksError={error}
@@ -480,7 +508,7 @@ function ManagementApp() {
                       setWorkdeskTab(tab.key as WorkdeskTab);
                     else
                       setLibraryTab(
-                        tab.key as "knowledge" | "data" | "discover",
+                        tab.key as "knowledge" | "data",
                       );
                   }}
                 >
@@ -508,20 +536,16 @@ function ManagementApp() {
                     ? "搜索智能体 / 工作流"
                     : hubKind === "skill"
                       ? "搜索工具与技能包"
-                      : "搜索 MCP 服务"
+                      : "搜索连接器"
                 }
                 aria-label="搜索"
               />
             </label>
-            <a className="desk-link" href="/">
-              返回任务工作台
-            </a>
+            <button className="desk-link" onClick={() => openIntake()}>任务工作台</button>
           </>
         ) : (
         <>
-          <a className="desk-link" href="/">
-            返回任务工作台
-          </a>
+          <button className="desk-link" onClick={() => openIntake()}>任务工作台</button>
           <span className={`connection ${error ? "error" : ""}`}>
             <span className="status-dot" />
             {error
@@ -590,8 +614,19 @@ function ManagementApp() {
           ) : (
             <>
               {page === "workdesk" && workdeskTab === "activity" && <AgentActivity key={projectId} projectId={projectId} onAgent={openAgent} onTask={openTask}/>}
-              {page === "workdesk" && workdeskTab === "learning" && <WorkflowLearning projectId={projectId} canEdit={canEdit} isAdmin={user.role==="admin"} onTask={openTask}/>}
+              {page === "workdesk" && workdeskTab === "learning" && (
+                <WorkflowLearning projectId={projectId} canEdit={canEdit} isAdmin={user.role === "admin"}
+                  workflows={workflows} onTask={openTask} onWorkflow={setWorkflowId}
+                  onCreateWorkflow={() => setCreatingWorkflow(true)} />
+              )}
+              {creatingWorkflow && page === "workdesk" && workdeskTab === "learning" && (
+                <WorkflowForm projectId={projectId} agents={agents} mutate={mutate} onClose={() => setCreatingWorkflow(false)} />
+              )}
               {page === "workdesk" && workdeskTab === "resources" && <ResourceManagement projectId={projectId}/>}
+              {page === "intake" && (
+                <TaskCaseDesk key={`${projectId}/${composeSequence}`} projectId={projectId}
+                  canSubmit={canEdit} command={composeSequence ? { seq: composeSequence, kind: "compose" } : null}/>
+              )}
               {page === "workdesk" && workdeskTab === "overview" && (
                 <Overview
                   key={projectId}
@@ -628,7 +663,6 @@ function ManagementApp() {
                   capabilities={
                     Array.isArray(data.capabilities) ? data.capabilities : []
                   }
-                  connectors={scoped("connectors")}
                   query={hubQuery}
                   workflows={workflows}
                   assets={assets}
@@ -637,7 +671,8 @@ function ManagementApp() {
                   onTask={openTask}
                   onAgent={openAgent}
                   offline={!!data.system.offline}
-                  onOpenFullPage={(target) => go(target as Page)}
+                  onWorkflow={setWorkflowId}
+                  onOpenFullPage={go}
                   onCreated={() => void refresh().catch(() => {})}
                   notify={notify}
                 />
@@ -646,20 +681,13 @@ function ManagementApp() {
                 <KnowledgePage
                   key={projectId}
                   {...common}
-                  connectors={scoped("connectors")}
+                  onConnectors={openConnectors}
                   memories={scoped("memories")}
                   assets={assets}
                 />
               )}
               {page === "library" && libraryTab === "data" && (
                 <DataPage key={projectId} {...common} assets={assets} />
-              )}
-              {page === "library" && libraryTab === "discover" && (
-                <CapabilityPages
-                  key={projectId}
-                  {...common}
-                  isAdmin={user.role === "admin"}
-                />
               )}
               {page === "overview" && (
                 <Overview
@@ -683,20 +711,17 @@ function ManagementApp() {
                   offline={!!data.system.offline}
                   initialTab={caseTab}
                   onTask={openTask}
-                  onAgent={openAgent}
                 />
               )}
-              {page === "agents" && (
-                <AgentsPage
-                  key={projectId}
+              {agentId && (
+                <AgentDetailsDialog
+                  key={projectId + "/" + agentId + "/" + (agentTool || "")}
                   {...common}
                   agents={agents}
                   assets={assets}
                   workflows={workflows}
-                  onWorkflow={(id) => {
-                    setWorkflowId(id);
-                    setPage("workflows");
-                  }}
+                  onWorkflow={setWorkflowId}
+                  onClose={() => setAgentId(null)}
                   capabilities={
                     Array.isArray(data.capabilities) ? data.capabilities : []
                   }
@@ -730,13 +755,14 @@ function ManagementApp() {
                   onTaskUpdated={taskUpdated}
                 />
               )}
-              {page === "workflows" && (
-                <WorkflowsPage
-                  key={projectId}
+              {workflowId && (
+                <WorkflowDetailsDialog
+                  key={projectId + "/" + workflowId}
                   {...common}
                   workflows={workflows}
                   agents={agents}
                   initialId={workflowId}
+                  onClose={() => setWorkflowId(null)}
                 />
               )}
               {page === "capabilities" && (
@@ -753,7 +779,7 @@ function ManagementApp() {
                 <KnowledgePage
                   key={projectId}
                   {...common}
-                  connectors={scoped("connectors")}
+                  onConnectors={openConnectors}
                   memories={scoped("memories")}
                   assets={assets}
                 />

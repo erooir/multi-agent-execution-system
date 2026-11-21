@@ -230,3 +230,7 @@
 .catalog-unavailable {
   color: var(--warn);
 }
+
+.tool-catalog[data-connector-tool] .catalog-layout {
+  grid-template-columns: minmax(0, 1fr);
+}

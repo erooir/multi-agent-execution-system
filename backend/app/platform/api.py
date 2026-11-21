@@ -22,7 +22,14 @@ from ..model_gateway import HARD_CAP, model_gateway
 from . import contracts as c
 from . import service as s
 from .db import TERMINAL, now, repo, tables
-from .expert_design import ConfirmInterview, ExpertInterview, confirm, draft
+from .expert_design import (
+    ConfirmInterview,
+    ExpertInterview,
+    TextAgentRequest,
+    confirm,
+    create_from_text,
+    draft,
+)
 from .public_evidence import PublicEvidenceRequest
 from .task_intake import management_inputs
 
@@ -212,6 +219,9 @@ def bootstrap(user: dict = read, scope: Literal["all", "current"] = "all", proje
     if project_id:
         s.project_access(project_id, user, repository=repo)
     projects = s.bootstrap_projects(user, repo)
+    if user["role"] == "admin":
+        running = s.active_project_runs([p["id"] for p in projects], repo)
+        projects = [{**p, "running_tasks": p["id"] in running} for p in projects]
     result = {"user": user, "projects": projects}
     selected = project_id or (projects[0]["id"] if projects else None)
     if scoped:
@@ -507,6 +517,11 @@ def rename_project(project_id: str, body: c.ProjectRenameInput, user: dict = edi
     return s.rename_project(project_id, body.name, user)
 
 
+@router.delete("/projects/{project_id}", status_code=204)
+def delete_project(project_id: str, user: dict = admin):
+    s.delete_project(project_id, user)
+
+
 @router.get("/agents")
 def agents(user: dict = read):
     return s.visible("agents", user)
@@ -521,6 +536,11 @@ def expert_preview(body: ExpertInterview, user: dict = edit):
 @router.post("/expert-design/confirm", status_code=201)
 def expert_confirm(body: ConfirmInterview, user: dict = edit):
     return confirm(body, user, repo)
+
+
+@router.post("/expert-design/create", status_code=201)
+async def expert_create(body: TextAgentRequest, user: dict = edit):
+    return await create_from_text(body, user, repo)
 
 
 @router.post("/agents", status_code=201)
@@ -1000,6 +1020,13 @@ def schedule_action(schedule_id: str, action: str, user: dict = edit):
 @router.get("/connectors")
 def connectors(user: dict = read):
     return s.visible("connectors", user)
+
+
+@router.get("/project-connectors")
+def project_connectors(project_id: str, user: dict = read):
+    from .knowledge import project_connectors as connector_inventory
+
+    return connector_inventory(project_id, user, repo)
 
 
 @router.post("/connectors", status_code=201)
