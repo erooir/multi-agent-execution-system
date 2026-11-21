@@ -71,10 +71,10 @@ def gateway_measurements(path, task_ids):
         # Old, read-only financial ledgers predate model resource metering.
         # Query available observations without adding a table or modifying a row.
         names = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type IN ('table','view')")}
-        columns = {r[1] for r in db.execute("PRAGMA table_info(charges)")}
+        from_name = "model_request_usage" if "model_request_usage" in names else "charges"
+        columns = {r[1] for r in db.execute(f"PRAGMA table_info({from_name})")}
         if not {"id", "run_id", "state", "cost", "reserved", "input_tokens", "output_tokens"} <= columns:
             raise sqlite3.DatabaseError("invalid charge schema")
-        from_name = "model_request_usage" if "model_request_usage" in names else "charges"
         provider = "c.provider" if from_name == "model_request_usage" else "'deepseek' AS provider"
         has_resources = "resource_requests" in names
         bounds = (

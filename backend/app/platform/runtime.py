@@ -30,6 +30,7 @@ from agno.workflow.step import Step
 from agno.workflow.types import StepInput, StepOutput
 from PIL import Image, UnidentifiedImageError
 
+from ..config import intranet_provider
 from ..model_gateway import (
     BudgetExceeded,
     ModelCallError,
@@ -411,11 +412,13 @@ class Execution:
         self.check()
         if os.environ.get("HANGZHI_OFFLINE", "false").lower() == "true":
             raise ModelCallError("offline_policy", "离线部署禁止云模型访问")
+        upstream = intranet_provider()
+        request_limit = upstream.max_task_requests if upstream else MAX_TASK_MODEL_REQUESTS
         with self.repository.transaction() as tx:
             task = tx.fenced(self.task["id"], self.worker_id, self.token)
             count = task.get("model_request_count", 0)
-            if count >= MAX_TASK_MODEL_REQUESTS:
-                raise ModelCallError("model_call_limit", "已达到任务最多20次模型请求限制")
+            if request_limit and count >= request_limit:
+                raise ModelCallError("model_call_limit", f"已达到任务最多{request_limit}次模型请求限制")
             task["model_request_count"] = count + 1
             self.task = tx.put("tasks", task)
 

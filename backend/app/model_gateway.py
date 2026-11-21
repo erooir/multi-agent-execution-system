@@ -24,6 +24,7 @@ import httpx
 from . import resource_limits
 from .config import (
     BUDGET_LEDGER_PATH,
+    DATA_DIR,
     MAX_OUTPUT_TOKENS,
     MODEL_ID,
     PRICED_MODEL_IDS,
@@ -510,10 +511,69 @@ class BudgetLedger:
             ]
 
 
+def _internal_usage_path() -> Path:
+    return Path(os.environ.get("HANGZHI_UPSTREAM_USAGE_PATH", str(DATA_DIR / "intranet-usage.sqlite3")))
+
+
+class InternalUsageLedger(BudgetLedger):
+    """Token/request observations only; never creates or opens a paid budget ledger."""
+
+    def __init__(self, path):
+        self.path = Path(path)
+        self.require_existing = False
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.connect() as db:
+            db.execute("PRAGMA journal_mode=WAL")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS intranet_requests("
+                "id TEXT PRIMARY KEY,created_at TEXT NOT NULL,purpose TEXT NOT NULL,run_id TEXT,"
+                "state TEXT NOT NULL,model TEXT NOT NULL,input_tokens INTEGER,output_tokens INTEGER)"
+            )
+            db.execute("CREATE INDEX IF NOT EXISTS intranet_run_id ON intranet_requests(run_id)")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS resource_requests("
+                "charge_id TEXT PRIMARY KEY,input_upper INTEGER NOT NULL,output_limit INTEGER NOT NULL,"
+                "context_limit INTEGER NOT NULL,duration_ms INTEGER)"
+            )
+            db.execute(
+                "CREATE VIEW IF NOT EXISTS model_request_usage AS "
+                "SELECT id,created_at,purpose,run_id,state,model,input_tokens,output_tokens,"
+                "0 AS cost,0 AS reserved,'intranet' AS provider FROM intranet_requests"
+            )
+
+    def uncertain(self, request_id):
+        with self.connect() as db:
+            db.execute(
+                "UPDATE intranet_requests SET state='uncertain' WHERE id=? AND state='reserved'",
+                (request_id,),
+            )
+
+    def reserve(self, *args, **kwargs):
+        raise RuntimeError("internal_meter_only: 自部署计量库不能预留付费调用")
+
+    def settle(self, *args, **kwargs):
+        raise RuntimeError("internal_meter_only: 自部署计量库不能结算付费调用")
+
+    def budget(self, limit=None):
+        return {
+            "provider": "intranet",
+            "financial_ledger_available": False,
+            "limit_cny": 0,
+            "remaining_cny": 0,
+            "spent_cny": 0,
+            "reserved_cny": 0,
+            "request_count": 0,
+            "accounting_violation": False,
+            "pricing_note": "自部署模型只计量请求及Token；未打开或创建云付费账本。",
+        }
+
+
 class MeteredTransport(httpx.AsyncBaseTransport):
     def __init__(self, ledger: BudgetLedger, purpose: str, run_id=None, inner=None, *, upstream=None):
         self.ledger, self.purpose, self.run_id = ledger, purpose, run_id
         self.upstream = upstream
+        self.required_first_tool: str | None = None
+        self.auto_tool_rounds: int | None = None
         self.model_id = upstream.model if upstream else MODEL_ID
         self.inner = inner or httpx.AsyncHTTPTransport(
             retries=0 if upstream else 2, proxy=None if upstream else model_proxy(), trust_env=False
@@ -604,6 +664,35 @@ class MeteredTransport(httpx.AsyncBaseTransport):
             raise RuntimeError("模型请求目标不在授权范围")
         body = await request.aread()
         payload = json.loads(body)
+        if self.upstream and self.required_first_tool and payload.get("tools"):
+            names = {tool.get("function", {}).get("name") for tool in payload["tools"]}
+            if self.required_first_tool not in names:
+                raise PermissionError("冻结主工具不在本次授权工具中")
+            if not self.request_ids:
+                payload["tool_choice"] = {"type": "function", "function": {"name": self.required_first_tool}}
+            elif self.auto_tool_rounds is not None and len(self.request_ids) >= self.auto_tool_rounds:
+                payload["tool_choice"] = "none"
+            body = json.dumps(payload, ensure_ascii=False).encode()
+            headers = httpx.Headers(request.headers)
+            headers.pop("content-length", None)
+            request = httpx.Request(
+                request.method, request.url, headers=headers, content=body, extensions=request.extensions
+            )
+        # Qwen's automatic tool parser emits XML tool calls. Forcing JSON here
+        # prevents those calls and can turn a proposed call into plain text.
+        # Agno still validates the final decision against its output schema.
+        if (
+            self.upstream
+            and payload.get("tools")
+            and payload.get("tool_choice", "auto") == "auto"
+            and payload.pop("response_format", None) is not None
+        ):
+            body = json.dumps(payload, ensure_ascii=False).encode()
+            headers = httpx.Headers(request.headers)
+            headers.pop("content-length", None)
+            request = httpx.Request(
+                request.method, request.url, headers=headers, content=body, extensions=request.extensions
+            )
         if (
             (not self.upstream and MODEL_ID not in PRICED_MODEL_IDS)
             or payload.get("model") != self.model_id
@@ -615,8 +704,9 @@ class MeteredTransport(httpx.AsyncBaseTransport):
         if any(tool.get("type", "function") != "function" for tool in payload.get("tools", [])):
             raise RuntimeError("模型网关不允许额外计费的内置服务工具")
         output_cap = payload.get("max_tokens", payload.get("max_completion_tokens", 0))
-        if type(output_cap) is not int or not 1 <= output_cap <= MAX_OUTPUT_TOKENS:
-            raise RuntimeError(f"模型请求必须指定不超过{MAX_OUTPUT_TOKENS} tokens的输出上限")
+        output_limit = self.upstream.max_output_tokens if self.upstream else MAX_OUTPUT_TOKENS
+        if type(output_cap) is not int or not 1 <= output_cap <= output_limit:
+            raise RuntimeError(f"模型请求必须指定不超过{output_limit} tokens的输出上限")
         if "max_completion_tokens" in payload and payload["max_completion_tokens"] != output_cap:
             raise RuntimeError("模型请求输出上限字段不一致")
         if not self.upstream and self.ledger.budget()["accounting_violation"]:
@@ -636,7 +726,9 @@ class MeteredTransport(httpx.AsyncBaseTransport):
         if input_cap > 1_000_000:
             raise ValueError("输入超出模型上下文限制")
         window = resource_limits.context_window()
-        if input_cap + output_cap > window:
+        # Byte bounds protect paid reservations, but are not a tokenizer.
+        # The self-hosted server admits against its actual tokenized window.
+        if not self.upstream and input_cap + output_cap > window:
             raise ModelCallError("model_context_limit", "输入估算上限与输出上限之和超过部署上下文窗口")
         try:
             async with resource_limits.model_slot(self.ledger.path, lambda: self._check_scope(scope)):
@@ -758,18 +850,28 @@ class ModelGateway:
     @property
     def ledger_path(self) -> Path:
         """Inspect the selected ledger without initializing or migrating its schema."""
-        return self._ledger.path if self._ledger else Path(BUDGET_LEDGER_PATH)
+        return (
+            self._ledger.path
+            if self._ledger
+            else (_internal_usage_path() if intranet_provider() else Path(BUDGET_LEDGER_PATH))
+        )
 
     @property
     def ledger(self) -> BudgetLedger:
         if self._ledger is None:
-            self._ledger = BudgetLedger(BUDGET_LEDGER_PATH, require_existing=True)
+            self._ledger = (
+                InternalUsageLedger(_internal_usage_path())
+                if intranet_provider()
+                else BudgetLedger(BUDGET_LEDGER_PATH, require_existing=True)
+            )
         return self._ledger
 
     def usage(self, run_id=None, purpose=None):
         return self.ledger.usage(run_id=run_id, purpose=purpose)
 
     def budget(self):
+        if isinstance(self.ledger, InternalUsageLedger):
+            return self.ledger.budget()
         return self.ledger.budget(get_settings()["budget_limit_cny"])
 
     def config_status(self):
@@ -813,11 +915,30 @@ class ModelGateway:
             "id": transport.model_id,
             "api_key": api_key,
             "async_client": client,
-            "max_tokens": min(max(1, max_tokens), get_settings()["max_output_tokens"], MAX_OUTPUT_TOKENS),
+            "max_tokens": min(
+                max(
+                    1,
+                    max_tokens
+                    if max_tokens is not None
+                    else (upstream.max_output_tokens if upstream else MAX_OUTPUT_TOKENS),
+                ),
+                get_settings()["max_output_tokens"],
+                upstream.max_output_tokens if upstream else MAX_OUTPUT_TOKENS,
+            ),
             "retries": 0,
             "max_retries": 0,
             "request_params": {"response_format": {"type": "json_object"}} if json_mode else None,
         }
+        if upstream:
+            params.update(
+                temperature=upstream.temperature,
+                top_p=upstream.top_p,
+                role_map={**OpenAIChat.default_role_map, "system": "system", "developer": "system"},
+            )
+            params["request_params"] = {
+                **(params["request_params"] or {}),
+                "extra_body": {"chat_template_kwargs": {"enable_thinking": upstream.enable_thinking}},
+            }
         return OpenAIChat(**params) if upstream else DeepSeek(**params, use_thinking=False)
 
     async def complete(
@@ -827,7 +948,7 @@ class ModelGateway:
         system="",
         purpose="general",
         run_id=None,
-        max_tokens=MAX_OUTPUT_TOKENS,
+        max_tokens=None,
         json_mode=False,
         images=None,
         evidence=None,
@@ -853,7 +974,11 @@ class ModelGateway:
         transport = MeteredTransport(
             self.ledger, purpose, run_id, **({"upstream": upstream} if upstream else {})
         )
-        async with httpx.AsyncClient(transport=transport, timeout=90, follow_redirects=False) as http_client:
+        async with httpx.AsyncClient(
+            transport=transport,
+            timeout=upstream.timeout_seconds if upstream else 90,
+            follow_redirects=False,
+        ) as http_client:
             model = self._client_model(transport, api_key, http_client, max_tokens, json_mode)
             agent = Agent(
                 name=f"workbench-{purpose}",
@@ -958,8 +1083,10 @@ class ModelGateway:
         native_tools=None,
         skills=None,
         purpose="v2_tool_agent",
-        max_tokens=MAX_OUTPUT_TOKENS,
+        max_tokens=None,
         images=None,
+        required_first_tool: str | None = None,
+        auto_tool_rounds: int | None = None,
     ):
         """带真实 tools= 的受控模型执行；所有请求仍经由计量传输与预算账本。"""
         run_id = context.get("run_id") if isinstance(context, dict) else getattr(context, "run_id", None)
@@ -979,12 +1106,18 @@ class ModelGateway:
         transport = MeteredTransport(
             self.ledger, "agent_run", run_id, **({"upstream": upstream} if upstream else {})
         )
+        transport.required_first_tool = required_first_tool
+        transport.auto_tool_rounds = auto_tool_rounds
         tool_calls: list[dict] = []
         tools = [
             self._bind_tool(name, binding, tool_calls) for name, binding in (tool_bindings or {}).items()
         ]
         tools.extend(native_tools or [])
-        async with httpx.AsyncClient(transport=transport, timeout=90, follow_redirects=False) as http_client:
+        async with httpx.AsyncClient(
+            transport=transport,
+            timeout=upstream.timeout_seconds if upstream else 90,
+            follow_redirects=False,
+        ) as http_client:
             model = self._client_model(transport, api_key, http_client, max_tokens, bool(output_schema))
             agent = Agent(
                 name=f"workbench-agent-{agent_spec.get('name', 'run')}",

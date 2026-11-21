@@ -1,0 +1,121 @@
+name: hangzhi-qwen38
+services:
+  model-api:
+    image: ${HANGZHI_VLLM_IMAGE:?Set an immutable local image ID or digest}
+    pull_policy: never
+    container_name: hangzhi-qwen38
+    user: "${HANGZHI_INFERENCE_UID:?}:${HANGZHI_INFERENCE_GID:?}"
+    restart: unless-stopped
+    shm_size: 16gb
+    networks:
+      - isolated
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${HANGZHI_GPU_0:?}", "${HANGZHI_GPU_1:?}"]
+              capabilities: [gpu]
+    volumes:
+      - ${HANGZHI_MODEL_DIR:?}:/model:ro
+      - ${HANGZHI_MODEL_KEY_FILE:?}:/run/secrets/model_api_key:ro
+      - ${HANGZHI_INFERENCE_CACHE:?}:/cache
+    environment:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      HF_HUB_DISABLE_IMPLICIT_TOKEN: "1"
+      HF_HOME: /cache/huggingface
+      VLLM_CACHE_ROOT: /cache/vllm
+      TRITON_CACHE_DIR: /cache/triton
+      TORCHINDUCTOR_CACHE_DIR: /cache/inductor
+      FLASHINFER_WORKSPACE_BASE: /cache
+      CUDA_CACHE_PATH: /cache/cuda
+      XDG_CACHE_HOME: /cache/xdg
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_DO_NOT_TRACK: "1"
+      DO_NOT_TRACK: "1"
+      ANONYMIZED_TELEMETRY: "false"
+      TOKENIZERS_PARALLELISM: "false"
+      OMP_NUM_THREADS: "8"
+      NO_PROXY: "*"
+      no_proxy: "*"
+    entrypoint: [/bin/bash, /opt/hangzhi/model-api-entrypoint.sh]
+    command:
+      - serve
+      - /model
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8001"
+      - --served-model-name
+      - hangzhi-qwen38
+      - --dtype
+      - bfloat16
+      - --tensor-parallel-size
+      - "2"
+      - --max-model-len
+      - "32768"
+      - --max-num-seqs
+      - "2"
+      - --max-num-batched-tokens
+      - "4096"
+      - --gpu-memory-utilization
+      - "0.85"
+      - --limit-mm-per-prompt
+      - '{"image":4,"video":0}'
+      - --mm-processor-kwargs
+      - '{"min_pixels":4096,"max_pixels":1048576}'
+      - --mm-encoder-tp-mode
+      - data
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - qwen3
+      - --structured-outputs-config
+      - '{"backend":"xgrammar","disable_any_whitespace":true}'
+      - --default-chat-template-kwargs
+      - '{"enable_thinking":false}'
+      - --generation-config
+      - vllm
+      - --override-generation-config
+      - '{"max_new_tokens":32768}'
+      - --no-enable-log-requests
+      - --disable-fastapi-docs
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+  loopback:
+    image: ${HANGZHI_PROXY_IMAGE:?Set a verified Nginx image ID or digest}
+    pull_policy: never
+    container_name: hangzhi-qwen38-loopback
+    user: "${HANGZHI_INFERENCE_UID:?}:${HANGZHI_INFERENCE_GID:?}"
+    restart: unless-stopped
+    depends_on: [model-api]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    ports:
+      - "127.0.0.1:8001:8001"
+    networks: [isolated, frontend]
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    entrypoint: [nginx, -g, "daemon off;"]
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "2"
+networks:
+  isolated:
+    internal: true
+  frontend: {}

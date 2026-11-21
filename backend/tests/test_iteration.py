@@ -512,6 +512,28 @@ def test_model_request_limit_survives_execution_context_recreation(tool_reposito
     assert execution.current()["model_request_count"] == 20
 
 
+@pytest.mark.parametrize("request_limit", [25, 0])
+def test_intranet_task_request_policy_survives_recreation(tool_repository, monkeypatch, request_limit):
+    monkeypatch.setattr(
+        runtime, "intranet_provider", lambda: SimpleNamespace(max_task_requests=request_limit)
+    )
+    seed(tool_repository, task_type="text_analysis", mode="cloud", content="公开合成资料")
+    claimed = tool_repository.claim("fixture-worker")
+    execution = runtime.Execution(tool_repository, claimed, "fixture-worker", claimed["lease_token"])
+    for _ in range(25):
+        execution.before_model_request()
+    resumed = runtime.Execution(
+        tool_repository, execution.current(), "fixture-worker", claimed["lease_token"]
+    )
+    if request_limit:
+        with pytest.raises(ModelCallError, match="25"):
+            resumed.before_model_request()
+        assert resumed.current()["model_request_count"] == 25
+    else:
+        resumed.before_model_request()
+        assert resumed.current()["model_request_count"] == 26
+
+
 @pytest.mark.asyncio
 async def test_tool_agent_postgres_runtime(postgres, tmp_path, monkeypatch):
     monkeypatch.setattr(

@@ -33,6 +33,12 @@ settings = SimpleNamespace(
 class IntranetProvider:
     base_url: str
     model: str
+    timeout_seconds: float = 180
+    max_output_tokens: int = 16000
+    temperature: float = 0
+    top_p: float = 1
+    enable_thinking: bool = False
+    max_task_requests: int = 60
 
 
 def intranet_provider() -> IntranetProvider | None:
@@ -65,7 +71,37 @@ def intranet_provider() -> IntranetProvider | None:
         raise ValueError("内网模型只接受本机 HTTP(S) 或私网 HTTPS 的标准 /v1 地址")
     host = f"[{ip}]" if ip.version == 6 else str(ip)
     authority = f"{host}:{port}" if port else host
-    return IntranetProvider(f"{url.scheme}://{authority}/v1", model)
+    timeout = float(os.environ.get("HANGZHI_UPSTREAM_TIMEOUT_SECONDS", "180"))
+    # Self-hosted limits are deployment policy, separate from paid-cloud caps.
+    from .resource_limits import context_window
+
+    output = int(os.environ.get("HANGZHI_UPSTREAM_MAX_OUTPUT_TOKENS", "16000"))
+    requests = int(os.environ.get("HANGZHI_UPSTREAM_MAX_TASK_REQUESTS", "60"))
+    temperature = float(os.environ.get("HANGZHI_UPSTREAM_TEMPERATURE", "0"))
+    top_p = float(os.environ.get("HANGZHI_UPSTREAM_TOP_P", "1"))
+    thinking = os.environ.get("HANGZHI_UPSTREAM_ENABLE_THINKING", "false").lower()
+    if (
+        not math.isfinite(timeout)
+        or not 1 <= timeout <= 3600
+        or not 1 <= output < context_window()
+        or not 0 <= requests <= 10000
+        or not math.isfinite(temperature)
+        or not 0 <= temperature <= 2
+        or not math.isfinite(top_p)
+        or not 0 < top_p <= 1
+        or thinking not in {"true", "false"}
+    ):
+        raise ValueError("内网模型超时、请求数、输出上限或生成参数无效")
+    return IntranetProvider(
+        f"{url.scheme}://{authority}/v1",
+        model,
+        timeout,
+        output,
+        temperature,
+        top_p,
+        thinking == "true",
+        requests,
+    )
 
 
 def get_api_key() -> str | None:
@@ -110,13 +146,21 @@ def get_settings() -> dict:
         "default_mode": saved.get("default_mode", "rehearsal"),
         "max_concurrent_runs": task_slots(),
         "max_output_tokens": min(
-            int(saved.get("max_output_tokens", DEFAULT_OUTPUT_TOKENS)), MAX_OUTPUT_TOKENS
+            int(
+                saved.get(
+                    "intranet_max_output_tokens" if upstream else "max_output_tokens",
+                    upstream.max_output_tokens if upstream else DEFAULT_OUTPUT_TOKENS,
+                )
+            ),
+            upstream.max_output_tokens if upstream else MAX_OUTPUT_TOKENS,
         ),
-        "request_timeout_seconds": 90,
+        "request_timeout_seconds": upstream.timeout_seconds if upstream else 90,
         "key_configured": bool(get_api_key()),
         "deployment": "localhost",
         "telemetry_enabled": False,
-        "pricing_note": "按官方高峰单价的2倍保守计账（输入4元/百万token，输出16元/百万token），含安全余量；非账单实扣。",
+        "pricing_note": "自部署内网模型：仅计量请求与 Token，不按云模型费率收费。"
+        if upstream
+        else "按官方高峰单价的2倍保守计账（输入4元/百万token，输出16元/百万token），含安全余量；非账单实扣。",
     }
 
 
@@ -131,10 +175,14 @@ def save_settings(data: dict) -> dict:
     if mode not in ("rehearsal", "live"):
         raise ValueError("执行模式不合法")
     output = int(data.get("max_output_tokens", old["max_output_tokens"]))
-    if not 256 <= output <= MAX_OUTPUT_TOKENS:
-        raise ValueError(f"单次输出上限为256至{MAX_OUTPUT_TOKENS} tokens")
+    upstream = intranet_provider()
+    output_limit = upstream.max_output_tokens if upstream else MAX_OUTPUT_TOKENS
+    if not 256 <= output <= output_limit:
+        raise ValueError(f"单次输出上限为256至{output_limit} tokens")
+    saved = store.get("settings", "main") or {}
+    output_key = "intranet_max_output_tokens" if upstream else "max_output_tokens"
     store.save(
         "settings",
-        {"id": "main", "budget_limit_cny": limit, "default_mode": mode, "max_output_tokens": output},
+        {**saved, "id": "main", "budget_limit_cny": limit, "default_mode": mode, output_key: output},
     )
     return get_settings()

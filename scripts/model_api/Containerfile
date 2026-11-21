@@ -1,0 +1,11 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+# Wheelhouse contains public dependencies only; build with --network=none.
+COPY wheels/ /tmp/model-api-wheels/
+RUN python -m pip install --no-index --find-links=/tmp/model-api-wheels --no-deps transformers==5.8.0 \
+    && rm -rf /tmp/model-api-wheels
+COPY entrypoint.sh /opt/hangzhi/model-api-entrypoint.sh
+ARG RUNNER_UID=1002
+ARG RUNNER_GID=1002
+RUN getent group ${RUNNER_GID} >/dev/null || groupadd --gid ${RUNNER_GID} hangzhi
+RUN useradd --uid ${RUNNER_UID} --gid ${RUNNER_GID} --no-create-home --home-dir /tmp hangzhi

@@ -1071,7 +1071,9 @@ def create_task(body, user, repository=None, *, preflight=False, task_case_id=No
                 budget = model_gateway.budget()
             except RuntimeError:
                 fail("ledger_unavailable", "预算账本不可用，云模型调用已关闭，请恢复历史账本", 503)
-            if budget.get("accounting_violation") or budget.get("remaining_cny", 0) <= 0:
+            if budget.get("provider") != "intranet" and (
+                budget.get("accounting_violation") or budget.get("remaining_cny", 0) <= 0
+            ):
                 fail("budget_exhausted", "项目累计预算不可用，请检查费用与未决预留", 422)
         workflow = None
         case_contract = None
