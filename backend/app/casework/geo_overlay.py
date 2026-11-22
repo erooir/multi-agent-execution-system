@@ -1,9 +1,8 @@
 """Metric overlays of supplied vectors, co-registered grids and spectral observations."""
 
 import itertools
-import operator
 from collections import Counter, defaultdict
-from functools import lru_cache, reduce
+from functools import lru_cache
 from math import dist
 
 from pyproj import CRS, Transformer, network
@@ -448,7 +447,16 @@ def agriculture(ctx):
         total = sum(g.area for g in shapes)
         if total - union(shapes).area > max(1e-5, total * 1e-8):
             raise ValueError(f"{name}相互重叠，拒绝重复分摊")
-    all_refs = list(dict.fromkeys(rr for v in date_refs.values() for rr in v))
+    land_refs = [ref for refs in crop_refs.values() for ref in refs]
+    area_policy_refs = [
+        ctx.policy_sources[k] for k in ("metric_crs", "start", "end") if k in ctx.policy_sources
+    ]
+    all_refs = list(
+        dict.fromkeys([*land_refs, *area_policy_refs, *(r for refs in date_refs.values() for r in refs)])
+    )
+    tier_refs = (
+        [ctx.policy_sources["priority_thresholds"]] if "priority_thresholds" in ctx.policy_sources else []
+    )
     tiers = ctx.policy.get("priority_thresholds", [])
     if not tiers:
         ctx.gap("缺少援助候选区域分级规则，不自行确定优先级")
@@ -484,7 +492,7 @@ def agriculture(ctx):
                 "crop_area_m2": crop_land.area,
                 "exposed_fraction": fraction,
                 "coverage_complete": complete,
-                "refs": [rr, *all_refs],
+                "refs": list(dict.fromkeys([rr, *all_refs, *tier_refs])),
             }
         )
         if not complete:
@@ -534,7 +542,7 @@ def agriculture(ctx):
                 {
                     "district": name,
                     "classified_minus_reported_m2": crop_land.area - official,
-                    "refs": [rr, *reduce(operator.iadd, crop_refs.values(), [])],
+                    "refs": [rr, *land_refs],
                 }
             )
         else:

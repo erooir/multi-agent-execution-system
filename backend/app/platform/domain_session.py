@@ -40,9 +40,12 @@ class DomainToolSession(ToolSession):
     def bindings(self):
         return {**super().bindings(), **self.domain_bindings()}
 
+    def _source_reader(self):
+        return FrozenSourceReader(self.execution.inputs, self.execution.check, public_only=True)
+
     def _binding(self, operation):
         async def bound(**arguments):
-            reader = FrozenSourceReader(self.execution.inputs, self.execution.check, public_only=True)
+            reader = self._source_reader()
             reader.execution = self.execution
             invocation = _Invocation(reader)
             token = _active.set(invocation)

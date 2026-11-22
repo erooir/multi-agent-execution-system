@@ -291,12 +291,14 @@ def projects(user: dict = read):
 
 @router.get("/casework/catalog")
 def case_catalog(project_id: str, user: dict = read):
+    from ..casework.executors.registry import validate_binding
     from ..casework.roles import contract
     from ..casework.team import STAGES, assigned_workflow, catalog, role_id
     from .tool_registry import catalog as tool_catalog
 
     s.project_access(project_id, user)
     flows = {w["id"]: w for w in repo.list("workflows", project_id)}
+    agents = {a["id"]: a for a in repo.list("agents", project_id)}
     versions = {v["id"]: v for v in repo.list("agent_versions", project_id)}
     tool_specs = {v["id"]: v for v in tool_catalog()["tools"]}
     items = []
@@ -317,12 +319,18 @@ def case_catalog(project_id: str, user: dict = read):
                 specs = [tool_specs.get(key) for key in role["grants"]]
                 if (
                     n["agent_id"] != role_id(project_id, n["id"], code)
+                    or agents.get(n["agent_id"], {}).get("status") != "published"
                     or asset.get("role_contract") != role
                     or not all(specs)
                     or asset.get("runtime_bindings", {}).get("tools") != specs
                     or asset.get("tool_refs")
                     != [{"tool_id": s["id"], "version": s["version"]} for s in specs]
                 ):
+                    current = False
+                    break
+                try:
+                    validate_binding(asset)
+                except ValueError:
                     current = False
                     break
         items.append(
@@ -347,10 +355,12 @@ def install_cases(project_id: str, user: dict = edit):
 
 
 @router.post("/casework/upgrade")
-def upgrade_case_tools(project_id: str, user: dict = edit):
-    from ..casework.team import install
+def upgrade_case_tools(project_id: str, case_id: str | None = None, user: dict = edit):
+    from ..casework.team import catalog, install
 
-    return install(project_id, user, repo, upgrade=True)
+    if case_id is not None and case_id not in catalog():
+        s.fail("case_not_found", "未找到指定用例", 404)
+    return install(project_id, user, repo, upgrade=True, case_id=case_id)
 
 
 @router.post("/casework/semantic-evidence", status_code=202)

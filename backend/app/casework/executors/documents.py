@@ -69,7 +69,8 @@ class MonthSeriesExecutor(DocumentAnalysisExecutor):
     def instructions(self, context):
         return (
             "你负责月度统计复算与覆盖核查。先核对month、起止日期、scope和统计限制，再检查detail与total的同单位复算、"
-            "月份唯一性和图表OCR标签覆盖。按需调用数值抽取、主键审计和total复算工具。"
+            "月份唯一性和图表OCR标签覆盖。仅当明细与总量行都明示相同unit，才能说已核验同一计量单位。"
+            "无unit字段时仍可报告同范围deaths和injured列的加总结果。按需调用可用的独立核查工具。"
             "不同人群、范围和单位不得合并；任何总数、趋势和差异只能来自主处理或复算工具。"
             + self.patch_instruction()
         )
@@ -146,7 +147,10 @@ class ProjectPortfolioExecutor(DocumentAnalysisExecutor):
         return (
             "你负责研究项目组合与机构关系。以稳定project_id归一项目，区分coordinator和participants，"
             "核对主题词表、机构别名、币种、total_cost与contribution口径。按需调用主键和总额复算工具。"
-            "关系图不能从同名机构猜测合并；theme_summary只归纳已归类的主题证据。" + self.patch_instruction()
+            "说明机构关系时以organization_graph为准：nodes列出实际的项目和机构，"
+            "相同机构节点可在不同项目中复用。按edges逐项核对项目、机构、角色及其证据，"
+            "只在有明确别名记录时说明不同名称指向同一机构。theme_summary只归纳已归类的主题证据。"
+            + self.patch_instruction()
         )
 
 

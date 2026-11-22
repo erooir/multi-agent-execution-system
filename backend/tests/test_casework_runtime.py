@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from backend.app.casework.engine import audit
 from backend.app.casework.monitor import activity
-from backend.app.casework.team import catalog, install
+from backend.app.casework.team import assigned_workflow, catalog, install, role_id
 from backend.app.platform import runtime, service
 from backend.tests import test_v2_platform as fixtures
 from backend.tests.test_casework_documents import samples as document_samples
@@ -113,6 +113,50 @@ def test_mismatched_team_and_cross_project_are_rejected(db):
         install(p["id"], outsider, db)
     with TestClient(application()) as c:
         assert len(c.get("/api/v2/casework/catalog", params={"project_id": p["id"]}).json()) == 30
+
+
+def test_case_catalog_detects_stale_binding_and_upgrades_neighbouring_cases_independently(db, monkeypatch):
+    from backend.app.casework.executors import registry
+
+    p = project(db)
+    pid = p["id"]
+    current_binding = registry.binding
+
+    def old_binding(stage, code):
+        value = current_binding(stage, code)
+        if stage == "prepare":
+            value["cloud"]["implementation"] = "0" * 64
+        return value
+
+    with monkeypatch.context() as older_deployment:
+        older_deployment.setattr(registry, "binding", old_binding)
+        for code in ("B05", "B07"):
+            install(pid, ADMIN, db, case_id=code)
+
+    aid = role_id(pid, "prepare", "B05")
+    first = assigned_workflow(pid, "B05")
+    second = assigned_workflow(pid, "B07")
+    frozen = db.get("workflow_versions", first + ":1")
+
+    with TestClient(application()) as client:
+        def catalog_status():
+            response = client.get("/api/v2/casework/catalog", params={"project_id": pid})
+            assert response.status_code == 200
+            return {row["id"]: row["project_tools_current"] for row in response.json()}
+
+        assert not catalog_status()["B05"]
+        response = client.post("/api/v2/casework/upgrade", params={"project_id": pid, "case_id": "B05"})
+        assert response.status_code == 200
+        assert set(response.json()["updated"]) == {first, aid}
+        current = catalog_status()
+        assert current["B05"] and not current["B07"]
+        assert db.get("workflows", second)["current_version"] == 1
+        response = client.post("/api/v2/casework/upgrade", params={"project_id": pid, "case_id": "B07"})
+        assert response.status_code == 200
+        assert response.json()["updated"] == [second]
+        assert catalog_status()["B07"]
+    assert db.get("workflow_versions", first + ":1") == frozen
+    assert not db.list("tasks", pid)
 
 
 def test_review_rejects_forged_source_version_location_and_quote():

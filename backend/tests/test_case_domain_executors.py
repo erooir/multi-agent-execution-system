@@ -236,6 +236,7 @@ async def test_cloud_agno_loop_preserves_three_node_contracts(db, tmp_path, monk
         "case_report",
     ]
     assert all(item["output"]["method"] == "domain_tool_agent" for item in nodes)
+    assert nodes[2]["output"]["content"]["title"] == request["name"]
     assert all(item["output"]["source_refs"] == refs for item in nodes)
     assert all(item["output"]["content"]["tool_findings"] == [] for item in nodes)
     prepared = next(item["output"]["content"] for item in nodes if item["node_id"] == "prepare")
@@ -270,8 +271,97 @@ async def test_cloud_agno_loop_preserves_three_node_contracts(db, tmp_path, monk
         assert call["instance_id"]
     for payload in rounds:
         assert len(json.dumps(payload, ensure_ascii=False).encode()) < 200_000
+        names = {tool["function"]["name"] for tool in payload["tools"]}
+        # The fixture supplies JSON records and, for some cases, PNG images.
+        assert names.isdisjoint({"read_pdf_page", "select_cues", "extract_quantities", "compare_passages"})
+        if code in {"B05", "T04"} and f"case_{code.lower()}_analyze" in names:
+            assert "audit_keys" in names and "reconcile_total" not in names
         if any(item.get("role") == "tool" for item in payload["messages"]):
             assert '"records": [' not in json.dumps(payload["messages"][-1])
+            if code == "G03" and "case_g03_analyze" in names:
+                content = payload["messages"][-1]["content"]
+                try:
+                    projection = json.loads(content)
+                except json.JSONDecodeError:
+                    projection = ast.literal_eval(content)
+                [cross_check] = projection["data"]["statistical_cross_checks"]
+                assert cross_check["tool"] == "baseline_anomaly"
+                assert cross_check["arguments"] == {
+                    "source_id": refs[0],
+                    "value_field": "extent",
+                    "rank_start": 2000,
+                    "target_year": 2004,
+                    "baseline_start": 2000,
+                    "baseline_end": 2002,
+                    "where": {"month": 9, "hemisphere": "N"},
+                    "min_valid_value": 0,
+                    "unit": "km²",
+                }
+
+
+@pytest.mark.parametrize(
+    ("media_types", "expected"),
+    [
+        (["application/json"], {"audit_keys"}),
+        (
+            ["application/json", "application/pdf; version=1.7"],
+            {"audit_keys", "read_pdf_page", "extract_quantities"},
+        ),
+        (
+            ["application/json", "text/vtt", "text/markdown"],
+            {"audit_keys", "select_cues", "extract_quantities", "compare_passages"},
+        ),
+    ],
+)
+def test_case_document_tools_require_matching_frozen_sources(media_types, expected):
+    from backend.app.casework.executors.base import _applicable_case_tools
+
+    granted = {
+        name: {"id": capability}
+        for name, capability in (
+            ("read_pdf_page", "evidence.pdf_page"),
+            ("select_cues", "evidence.select_cues"),
+            ("extract_quantities", "evidence.extract_quantities"),
+            ("compare_passages", "evidence.compare_passages"),
+            ("audit_keys", "table.audit_keys"),
+        )
+    }
+    inputs = [{"id": str(index), "media_type": mime} for index, mime in enumerate(media_types)]
+    assert set(_applicable_case_tools(granted, inputs)) == expected
+    assert _applicable_case_tools({}, inputs) == {}
+
+
+def test_case_key_audit_uses_located_ocr_rows_from_the_prepared_checkpoint():
+    from types import SimpleNamespace
+
+    from backend.app.casework.executors.base import CaseDomainToolSession
+    from backend.app.platform.domain_tool import dispatch
+
+    raw_source = {
+        "id": "source",
+        "source_id": "source",
+        "source_version": "1",
+        "classification": "public",
+        "media_type": "text/plain",
+        "modality": "text",
+        "content": "The chart numbers are not in the body text.",
+    }
+    entry = {
+        "source_id": "source",
+        "source_version": "1",
+        "location": {"page": 1},
+        "fields": {"kind": "chart_label_ocr", "month": "2025-01"},
+    }
+    session = object.__new__(CaseDomainToolSession)
+    session.execution = SimpleNamespace(inputs=[raw_source], check=lambda: None)
+    session.context = SimpleNamespace(stage="analyze", prepared={"records": [entry]})
+    result = dispatch(
+        "table.audit_keys",
+        {"source_id": "source", "key_fields": ["month"], "where": {"kind": "chart_label_ocr"}},
+        session._source_reader(),
+    )
+    assert result["total_rows"] == 1
+    assert result["missing_key_count"] == 0
 
 
 async def test_model_selects_supplementary_tool_and_result_reaches_review(db, tmp_path, monkeypatch):
@@ -459,6 +549,20 @@ def test_managed_executor_implementation_upgrade_appends_version(db):
     with pytest.raises(service.DomainError) as error:
         install(p["id"], ADMIN, db, upgrade=True, case_id="B01")
     assert error.value.code == "asset_conflict"
+
+
+def test_overlay_requires_two_independent_polygon_layers():
+    from backend.app.casework.executors.base import _applicable_case_tools
+
+    granted = {"area": {"id": "geo.overlay_area"}}
+    inputs = [{"id": sid, "media_type": "application/json"} for sid in ("left", "right")]
+    polygon = {"geometry": {"type": "Polygon"}, "crs": "EPSG:4326"}
+    records = [{"source_id": asset["id"], "fields": polygon} for asset in inputs]
+    assert _applicable_case_tools(granted, inputs, records) == granted
+    assert not _applicable_case_tools(granted, inputs, records[:1])
+    assert not _applicable_case_tools(
+        granted, inputs, [*records, {"source_id": "right", "fields": {"kind": "grid"}}]
+    )
 
 
 def test_model_suggested_gaps_do_not_change_authoritative_prepare_gaps():

@@ -13,8 +13,8 @@ from .roles import PDF
 
 
 class CaseReader(FrozenSourceReader):
-    def __init__(self, inputs, checkpoint, records):
-        super().__init__(inputs, checkpoint)
+    def __init__(self, inputs, checkpoint, records, *, public_only=False):
+        super().__init__(inputs, checkpoint, public_only=public_only)
         self.records = records
 
     def __call__(self, source_id):

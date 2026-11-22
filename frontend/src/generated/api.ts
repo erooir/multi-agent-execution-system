@@ -4021,6 +4021,7 @@ export interface operations {
         parameters: {
             query: {
                 project_id: string;
+                case_id?: string | null;
             };
             header?: never;
             path?: never;

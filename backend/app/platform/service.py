@@ -1082,6 +1082,8 @@ def create_task(body, user, repository=None, *, preflight=False, task_case_id=No
 
             case_contract = frozen_profile(body["case_id"])
             case_contract["scope"] = body["case_scope"]
+            if body["case_scope"] in {"sample", "project"}:
+                case_contract["report_title"] = body["name"]
             if body["case_scope"] == "project" and any(
                 word in body["goal"].lower()
                 for word in ("翻译", "译成", "译为", "译注", "translate", "translation")

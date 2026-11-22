@@ -9,12 +9,16 @@ import logging
 import os
 import signal
 import socket
+import sqlite3
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from functools import partial
 
 from pydantic import ValidationError
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 
 from ..storage import store
 from .dameng import supports_row_lock
@@ -22,6 +26,16 @@ from .db import Repository, now, repo, tables
 from .runtime import process_claim, timestamp
 
 log = logging.getLogger("hangzhi.worker")
+
+
+def _admission_busy(exc: OperationalError) -> bool:
+    # This statement failed before the transaction obtained a writer lock.
+    # A later poll can start a fresh transaction without replaying any writes.
+    return (
+        exc.statement == "BEGIN IMMEDIATE"
+        and isinstance(exc.orig, sqlite3.OperationalError)
+        and (getattr(exc.orig, "sqlite_errorcode", 0) & 0xFF) in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}
+    )
 
 
 def schedule_due(repository: Repository, *, current_time: float | None = None) -> int:
@@ -122,6 +136,8 @@ async def run_worker(
     once=False,
     stop: asyncio.Event | None = None,
 ):
+    if repository.connection is not None:
+        raise ValueError("Worker requires a repository without a bound transaction")
     worker_id = worker_id or f"worker-{uuid.uuid4().hex[:12]}"
     stop = stop or asyncio.Event()
     concurrency = max(1, min(4, concurrency))
@@ -130,8 +146,32 @@ async def run_worker(
     maintenance: asyncio.Task | None = None
     intake: asyncio.Task | None = None
     last_maintenance = 0.0
+    # Keep claim/registration/schedule locks out of the Agent event loop. This
+    # dedicated thread cannot be starved by local decoders in the default pool.
+    control_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="hangzhi-scheduler")
+    loop = asyncio.get_running_loop()
+
+    async def control(function, *args, defer_busy=False, **kwargs):
+        try:
+            return await loop.run_in_executor(control_pool, partial(function, *args, **kwargs))
+        except OperationalError as exc:
+            if once or not defer_busy or not _admission_busy(exc):
+                raise
+            log.warning("SQLite writer busy; deferred worker %s", function.__name__)
+            return None
+
+    async def report(status, task_ids):
+        await control(
+            register_worker,
+            repository,
+            worker_id,
+            status,
+            task_ids,
+            defer_busy=True,
+        )
+
     try:
-        register_worker(repository, worker_id, "running", [])
+        await report("running", [])
         while not stop.is_set():
             for future in list(active):
                 if future.done():
@@ -149,8 +189,8 @@ async def run_worker(
                     log.error("Improvement maintenance failed: %s", type(exc).__name__)
                 maintenance = None
             if time.monotonic() - last_heartbeat >= 5:
-                register_worker(repository, worker_id, "running", list(active.values()))
-                schedule_due(repository)
+                await report("running", list(active.values()))
+                await control(schedule_due, repository, defer_busy=True)
                 if intake is None or intake.done():
                     if intake:
                         try:
@@ -173,9 +213,12 @@ async def run_worker(
                     asyncio.to_thread(lambda: asyncio.run(maintain(repository)))
                 )
                 last_maintenance = time.monotonic()
-            while len(active) < concurrency:
-                task = repository.claim(worker_id)
+            while not stop.is_set() and len(active) < concurrency:
+                task = await control(repository.claim, worker_id, defer_busy=True)
                 if task is None:
+                    break
+                if stop.is_set():
+                    await control(repository.finish_claim, task["id"], worker_id, task["lease_token"])
                     break
                 if once:
                     await process_claim(repository, task, worker_id)
@@ -188,18 +231,24 @@ async def run_worker(
             except TimeoutError:
                 pass
     finally:
-        # Cancelling coroutine execution stops gateway transports; unfinished
-        # external calls retain in_flight and reservations for honest recovery.
-        for future in active:
-            future.cancel()
-        if active:
-            await asyncio.gather(*active, return_exceptions=True)
-        if intake:
-            intake.cancel()
-            await asyncio.gather(intake, return_exceptions=True)
-        if maintenance:
-            await asyncio.gather(maintenance, return_exceptions=True)
-        register_worker(repository, worker_id, "stopped", [])
+        try:
+            # Cancelling coroutine execution stops gateway transports; unfinished
+            # external calls retain in_flight and reservations for honest recovery.
+            for future in active:
+                future.cancel()
+            if active:
+                await asyncio.gather(*active, return_exceptions=True)
+            if intake:
+                intake.cancel()
+                await asyncio.gather(intake, return_exceptions=True)
+            if maintenance:
+                await asyncio.gather(maintenance, return_exceptions=True)
+            try:
+                await report("stopped", [])
+            except Exception as exc:  # noqa: BLE001 - preserve the original failure.
+                log.error("Worker stopped status unavailable: %s", type(exc).__name__)
+        finally:
+            control_pool.shutdown(wait=True)
 
 
 async def _main(args):

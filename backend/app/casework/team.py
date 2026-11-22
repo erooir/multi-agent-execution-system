@@ -68,6 +68,21 @@ def role_id(project_id, stage, family):
     return f"{project_id}-case-{family if stage == 'analyze' else 'shared'}-{stage}"
 
 
+def _managed_shared_pin(tx, stage, agent_id, pinned, previous):
+    """Accept older shared pins only through versions published by team upgrades."""
+    if pinned == previous:
+        return True
+    if stage not in ("prepare", "review") or type(pinned) is not int:
+        return False
+    while previous is not None and previous > pinned:
+        version = tx.get("agent_versions", f"{agent_id}:{previous}")
+        parent = (version or {}).get("casework_upgrade_from")
+        if type(parent) is not int or not 0 < parent < previous:
+            return False
+        previous = parent
+    return previous == pinned
+
+
 def install(project_id, user, repository, *, upgrade=False, case_id=None):
     from ..platform import service as s
     from ..platform.contracts import AgentInput
@@ -223,6 +238,7 @@ def install(project_id, user, repository, *, upgrade=False, case_id=None):
                                 "definition_id": aid,
                                 "version": version,
                                 "checksum": s.digest(agent),
+                                **({"casework_upgrade_from": original_versions[aid]} if previous else {}),
                             },
                         )
                         (updated if previous else created).append(aid)
@@ -260,14 +276,22 @@ def install(project_id, user, repository, *, upgrade=False, case_id=None):
                 created.append(wid)
             elif upgrade and existing_flow["nodes"] != nodes:
                 published = tx.get("workflow_versions", f"{wid}:{existing_flow['current_version']}")
-                prior_nodes = [
-                    {**node, "agent_version": original_versions[node["agent_id"]]} for node in nodes
-                ]
                 if (
                     existing_flow["status"] != "published"
                     or not published
                     or published["nodes"] != existing_flow["nodes"]
-                    or existing_flow["nodes"] != prior_nodes
+                    or len(published["nodes"]) != len(nodes)
+                    or any(
+                        prior != {**node, "agent_version": prior.get("agent_version")}
+                        or not _managed_shared_pin(
+                            tx,
+                            node["id"],
+                            node["agent_id"],
+                            prior.get("agent_version"),
+                            original_versions[node["agent_id"]],
+                        )
+                        for prior, node in zip(published["nodes"], nodes, strict=True)
+                    )
                 ):
                     s.fail("asset_conflict", "协作流程已有修改，禁止覆盖。", 409)
                 version = max(v["version"] for v in tx.list("workflow_versions", definition_id=wid)) + 1

@@ -70,9 +70,200 @@ def test_report_reuses_actual_located_values_and_indexes_every_generated_file():
         assert payload["products"] == r["products"] and payload["evidence"] == r["evidence"]
         assert "secret" not in payload["task"] and payload["task"]["task_id"] == "t1"
         text = word(z)
-        assert "本期记录13起，上期17起，差额为-4起" in text and "〔e1〕" in text and "2000-03-02" in text
+        assert "本期数量为13，上期为17，差额为-4" in text and "〔e1〕" in text and "2000-03-02" in text
+        assert "13起" not in text
         evidence = list(csv.DictReader(io.StringIO(z.read("evidence.csv").decode("utf-8-sig"))))
         assert json.loads(evidence[1]["location"]) == {"row": 7}
+
+
+def test_chart_brief_preserves_figure_coverage_values_time_kinds_and_source_rows():
+    def point(figure, year, value, kind, row):
+        return {
+            "figure": figure,
+            "year": year,
+            "value": value,
+            "kind": kind,
+            "unit": "t",
+            "scenario": "纸张回收",
+            "location": {"row": row},
+            "evidence_ids": [f"E{row}"],
+        }
+
+    historical = [point(4, 2020 + i, i, "historical", i + 1) for i in range(8)]
+    forecasts = [point(6, 2030, 12, "forecast", 9), point(7, 2040, 25, "forecast", 10)]
+    rows = historical + forecasts
+    r = report("T05", {"comparison": rows})
+    r["evidence"] = [
+        {
+            "id": row["evidence_ids"][0],
+            "source_id": "labels",
+            "source_version": "1",
+            "location": row["location"],
+        }
+        for row in rows
+    ]
+    with unpack(bundle(r)) as z:
+        text = word(z)
+        assert "图4，2020年，情景“纸张回收”，历史，0 t，第1行〔E1〕" in text
+        assert "图6，2030年，情景“纸张回收”，预测，12 t，第9行〔E9〕" in text
+        assert "图7，2040年，情景“纸张回收”，预测，25 t，第10行〔E10〕" in text
+        assert "简报摘列7条，共10条" in text and "report.json 的 products.comparison" in text
+        assert json.loads(z.read("report.json"))["products"]["comparison"] == rows
+
+
+@pytest.mark.parametrize("code", ["B08", "B10", "T08"])
+def test_matrix_brief_samples_each_source_role_and_preserves_disagreements(code):
+    claims = [
+        {
+            "role": role,
+            "published_at": date,
+            "statement": text,
+            "scope": "同批",
+            "comparable_value": count,
+            "evidence_ids": [eid],
+        }
+        for role, date, text, count, eid in [
+            *(("project", "2024-01-01", "登记12箱", 12, "e1") for _ in range(8)),
+            ("audit", "2024-01-02", "清点11箱", 11, "e2"),
+            ("study", "2024-01-03", "观察11箱", 11, "e3"),
+        ]
+    ]
+    issues = [
+        {"question": "收货数量", "status": "conflicting_values", "claims": claims},
+        {"question": "次日数量", "status": "missing", "claims": []},
+    ]
+    r = report(code, {"matrix": issues, "version_timeline": claims})
+    r["evidence"].append({"id": "e3", "source_id": "c", "source_version": "1", "location": {"row": 1}})
+    with unpack(bundle(r)) as z:
+        text = word(z)
+        for role, date, value, evidence in [
+            ("项目方", "2024-01-01", "登记12箱", "e1"),
+            ("审计", "2024-01-02", "清点11箱", "e2"),
+            ("研究", "2024-01-03", "观察11箱", "e3"),
+        ]:
+            assert any(
+                f"{role}，{date}发布，{value}" in line and f"同口径数值有分歧〔{evidence}〕" in line
+                for line in text.splitlines()
+            )
+        assert "简报摘列7条来源陈述，共10条" in text and "1个问题缺少来源陈述" in text
+        assert "report.json 的 products.matrix" in text
+
+
+def test_battery_brief_reports_endpoint_differences_with_units_sources_and_scope():
+    series = []
+    for metric, unit, first, last in [("capacity", "Ah", 12, 11), ("resistance", "mOhm", 2, 2.4)]:
+        series.append(
+            {
+                "cell": "lamp",
+                "metric": metric,
+                "unit": unit,
+                "observed_difference": last - first,
+                "points": [
+                    {"cycle": 1, "value": first, "evidence_ids": ["e1"]},
+                    {"cycle": 3, "value": last, "evidence_ids": ["e2"]},
+                ],
+            }
+        )
+    scope = {"literature": [{"population": "单个灯具", "conditions": "22℃恒定负载", "evidence_ids": ["e1"]}]}
+    r = report("T09", {"trend_series": series, "applicability": scope})
+    with unpack(bundle(r)) as z:
+        text = word(z)
+        assert "容量：第1循环为12 Ah，第3循环为11 Ah，首末差为-1 Ah〔e1, e2〕" in text
+        assert "内阻：第1循环为2 mOhm，第3循环为2.4 mOhm，首末差为0.4 mOhm〔e1, e2〕" in text
+        assert "样本为单个灯具，实验条件为22℃恒定负载〔e1〕" in text
+        assert "热点图层" not in text
+
+
+def test_portfolio_brief_separates_currency_roles_unknown_fields_and_larger_lists():
+    def project(code, currency, cost, contribution, evidence):
+        return {
+            "project_id": code,
+            "theme": "储能",
+            "currency": currency,
+            "total_cost": cost,
+            "contribution": contribution,
+            "evidence_ids": [evidence],
+        }
+
+    projects = [
+        project("A", "EUR", 10, None, "e1"),
+        project("B", "EUR", 20, 5, "e2"),
+        project("C", "USD", 7, None, "e1"),
+        project("D", None, 70, None, "e2"),
+        project("F", "GBP", None, None, "e2"),
+    ]
+    sums = [
+        {
+            "theme": "储能",
+            "currency": "EUR",
+            "total_cost": {"known_amount": 30, "records": 2, "evidence_ids": ["e1", "e2"]},
+            "contribution": {"known_amount": 5, "records": 1, "evidence_ids": ["e2"]},
+        },
+        {
+            "theme": "储能",
+            "currency": "USD",
+            "total_cost": {"known_amount": 7, "records": 1, "evidence_ids": ["e1"]},
+        },
+    ]
+    edges = [
+        {"from": code, "to": "社区图书馆", "role": role, "evidence_ids": [eid]}
+        for code, role, eid in [
+            ("A", "coordinator", "e1"),
+            ("A", "participant", "e1"),
+            ("B", "participant", "e2"),
+            ("B", "coordinator", "e2"),
+            ("C", "participant", "e1"),
+        ]
+    ]
+    r = report(
+        "T04",
+        {
+            "portfolio": projects,
+            "theme_summary": {"known_funding": sums},
+            "organization_graph": {"edges": edges},
+        },
+    )
+    with unpack(bundle(r)) as z:
+        text = word(z)
+        for expected in (
+            "项目清单共5项",
+            "已知总成本 30 EUR〔e1, e2〕",
+            "已知贡献额 5 EUR〔e2〕（1项未计入该数额〔e1〕）",
+            "已知总成本 7 USD〔e1〕，已知贡献额未提供〔e1〕",
+            "币种未提供，未计入资金汇总〔e2〕",
+            "项目 A 的协调机构为社区图书馆〔e1〕",
+            "项目 B 的参与机构为社区图书馆〔e2〕",
+            "完整4组资金与5条角色关系见 report.json",
+        ):
+            assert expected in text
+        assert "37 EUR" not in text and "0 USD" not in text
+
+
+def test_citation_brief_distinguishes_claim_actions_and_identifies_omitted_claims():
+    claims = [
+        {
+            "claim_id": f"C{i}",
+            "action": action,
+            "reason": reason,
+            "original": "合成主张",
+            "evidence_ids": [eid],
+        }
+        for i, (action, reason, eid) in enumerate(
+            [
+                ("withdraw", "唯一依据均已撤稿", "e1"),
+                ("withdraw", "唯一依据均已撤稿", "e1"),
+                ("withdraw", "唯一依据均已撤稿", "e1"),
+                ("withdraw", "唯一依据均已撤稿", "e1"),
+                ("unaffected", "有独立支持", "e2"),
+            ],
+            1,
+        )
+    ]
+    with unpack(bundle(report("T10", {"citation_impact": claims}))) as z:
+        text = word(z)
+        assert "主张 C1 建议撤回。合成主张。依据：唯一依据均已撤稿〔e1〕" in text
+        assert "主张 C5 建议保留。合成主张。依据：有独立支持〔e2〕" in text
+        assert "简报摘列4条主张，共5条" in text and "products.citation_impact" in text
 
 
 def test_unreconciled_months_and_missing_baseline_are_not_rendered_as_success_or_zero():
@@ -211,7 +402,7 @@ def test_hard_review_failure_preserves_diagnostics_without_promoting_candidate_t
     )
     with unpack(bundle(r, {"status": "failed"})) as z:
         text = word(z)
-        assert "强制核验" in text and "数值与原件不符" in text and "本期记录900起" not in text
+        assert "强制核验" in text and "数值与原件不符" in text and "本期数量为900" not in text
         assert json.loads(z.read("report.json"))["products"] == r["products"]
 
 
@@ -263,6 +454,25 @@ def test_bulletin_distinguishes_field_observations_hearsay_assessments_and_absen
             )
         )
         assert "reading-card.docx" not in z.namelist() and "brief.docx" in z.namelist()
+
+
+def test_bulletin_labels_follow_the_subject_of_the_cited_statistics():
+    r = report(
+        products={
+            "observations": [
+                {"region": "公园东片区", "count": 18, "previous": 12, "change": 6, "evidence_ids": ["e1"]}
+            ]
+        }
+    )
+    r["evidence"][0]["quote"] = "本期已完成18件公园座椅维护工单。"
+    with unpack(bundle(r)) as z:
+        text = word(z, "bulletin.docx")
+        assert "区域观察统计快报" in text and "分区统计" in text and "公园东片区" in text
+        assert "停火" not in text and "本期（起）" not in text
+    r["evidence"][0]["quote"] = "The report recorded 18 ceasefire violations."
+    with unpack(bundle(r)) as z:
+        text = word(z, "bulletin.docx")
+        assert "停火监测日报快报" in text and "分区停火观察" in text
 
 
 def test_paper_card_separates_actual_measurement_model_limits_and_successful_translation():

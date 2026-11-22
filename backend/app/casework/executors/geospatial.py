@@ -2,6 +2,7 @@ from .base import AnalyzeExecutor, compact
 
 
 class GeospatialAnalysisExecutor(AnalyzeExecutor):
+    source_fields = ()
     heavy_products = frozenset(
         {
             "map_view",
@@ -22,6 +23,29 @@ class GeospatialAnalysisExecutor(AnalyzeExecutor):
     def main_description(self, context):
         role = context.agent["role_contract"]
         return f"执行{role['operation']}及冻结网格/地图前后处理，生成权威{context.code}空间产品和证据；无参数"
+
+    def previous(self, context):
+        history = super().previous(context)
+        if not self.source_fields:
+            return history
+        located = []
+        total = 0
+        for row in context.prepared["records"]:
+            fields = {key: row["fields"][key] for key in self.source_fields if key in row["fields"]}
+            if not fields:
+                continue
+            total += 1
+            if len(located) < 16:
+                located.append(
+                    {
+                        "source_id": row["source_id"],
+                        "source_version": row["source_version"],
+                        "location": row["location"],
+                        "fields": compact(fields, max_chars=160),
+                    }
+                )
+        history.append({"type": "located_source_fields", "matching_records": total, "shown": located})
+        return history
 
     def project(self, output, context):
         products = output["content"]["products"]
@@ -130,6 +154,7 @@ class LandCoverExecutor(GeospatialAnalysisExecutor):
 
 class EnvironmentalSampleExecutor(GeospatialAnalysisExecutor):
     executor_id = "analyze.g07.environmental_sample_coverage"
+    source_fields = ("sample_id", "unit", "qualifier", "validation")
 
     def instructions(self, context):
         return (
@@ -142,6 +167,7 @@ class EnvironmentalSampleExecutor(GeospatialAnalysisExecutor):
 
 class IslandTimelineExecutor(GeospatialAnalysisExecutor):
     executor_id = "analyze.g08.island_observation_timeline"
+    source_fields = ("unit", "datum", "baseline")
 
     def instructions(self, context):
         return (

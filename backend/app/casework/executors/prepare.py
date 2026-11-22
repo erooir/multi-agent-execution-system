@@ -14,6 +14,11 @@ class SourcePreparationExecutor(PrepareExecutor):
                 "本用例重点核对图像编号、可见特征、bbox坐标空间、宽高和馆藏候选的解析完整性；"
                 "像素匹配结果只承认受限视觉工具已经生成的记录，不根据文件名推断图像内容。"
             )
+        if context.code == "G03":
+            return common + (
+                "海冰policy的baseline_years是包含两端的起止年份，区间内逐年观测都参与基线。"
+                "只有区间内某一年度的记录确实缺失、冲突或单位不一致时才指出相应来源缺口。"
+            )
         if context.code == "T05":
             return common + (
                 "本用例重点核对图号、图注、单位、情景、标注值及其value_source；"

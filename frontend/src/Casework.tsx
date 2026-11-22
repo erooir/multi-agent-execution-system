@@ -49,6 +49,7 @@ export default function Casework({
     [catalogLoaded, setCatalogLoaded] = useState(false),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
+    [openingCase, setOpeningCase] = useState<string | null>(null),
     [epoch, refresh] = useState(0);
   useEffect(() => {
     const c = new AbortController(),
@@ -102,28 +103,40 @@ export default function Casework({
   );
   const needsUpgrade =
     installed && catalog.some((c) => c.project_tools_current === false);
-  async function provision(upgrade: boolean) {
+  async function provision(upgrade: boolean, caseId?: string) {
     setBusy(true);
+    const params = new URLSearchParams({ project_id: projectId });
+    if (caseId) params.set("case_id", caseId);
     try {
       await mutate(
         () =>
           post(
-            "/v2/casework/" +
-              (upgrade ? "upgrade" : "install") +
-              "?project_id=" +
-              encodeURIComponent(projectId),
+            `/v2/casework/${upgrade ? "upgrade" : "install"}?${params}`,
           ),
-        upgrade
-          ? "新版用例岗位与流程已发布，后续任务可使用新版本"
-          : "本项目用例岗位与流程已发布",
+        caseId
+          ? undefined
+          : upgrade
+            ? "新版用例岗位与流程已发布，后续任务可使用新版本"
+            : "本项目用例岗位与流程已发布",
       );
       refresh((n) => n + 1);
       setError("");
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     } finally {
       setBusy(false);
     }
+  }
+  async function openCase(item: Item) {
+    if (!item.project_tools_current) {
+      setOpeningCase(item.id);
+      const ready = await provision(true, item.id);
+      setOpeningCase(null);
+      if (!ready) return;
+    }
+    setProfile(item);
   }
   return (
     <>
@@ -148,7 +161,7 @@ export default function Casework({
       />
       {needsUpgrade && (
         <p className="warning">
-          本项目已发布旧版流程。升级会发布新版用例岗位和流程，历史版本与原任务保留；存在未发布的编辑时请先处理冲突。
+          打开用例时会尝试更新旧版内置流程，历史版本和任务记录会保留。
         </p>
       )}
       <div className="segmented">
@@ -315,10 +328,13 @@ export default function Casework({
                     {canEdit && (
                       <button
                         className="cc-primary"
-                        disabled={!p.installed}
-                        onClick={() => setProfile(p)}
+                        disabled={!p.installed || busy}
+                        onClick={() => openCase(p)}
                       >
-                        创建用例任务 <ArrowRight size={14} />
+                        {openingCase === p.id
+                          ? "正在更新流程…"
+                          : "创建用例任务"}
+                        <ArrowRight size={14} />
                       </button>
                     )}
                     <button

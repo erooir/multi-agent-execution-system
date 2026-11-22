@@ -169,87 +169,181 @@ def _grids(records):
     ]
 
 
+_TOTAL_KINDS = {"total", "reported_total"}
+
+
+def _explicit_totals(sid, owned, key, measures, unit_field):
+    """reconcile_total requires one declared total and unique, explicitly typed details per scope."""
+    planned = []
+    scopes = sorted({f["scope"] for f in owned if isinstance(f.get("scope"), str) and f["scope"].strip()})
+    for scope in scopes:
+        group = [f for f in owned if f.get("scope") == scope]
+        totals = [f for f in group if f.get("kind") in _TOTAL_KINDS]
+        details = [f for f in group if f.get("kind") == "detail" and f.get(key)]
+        units = {f.get(unit_field) for f in group}
+        if key == "project_id" and any(
+            len({f.get(name) for f in group}) > 1 for name in ("unit", "currency")
+        ):
+            # A shared currency cannot resolve mixed scales, or vice versa.
+            continue
+        if (
+            len(totals) != 1
+            or not details
+            or len(details) + 1 != len(group)
+            or len(units) != 1
+            or len({f[key] for f in details}) != len(details)
+        ):
+            continue
+        unit = units.pop()
+        if not isinstance(unit, str) or not unit.strip() or max(len(unit), len(scope)) > 100:
+            continue
+        for field in measures:
+            if all(number(f.get(field)) is not None for f in group):
+                args = {
+                    "source_id": sid,
+                    "scope": scope,
+                    "unit": unit,
+                    "detail_id_field": key,
+                    "value_field": field,
+                }
+                if unit_field != "unit":
+                    args["unit_field"] = unit_field
+                if totals[0]["kind"] != "total":
+                    args["total_role"] = totals[0]["kind"]
+                planned.append(("stats.reconcile_total", args))
+    return planned
+
+
 def _monthly(records):
     planned = []
+    key_audits = []
     for sid in dict.fromkeys(r["source_id"] for r in records):
         owned = [r["fields"] for r in records if r["source_id"] == sid]
         months = [f for f in owned if f.get("month")]
         # The same month may legitimately recur in a different population.
-        if (
+        chart_months = (
             months
             and len({f.get("scope", f.get("coverage")) for f in months}) == 1
             and all(f.get("kind") == "chart_label_ocr" and "deaths" in f and "injured" in f for f in months)
-        ):
+        )
+        if chart_months:
             planned.append(
                 (
                     "table.audit_keys",
                     {"source_id": sid, "key_fields": ["month"], "where": {"kind": "chart_label_ocr"}},
                 )
             )
-        scopes = sorted({r["scope"] for r in owned if isinstance(r.get("scope"), str) and r["scope"].strip()})
-        for scope in scopes:
-            group = [f for f in owned if f.get("scope") == scope]
-            totals = [f for f in group if f.get("kind") == "total"]
-            detail = [f for f in group if f.get("kind") == "detail" and f.get("month")]
-            units = {f.get("unit") for f in group}
+        totals = _explicit_totals(sid, owned, "month", ("deaths", "injured"), "unit")
+        planned.extend(totals)
+        if not chart_months and not totals:
+            total_kinds = sorted({f.get("kind") for f in owned if f.get("kind") in _TOTAL_KINDS})
+            details = [f for f in owned if f.get("kind") not in _TOTAL_KINDS]
             if (
-                len(totals) != 1
-                or not detail
-                or len(detail) + 1 != len(group)
-                or len(units) != 1
-                or len({f["month"] for f in detail}) != len(detail)
+                any(f.get("kind") is None and "month" in f for f in details)
+                and len({f.get("scope", f.get("coverage")) for f in details}) == 1
+                and all(
+                    "deaths" in f
+                    and "injured" in f
+                    and (f.get("kind") == "detail" or (f.get("kind") is None and "month" in f))
+                    for f in details
+                )
+                and not any(f.get("month") for f in owned if f.get("kind") in _TOTAL_KINDS)
             ):
-                continue
-            unit = units.pop()
-            if not isinstance(unit, str) or not unit.strip():
-                continue
-            for field in ("deaths", "injured"):
-                if all(number(f.get(field)) is not None for f in group):
-                    planned.append(
-                        (
-                            "stats.reconcile_total",
-                            {
-                                "source_id": sid,
-                                "scope": scope,
-                                "unit": unit,
-                                "detail_id_field": "month",
-                                "value_field": field,
-                            },
-                        )
-                    )
+                args = {"source_id": sid, "key_fields": ["month"], "exclude_kinds": total_kinds}
+                key_audits.append(("table.audit_keys", args))
         if len(planned) >= 3:
             break
-    return planned[:3]
+    return (planned + key_audits)[:3]
 
 
 def _projects(records):
     # One complete project table can be checked against one portfolio. When
     # several sources contribute project rows there is no per-source total.
-    data = [r for r in records if r["fields"].get("kind") not in {"policy", "taxonomy", "org_alias"}]
-    if not data or len({r["source_id"] for r in data}) != 1:
-        return []
-    key = next((k for k in ("project_id", "项目编号") if all(k in r["fields"] for r in data)), None)
-    if not key:
-        return []
-    return [
-        (
-            "table.audit_keys",
-            {
-                "source_id": data[0]["source_id"],
-                "key_fields": [key],
-                "exclude_kinds": ["org_alias", "taxonomy"],
-            },
-        )
-    ]
+    excluded = {"policy", "taxonomy", "org_alias", *_TOTAL_KINDS}
+    data = [r for r in records if r["fields"].get("kind") not in excluded]
+    planned = []
+    if data and len({r["source_id"] for r in data}) == 1:
+        key = next((k for k in ("project_id", "项目编号") if all(k in r["fields"] for r in data)), None)
+        if key:
+            planned.append(
+                (
+                    "table.audit_keys",
+                    {
+                        "source_id": data[0]["source_id"],
+                        "key_fields": [key],
+                        "exclude_kinds": sorted(excluded),
+                    },
+                )
+            )
+    for sid in dict.fromkeys(r["source_id"] for r in data):
+        owned = [r["fields"] for r in records if r["source_id"] == sid]
+        if not any(f.get("kind") in _TOTAL_KINDS for f in owned):
+            continue
+        for unit_field in ("currency", "unit"):
+            totals = _explicit_totals(sid, owned, "project_id", ("total_cost", "contribution"), unit_field)
+            if totals:
+                planned.extend(totals)
+                break
+        if len(planned) >= 3:
+            break
+    return planned[:3]
 
 
-def requests(code, inputs, records, candidate):
+def _observation_keys(code, records):
+    """Audit raw observation identifiers only when the filter selects those exact rows."""
+    if code == "G01":
+        key = ["observed_at", "latitude", "longitude", "sensor"]
+        indicators = ("latitude", "longitude")
+    else:
+        key = ["sample_id", "date", "medium", "analyte"]
+        indicators = ("sample_id", "analyte")
+    requests = []
+    by_source = {}
+    for row in records:
+        by_source.setdefault(row["source_id"], []).append(row["fields"])
+    for sid, fields in by_source.items():
+        observations, other = [], []
+        for f in fields:
+            if f.get("kind") == "policy":
+                continue
+            if any(k in f for k in indicators) and (code != "G01" or f.get("kind") != "region"):
+                observations.append(f)
+            else:
+                other.append(f.get("kind"))
+        if not observations or any(not all(k in f for k in key) for f in observations):
+            continue
+        if code == "G01" and any(
+            f.get("orbit") is not None or f.get("scan") is not None for f in observations
+        ):
+            continue
+        kind = observations[0].get("kind")
+        if (
+            isinstance(kind, str)
+            and 1 <= len(kind) <= 100
+            and kind not in other
+            and all(f.get("kind") == kind for f in observations)
+        ):
+            filters = {"where": {"kind": kind}}
+        else:
+            if any(not isinstance(kind, str) or not 1 <= len(kind) <= 100 for kind in other):
+                continue
+            excluded = sorted(set(other))
+            if len(excluded) > 8 or any(f.get("kind") in excluded for f in observations):
+                continue
+            filters = {"exclude_kinds": excluded} if excluded else {}
+        requests.append(("table.audit_keys", {"source_id": sid, "key_fields": key, **filters}))
+    return requests[:3]
+
+
+def requests(code, inputs, records, candidate=None):
     """Only material explicitly present in the frozen case can select a cross-check."""
     frozen = {(a["id"], str(a["source_version"])) for a in inputs}
     if not records or any((r["source_id"], str(r["source_version"])) not in frozen for r in records):
         return []
     planner = {"B05": _monthly, "T04": _projects, "G03": _annual, "G06": _grids, "G09": _routes}.get(code)
     try:
+        if code in {"G01", "G07"}:
+            return _observation_keys(code, records)
         return planner(records) if planner else []
     except (KeyError, TypeError, ValueError):
         # Malformed data is still assessed by the case's primary source and domain
@@ -389,6 +483,14 @@ def compare(code, tool_id, result, candidate):
             count == out["total_rows"],
             "月度产品行数与同份原件的唯一月份标签数量不同",
             hard=not candidate.get("gaps"),
+        )
+    if (
+        code == "T04"
+        and tool_id == "stats.reconcile_total"
+        and out["value_field"] in {"total_cost", "contribution"}
+    ):
+        return _check(
+            "source_funding_reconciliation", out["agrees"], "来源中同一资金口径的项目明细与独立列报的总额不符"
         )
     if code == "T04" and tool_id == "table.audit_keys":
         if out["missing_key_count"] or out["duplicate_groups"] or out["conflict_groups"]:

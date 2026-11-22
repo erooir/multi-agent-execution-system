@@ -40,6 +40,7 @@ test("用例任务：真实提交、三节点审核、来源证据与智能体�
     },
   });
   expect(a.ok()).toBeTruthy();
+  const source = await a.json();
   await page.reload();
   await group(page, id).click();
   await workspacePage(page, "场景分析");
@@ -52,7 +53,7 @@ test("用例任务：真实提交、三节点审核、来源证据与智能体�
     "G03",
   );
   await dlg.getByLabel("验收范围").selectOption("sample");
-  await expect(dlg.getByText(/输入由平台从有效项目来源中检索/)).toBeVisible();
+  await dlg.getByRole("checkbox", { name: /合成逐年观测/ }).check();
   await dlg.getByRole("button", { name: "检查匹配与授权" }).click();
   await expect(dlg.getByRole("status")).toContainText("预检查通过");
   const accepted = page.waitForResponse(
@@ -61,6 +62,7 @@ test("用例任务：真实提交、三节点审核、来源证据与智能体�
   await dlg.getByRole("button", { name: "提交并自动执行" }).click();
   const task = await (await accepted).json();
   expect(task.request.case_id).toBe("G03");
+  expect(task.request.input_refs).toEqual([source.id]);
   await expect(page.locator(".task-strip .badge")).toHaveText("成功", {
     timeout: 35000,
   });

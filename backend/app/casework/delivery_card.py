@@ -105,7 +105,7 @@ class Card:
                 break
         return f"〔{source}/{short(e['id'], 12)}·{place or '详见证据索引'}〕"
 
-    def observation(self):
+    def observation(self, ceasefire):
         prod = self.report["products"]
         win = prod.get("report_window", {})
         self.line(
@@ -116,7 +116,7 @@ class Card:
             "观测截至",
             self.entry(win.get("observed_until"), 45) + "　时区 " + self.entry(win.get("timezone"), 34),
         )
-        self.heading("分区停火观察")
+        self.heading("分区停火观察" if ceasefire else "分区统计")
         rows = []
         for row in (prod.get("observations") or [])[:2]:
             e = next((self.evidence[i] for i in row.get("evidence_ids", []) if i in self.evidence), None)
@@ -131,7 +131,9 @@ class Card:
         if rows:
             _table(
                 self.doc,
-                ["地区", "本期（起）", "上期（起）", "差额（起）", "来源位置"],
+                ["地区", "本期（起）", "上期（起）", "差额（起）", "来源位置"]
+                if ceasefire
+                else ["地区", "本期数量", "上期数量", "差额", "来源位置"],
                 rows,
                 [3.0, 2.9, 2.9, 2.9, 5.25],
             )
@@ -182,7 +184,20 @@ class Card:
     def make(self, metadata):
         r = self.report
         b01 = r["case_id"] == "B01"
-        title = "停火监测日报快报" if b01 else "试验论文阅读卡"
+        observations = r["products"].get("observations", [])
+        # Only give the count a specific subject if every region's cited observation identifies it.
+        ceasefire = bool(observations) and all(
+            any(
+                re.search(
+                    r"\bceasefire violations?\b|违反停火|停火违规",
+                    self.evidence.get(eid, {}).get("quote") or "",
+                    re.IGNORECASE,
+                )
+                for eid in row.get("evidence_ids", [])
+            )
+            for row in observations
+        )
+        title = ("停火监测日报快报" if ceasefire else "区域观察统计快报") if b01 else "试验论文阅读卡"
         self.doc.core_properties.title = title
         self.doc.core_properties.author = "航智平台"
         self.line(
@@ -195,7 +210,7 @@ class Card:
             self.heading("复核未通过")
             self.line("待核", short(rejected[0].get("message") or "候选数据未通过强制核验。", 92))
         elif b01:
-            self.observation()
+            self.observation(ceasefire)
         else:
             self.research()
         notes = r.get("reading_notes") or []

@@ -14,10 +14,13 @@ import errno
 import hashlib
 import io
 import json
+import logging
 import os
 import subprocess
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import datetime
@@ -39,7 +42,7 @@ from ..model_gateway import (
     model_gateway,
     request_scope,
 )
-from .db import ROOT, TERMINAL, LeaseLost, now
+from .db import ROOT, TERMINAL, LeaseLost, Repository, now
 from .quality import combine_review, deterministic_quality, text_of
 from .tool_registry import permissions as agent_permissions
 
@@ -321,7 +324,7 @@ class Execution:
     outputs: list[dict] = field(default_factory=list)
     output_origins: dict[int, dict] = field(default_factory=dict)
     quality: dict | None = None
-    lease_lost: bool = False
+    lease_lost: threading.Event = field(default_factory=threading.Event)
     active_node_id: str | None = None
     failure: BaseException | None = None
     case_plan: dict | None = None
@@ -337,14 +340,14 @@ class Execution:
         return self.task["snapshot"]["inputs"]
 
     def current(self):
-        if self.lease_lost:
+        if self.lease_lost.is_set():
             raise LeaseLost("Task lease was lost")
         return self.repository.fenced(self.task["id"], self.worker_id, self.token)
 
     def check(self, repository=None):
         target = repository or self.repository
         current = target.fenced(self.task["id"], self.worker_id, self.token)
-        if self.lease_lost:
+        if self.lease_lost.is_set():
             raise LeaseLost("Task lease was lost")
         principal = current.get("authorization")
         if principal:
@@ -2402,21 +2405,44 @@ def _guard(executor):
     return guarded
 
 
-async def _heartbeat(execution: Execution):
-    while True:
-        await asyncio.sleep(5)
+_HEARTBEAT_SECONDS = 5.0
+
+
+def _heartbeat(repository, task_id, worker_id, token, stopped, lease_lost):
+    while not stopped.wait(_HEARTBEAT_SECONDS):
         try:
-            execution.repository.heartbeat(execution.task["id"], execution.worker_id, execution.token)
+            repository.heartbeat(task_id, worker_id, token)
         except LeaseLost:
-            execution.lease_lost = True
+            lease_lost.set()
+            return
+        except Exception as exc:  # noqa: BLE001 - lost renewal capability must fence all subsequent work.
+            lease_lost.set()
+            logging.getLogger(__name__).warning(
+                "Lease renewal failed for %s (%s)", task_id, type(exc).__name__
+            )
             return
 
 
 async def process_claim(repository, task: dict, worker_id: str) -> dict:
     """Run one owned claim, retaining uncertain paid calls across process crashes."""
+    if repository.connection is not None:
+        raise ValueError("Task execution requires a repository without a bound transaction")
     execution = Execution(repository, task, worker_id, task["lease_token"])
+    # Cold imports and synchronous validators can occupy the workflow event loop.
+    # One renewal thread per active claim uses its own fenced DB transactions.
+    stopped = threading.Event()
+    renewer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="hangzhi-lease")
+    heartbeat = asyncio.get_running_loop().run_in_executor(
+        renewer,
+        _heartbeat,
+        Repository(engine=repository.engine),
+        task["id"],
+        worker_id,
+        execution.token,
+        stopped,
+        execution.lease_lost,
+    )
     token = _execution.set(execution)
-    heartbeat = asyncio.create_task(_heartbeat(execution))
     try:
         if execution.request["mode"] == "cloud":
             try:
@@ -2477,7 +2503,9 @@ async def process_claim(repository, task: dict, worker_id: str) -> dict:
         except LeaseLost:
             return repository.get("tasks", task["id"])
     finally:
-        heartbeat.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await heartbeat
-        _execution.reset(token)
+        stopped.set()
+        try:
+            await asyncio.shield(heartbeat)
+        finally:
+            renewer.shutdown(wait=True)
+            _execution.reset(token)

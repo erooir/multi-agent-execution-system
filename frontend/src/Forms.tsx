@@ -537,6 +537,7 @@ export function AgentForm({
 }
 export function TaskForm({
   projectId,
+  assets,
   workflows,
   onClose,
   mutate,
@@ -602,6 +603,19 @@ export function TaskForm({
     return () => controller.abort();
   }, [projectId]);
   const capability = catalog.find((c) => c.id === form.task_type);
+  const caseAssets =
+    form.task_type === "case_analysis"
+      ? assets.filter(
+          (asset) =>
+            !asset.task_case_id &&
+            asset.status === "active" &&
+            new Date(asset.expires_at).getTime() > Date.now(),
+        )
+      : [];
+  const caseAssetIds = new Set(caseAssets.map((asset) => asset.id));
+  const missingCaseRefs =
+    form.task_type === "case_analysis" &&
+    form.input_refs.some((id: string) => !caseAssetIds.has(id));
   const [quality, setQuality] = useState({
       min_records: 1,
       min_length: 1,
@@ -787,6 +801,7 @@ export function TaskForm({
             onChange={(e) => update("case_scope", e.target.value)}
           >
             <option value="reference">参考用例的指定批次</option>
+            <option value="project">使用工作空间资料开展实际分析</option>
             <option value="sample">缩小样本验证（不代表完整用例验收）</option>
           </select>
         </Field>
@@ -801,7 +816,73 @@ export function TaskForm({
           placeholder="具体描述期望产物和处理范围"
         />
       </Field>
-      <p className="muted">输入由平台从有效项目来源中检索。复制历史任务时沿用其输入引用，执行前重新核验。</p>
+      {form.task_type === "case_analysis" ? (
+        <fieldset>
+          <legend>选择输入资料</legend>
+          <p className="muted">
+            勾选后只使用所选资料。留空时由平台从当前工作空间自动匹配。
+          </p>
+          <div className="selection-list">
+            {caseAssets.map((asset) => {
+              const checked = form.input_refs.includes(asset.id);
+              const allowed =
+                capability?.modalities.includes(asset.modality) &&
+                (form.mode !== "cloud" || asset.classification === "public");
+              return (
+                <label className="check" key={asset.id}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={
+                      !checked && (!allowed || form.input_refs.length >= 50)
+                    }
+                    onChange={() =>
+                      update(
+                        "input_refs",
+                        checked
+                          ? form.input_refs.filter(
+                              (id: string) => id !== asset.id,
+                            )
+                          : [...form.input_refs, asset.id],
+                      )
+                    }
+                  />
+                  <span>{asset.name}</span>
+                  <small>
+                    {asset.media_type === "application/pdf"
+                      ? "PDF"
+                      : modalities[asset.modality]}
+                    {" · "}
+                    {asset.classification === "public" ? "公开" : "仅本地"}
+                  </small>
+                </label>
+              );
+            })}
+            {!caseAssets.length && (
+              <p className="muted">
+                当前工作空间没有可选资料。可先前往「知识库」登记或上传。
+              </p>
+            )}
+          </div>
+          {missingCaseRefs && (
+            <button
+              type="button"
+              onClick={() =>
+                update(
+                  "input_refs",
+                  form.input_refs.filter((id: string) => caseAssetIds.has(id)),
+                )
+              }
+            >
+              移除已失效的资料引用
+            </button>
+          )}
+        </fieldset>
+      ) : (
+        <p className="muted">
+          输入由平台从有效项目来源中检索。复制历史任务时沿用其输入引用，执行前重新核验。
+        </p>
+      )}
       <div className="form-grid">
         <Field label="执行模式">
           <select
