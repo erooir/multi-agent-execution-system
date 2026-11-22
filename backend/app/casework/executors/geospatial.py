@@ -74,6 +74,38 @@ class PanelExecutor(GeospatialAnalysisExecutor):
     executor_id = "analyze.g02.multitemporal_panel_review"
 
     def instructions(self, context):
+        extended = {
+            "G11": (
+                "你负责城市热岛地表温度分区判读。观察对象是带sensor/date的LST分区与热核心像元，"
+                "口径须明确地表温度不等于气象站气温；云、阴影、无质量层区域列为不可判读，"
+                "不得由展示图推断精确温度或气温。" 
+            ),
+            "G12": (
+                "你负责单景卫星影像的地物要素判读。观察对象是frame_id对应的可见地物与地貌注记，"
+                "须保留潮汐时刻、传感器与图像署名依据；单景单时相不得做变化检测，红树林/礁石判读受潮位水色影响须保留不确定性。"
+            ),
+            "G13": (
+                "你负责毁林预警驱动分区核查。观察对象是预警点/面的driver类别与置信度，"
+                "须显式区分预警与确认毁林、驱动分类与现场定性；不同来源系统的时间窗口径差异须并列保留，不得合并推算。"
+            ),
+            "G14": (
+                "你负责夜间灯光分区判读。观察对象是VIIRS DNB分区与相对变化，"
+                "须声明DNB测的是夜间光照而非人口或GDP；月相、观测角、云量与气辉干扰列为不可判读，"
+                "未处理的原始DN值不用于跨期比较。"
+            ),
+            "G16": (
+                "你负责珊瑚白化热压力预警核查。观察对象是按HotSpot/DHW重算的等级分区，"
+                "须按产品分级定义核对，显式区分预警、现场白化与死亡三类证据；"
+                "不得由最高等级图推断未提供的礁区实测白化比例。"
+            ),
+        }.get(context.code)
+        if extended:
+            return (
+                extended
+                + "按frame_id/zone/feature/bbox/confidence定位标注，标注须回指冻结记录；"
+                + "不可读或越界的分区进入unreadable或具体缺口。"
+                + self.numeric_boundary()
+            )
         return (
             "你负责多时相图像注记核查。按policy.dates和image_id对齐观测，核对width/height及零基bbox=[x,y,w,h]边界，"
             "分栏保留observation、interpretation、quality和confidence。主键工具只用于核查图像编号，不得由注记推断未提供的像素。"
@@ -144,6 +176,13 @@ class IslandTimelineExecutor(GeospatialAnalysisExecutor):
     executor_id = "analyze.g08.island_observation_timeline"
 
     def instructions(self, context):
+        if context.code == "G15":
+            return (
+                "你负责高原湖泊扩张与冰湖溃决风险的时序核验。观察对象是lake_id对应的多期面积与暴露要素，"
+                "面积变化率须可由首末期观测重算并给出单位；驱动证据区分降水、冰川、冻土与不确定，"
+                "不得由展示图推断坝体参数或淹没模型；缺驱动或不可判读的记录进入uncertainty。"
+                + self.numeric_boundary()
+            )
         return (
             "你负责岛屿多源观测时间线。按policy.date/islands对齐frame、tide、report和survey，"
             "区分observed_at与survey.event_at，核对坐标、潮位unit/datum/baseline和claim_id冲突。"

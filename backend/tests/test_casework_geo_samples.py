@@ -12,7 +12,7 @@ from PIL import Image
 
 from backend.app.casework.geo_cases import CATALOG, audit_products
 from backend.app.casework.records import extract
-from backend.tests.test_casework_geo import area, edge, grid, policy, verify
+from backend.tests.test_casework_geo import area, edge, grid, policy, rows, verify
 
 
 def media_samples(code):
@@ -231,6 +231,21 @@ def samples(code, media_ids=None):
             *[area("coverage", w=60, date=dt) for dt in dates],
             *[area("flood", x=500000 + i * 4, w=8, date=dt) for i, dt in enumerate(dates)],
         ]
+
+    if code in {"G11", "G12", "G13", "G14", "G16"}:
+        kind = {"G11": "heat_zone", "G12": "landform", "G13": "driver_zone", "G14": "light_zone", "G16": "bleach_zone"}[code]
+        return [
+            policy(dates=["2024-07-01"]),
+            dict(kind=kind, frame_id="frame-a", date="2024-07-01", zone="zone-1", bbox=[1, 2, 3, 4], sensor="synthetic"),
+            dict(kind="observation", frame_id="frame-a", date="2024-07-01", feature="structured observation", confidence="high"),
+            dict(kind="change", frame_id="frame-a", delta=2.5, basis="upstream structured"),
+        ]
+    if code == "G15":
+        return [
+            policy(),
+            dict(kind="lake", lake_id="lake-a", date="1994", area=10, unit="km2"),
+            dict(kind="lake", lake_id="lake-a", date="2024", area=14, unit="km2"),
+        ]
     raise KeyError(code)
 
 
@@ -262,6 +277,10 @@ def assert_expected(code, candidate):
         assert len(p["od_comparison"]) == 5 and p["od_comparison"][0]["candidates"][0]["extra_km"] == 3
     elif code == "G10":
         assert len(p["priority"]) == 3 and p["priority"][0]["max_union_exposed_m2"] == 320
+    elif code in {"G11", "G12", "G13", "G14", "G16"}:
+        assert len(p["panels"]) >= 1 and p["summary"]["frames"] >= 1
+    elif code == "G15":
+        assert len(p["timeline"]) == 1 and p["timeline"][0]["change_pct"] == 40.0
 
 
 @pytest.mark.parametrize("code", sorted(CATALOG))
@@ -313,4 +332,8 @@ def test_complete_supplied_geo_contracts(code):
         p["od_comparison"][0]["candidates"][0]["edge_ids"] = ["direct"]
     elif code == "G10":
         p["priority"][0]["max_union_exposed_m2"] = 99999
+    elif code in {"G11", "G12", "G13", "G14", "G16"}:
+        p["summary"]["frames"] += 1
+    elif code == "G15":
+        p["timeline"][0]["change_pct"] += 100
     assert any(not c["passed"] and c["hard"] for c in audit_products(code, p, normalized))

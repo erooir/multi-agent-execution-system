@@ -67,7 +67,7 @@
     "case_id": {
       "anyOf": [
         {
-          "pattern": "^[BTG](0[1-9]|10)$",
+          "pattern": "^[BTG](0[1-9]|1[0-9])$",
           "type": "string"
         },
         {

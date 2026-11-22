@@ -70,6 +70,26 @@ ANALYZERS = {
     "G08": IslandTimelineExecutor,
     "G09": RouteExecutor,
     "G10": AgricultureExecutor,
+    "B11": ObservationExecutor,
+    "B12": ArchiveImageExecutor,  # 专属分析函数已实现
+    "B13": MonthSeriesExecutor,
+    "B14": MonthSeriesExecutor,
+    "B15": ObservationExecutor,
+    "B16": ChronologyExecutor,
+    "B17": EvidenceMatrixExecutor,
+    "T11": MilestoneExecutor,
+    "T12": ChartDataExecutor,  # 专属分析函数已实现
+    "T13": MilestoneExecutor,
+    "T14": MilestoneExecutor,
+    "T15": ArchiveImageExecutor,  # 专属分析函数已实现
+    "T16": ProjectPortfolioExecutor,  # 专属分析函数已实现
+    "T17": ChronologyExecutor,
+    "G11": PanelExecutor,  # 专属分析函数已实现
+    "G12": PanelExecutor,  # 专属分析函数已实现
+    "G13": PanelExecutor,  # 专属分析函数已实现
+    "G14": PanelExecutor,  # 专属分析函数已实现
+    "G15": IslandTimelineExecutor,  # 专属分析函数已实现
+    "G16": PanelExecutor,  # 专属分析函数已实现
 }
 PREPARE = SourcePreparationExecutor
 REVIEW = IndependentReviewExecutor

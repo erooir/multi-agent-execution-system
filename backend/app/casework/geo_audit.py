@@ -389,6 +389,29 @@ def audit_products(case_id, products, records):
                 within,
                 "跨期并集面积应介于最大单期与逐期总和之间，且不超过耕地面积；缺覆盖不得分级",
             )
+        elif case_id in {"G11", "G12", "G13", "G14", "G16"}:
+            panels = p["panels"]
+            counted = sum(len(x.get("annotations", [])) for x in panels)
+            check(
+                "panel_inventory",
+                len(panels) >= 1
+                and counted >= 1
+                and p["summary"]["frames"] == len(panels)
+                and p["summary"]["observations"] == counted
+                and all(x.get("image_id") for x in panels),
+                "至少一个面板且至少一条标注，数量与计数须与面板明细守恒，且每个面板有图幅编号",
+            )
+        elif case_id == "G15":
+            consistent = bool(p["timeline"])
+            for lake in p["timeline"]:
+                dated = [o for o in lake["observations"] if o.get("date") and o.get("area")]
+                change = lake.get("change_pct")
+                if len(dated) >= 2:
+                    expected = (dated[-1]["area"] - dated[0]["area"]) / dated[0]["area"] * 100
+                    consistent &= change is not None and abs(change - round(expected, 2)) < 1e-6
+                else:
+                    consistent &= change is None
+            check("lake_change", consistent, "湖泊面积变化率须可由首末期观测重算")
     except (IndexError, TypeError, ValueError, KeyError, AttributeError, OverflowError):
         check("invariant_inputs", False, "候选产品缺少独立复算所需字段或记录定位不匹配")
     return detail

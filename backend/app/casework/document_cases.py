@@ -4,6 +4,7 @@ import re
 from functools import partial
 
 from . import document_compare as compare
+from . import document_extended as extended
 from . import document_media as media
 from . import document_numbers as numeric
 from . import document_science as science
@@ -165,6 +166,104 @@ CATALOG = {
         "状态追踪|依赖核查|来源审查",
         "kind doi date status claim_id statement cites supports_claims",
     ),
+    "B11": _profile(
+        "OPCW 化武销毁核验进度数据快报",
+        "上游提供 1 份官方统计页面存档（HTML 或另存 PDF，约 1 页）与 1 份字段模板。页面正文含数据表与截至日期；原始视察报告、各国申报底稿不在本次材料中，不能视为已取得。任务运行时假定所需材料一次到位。",
+        "observations report_window context",
+        "报告检索|统计复核|来源审查",
+        "region current previous report_number published_date observed_until timezone",
+    ),
+    "B12": _profile(
+        "二战航空宣传海报的 OCR 转录与档案要素抽取",
+        "需要一张可下载的历史航空海报高清 JPG 作为主输入（本用例提供 B12-M01，另附 B12-M02 作对照）；NARA 条目页元数据用于核对机构、NAID、年代、版权；LOC 条目页（B12-M03）提供权威档案要素字段规范参照。缺口：Commons 文件页未给出海报图像内文字的逐字 OCR 全文，需由模型从图像自行识读；精确制作年份未知，仅有年代区间。 结构化记录kind合法取值：image(可见要素)/ocr(转录文本)/reference(馆藏元数据)；字段feature或visible_features(可列表)、text或ocr_text、bbox、confidence。",
+        "image_catalog overlay_layers",
+        "图像编目|馆藏匹配|来源审查",
+        "kind image_id feature visible_feature visible_features 要素 text ocr_text bbox coordinate_space width height confidence model_name url",
+    ),  # 专属分析函数已实现
+    "B13": _profile(
+        "UNMAS 地雷行动年度统计跨年核查",
+        "上游提供 1 份年度报告网页存档（2023 年，约 1 页正文）与 1 份年度报告 PDF（2024 年，公开入口约数十页，含照片与图表），另附输出字段模板与口径对照表。底层逐国数据表与原始作业记录不在材料中。",
+        "monthly reconciliation trend limitations",
+        "统计抽取|序列复算|来源审查",
+        "month start_date end_date deaths injured basis kind scope",
+    ),
+    "B14": _profile(
+        "《地雷监测 2025》伤亡与污染统计口径核查",
+        "上游提供 1 份报告主页存档（HTML，含章节列表）与 1 份完整报告 PDF（公开下载入口约 9 MB），另附字段模板。报告涉及的国别底层数据集与原始调查表不在本次材料中。",
+        "monthly reconciliation trend limitations",
+        "统计抽取|序列复算|来源审查",
+        "month start_date end_date deaths injured basis kind scope",
+    ),
+    "B15": _profile(
+        "OPCW 视察与销毁执行报告结构化快报",
+        "上游提供 1 份官方报告 PDF（含表格与附件）与 1 份当前统计页面存档，另附字段模板。报告引用的原始视察记录与环境样本数据不在材料中。",
+        "observations report_window context",
+        "报告检索|统计复核|来源审查",
+        "region current previous report_number published_date observed_until timezone",
+    ),
+    "B16": _profile(
+        "ICRC 历史档案开放清单与数字化时间线复盘",
+        "上游提供 3 份官方材料存档（档案说明页、2015 年开放公告页、2016 年视听门户公告页）及 1 份时间线字段模板；1966—1975 年清单 PDF（约 4.8 MB）与视听门户检索结果为可选补充，需人工取得。原始档案扫描件不在本次材料中。",
+        "timeline unknown_time variants",
+        "档案编目|时间对齐|来源审查",
+        "event_id event event_date formed_at published_date declassified_at timezone time_precision channel recipient",
+    ),
+    "B17": _profile(
+        "爆炸物污染与伤亡数据的多源交叉核验矩阵",
+        "上游提供 1 份国别项目页存档（HTML，含年度与累计数字）、1 份 UNMAS 年度报告 PDF、1 份公民社会年度报告页存档，另附不超过 15 项的待核验问题清单与字段模板。底层逐月作业数据、事件级记录和现场调查表不在材料中。",
+        "matrix version_timeline unverified",
+        "问题检索|证据矩阵|来源审查",
+        "kind question_id question role statement scope published_date evidence_type value",
+    ),
+    "T11": _profile(
+        "C919适航取证里程碑结构化快报",
+        "上游提供 CAAC 适航审定中心型号成果页1份、新华社专访文本1份，合计约3000字，字段模板1份；不需交付监控或运营数据。型号合格证编号、生产许可证颁发日期未在所给两份材料中给出，列为缺口。",
+        "milestones unmatched brief",
+        "事件提取|里程碑归并|来源审查",
+        "project event_type event_date published_date role outcome",
+    ),
+    "T12": _profile(
+        "GE9X发动机公开技术参数结构化速读",
+        "上游提供 GE9X 官方产品页1份、推力纪录新闻稿1份，参数字段模板1份，两页合计约4000字。厂商未公开逐台发动机性能包线与适航审定符合性报告，不作为已取得材料。",
+        "figure_cards comparison",
+        "图表索引|标注值核查|来源审查",
+        "kind parameter param 参数名称 value 数值 unit 单位 scope 口径类别 figure figure_id",
+    ),  # 专属分析函数已实现
+    "T13": _profile(
+        "EH216-S无人驾驶载人eVTOL取证事件卡",
+        "上游提供企业中文新闻稿与英文投资者关系稿各1份（合计约5000字），术语对照表1份。两份材料为企业发布口径；CAAC正式TC证件与型号合格证数据单（TCDS）原件未在本次核验中取得，须标为缺口。",
+        "milestones unmatched brief",
+        "事件提取|里程碑归并|来源审查",
+        "project event_type event_date published_date role outcome",
+    ),
+    "T14": _profile(
+        "XB-1超声速试飞里程碑去重与参数表",
+        "上游提供官方新闻稿1份、试飞实时博客1份（合计约6000字，含13次飞行表），字段模板1份。声爆声学原始记录、NASA纹影影像原始数据与FAA认证材料未在本次核验中取得。",
+        "milestones unmatched brief",
+        "事件提取|里程碑归并|来源审查",
+        "project event_type event_date published_date role outcome",
+    ),
+    "T15": _profile(
+        "NASA X-48B 翼身融合体技术照片的可见技术要素标注与型号依据核验",
+        "需要一张可下载的 X-48B 技术照片原图作为主输入（T15-M01）；一份 NASA 官方图像库条目页元数据用于核对图像身份、日期、中心、摄影师与关键词（T15-M02）；一份 NASA 官方项目技术说明用于型号与参数依据（T15-M03）。缺口：条目页为前端 JS 动态渲染，WebFetch 抓取不全，身份/日期/主题改由 NASA 官方元数据 API 交叉核验；原图为纯图像，不含逐字要素标注，需模型自行识读；照片未给出内部结构与精确参数，翼展、速度、推力等无法从图像量测。 结构化记录kind合法取值：image(可见要素)/identification(型号依据)；字段feature或visible_features(可列表)、designation、basis_from_image、basis_from_text、bbox、confidence。",
+        "image_catalog overlay_layers",
+        "图像编目|馆藏匹配|来源审查",
+        "kind image_id feature visible_feature visible_features 要素 text designation basis_from_image basis_from_text bbox coordinate_space width height confidence model_name url",
+    ),  # 专属分析函数已实现
+    "T16": _profile(
+        "FAA NextGen空管现代化进度与建议跨报告复盘",
+        "上游提供GAO-24-105254（2023-11-09发布）与GAO-25-108162（2025-03-04发布）产品页全文，含推荐事项状态说明；字段模板1份、建议编号对照表1份。FAA原始预算提交、NextGen绩效与问责报告及系统清单未在本次核验中取得。",
+        "portfolio organization_graph theme_summary",
+        "项目归一|关系构图|统计复核",
+        "topic 主题 report_id 报告编号 published_date 发布日期 data_as_of 数据截至日 status 状态 recommendation 建议编号",
+    ),  # 专属分析函数已实现
+    "T17": _profile(
+        "Artemis I无人绕月飞行试验跨源时间线与参数核对",
+        "上游提供NASA Artemis I专题页1份、溅落新闻稿1份（合计约7000字，含系统参数表与图片说明），字段模板1份。任务逐秒遥测、轨道数据和再入热防护实测数据未在本次核验中取得。",
+        "timeline unknown_time variants",
+        "档案编目|时间对齐|来源审查",
+        "event_id event event_date formed_at published_date declassified_at timezone time_precision channel recipient",
+    ),
 }
 
 
@@ -244,6 +343,20 @@ _HANDLERS = {
     "T08": partial(compare.evidence_matrix, expected_roles=("project", "audit", "study")),
     "T09": science.battery,
     "T10": science.citation_impact,
+    "B11": numeric.observation,
+    "B12": extended.poster_catalog,
+    "B13": numeric.month_series,
+    "B14": numeric.month_series,
+    "B15": numeric.observation,
+    "B16": compare.chronology,
+    "B17": partial(compare.evidence_matrix, expected_roles=("investigation", "judicial")),
+    "T11": compare.milestones,
+    "T12": extended.parameter_sheet,
+    "T13": compare.milestones,
+    "T14": compare.milestones,
+    "T15": extended.technical_photo_catalog,
+    "T16": extended.cross_report_review,
+    "T17": compare.chronology,
 }
 
 

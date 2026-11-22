@@ -29,7 +29,7 @@ def bundle(report: dict, metadata: dict | None = None) -> bytes:
     ):
         raise PermissionError("来源已失效，导出已屏蔽")
     if (
-        not re.fullmatch(r"[BTG](?:0[1-9]|10)", str(report.get("case_id", "")))
+        not re.fullmatch(r"[BTG](?:0[1-9]|1[0-9])", str(report.get("case_id", "")))
         or not isinstance(report.get("title"), str)
         or not isinstance(report.get("products"), dict)
         or not isinstance(report.get("gaps"), list)

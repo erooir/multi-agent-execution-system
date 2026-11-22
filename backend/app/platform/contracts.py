@@ -42,7 +42,7 @@ class Member(Contract):
 
 class ToolParameters(Contract):
     case_stage: Literal["prepare", "analyze", "review"] | None = None
-    case_scope: str | None = Field(default=None, pattern=r"^[BTG](0[1-9]|10)$")
+    case_scope: str | None = Field(default=None, pattern=r"^[BTG](0[1-9]|1[0-9])$")
     case_strategy: Literal[
         "strict",
         "adaptive",
@@ -414,7 +414,7 @@ class TaskInput(Contract):
     name: str = Field(min_length=1, max_length=100)
     goal: str = Field(min_length=1, max_length=8000)
     task_type: TaskType
-    case_id: str | None = Field(default=None, pattern=r"^[BTG](0[1-9]|10)$")
+    case_id: str | None = Field(default=None, pattern=r"^[BTG](0[1-9]|1[0-9])$")
     case_scope: Literal["reference", "sample", "project"] = "reference"
     input_refs: list[str] = Field(default_factory=list, max_length=50)
     workflow_id: str | None = None

@@ -54,7 +54,7 @@ class ProductValues(Strict):
 
 class Batch(Strict):
     project_id: str | None = Field(default=None, min_length=1, max_length=100)
-    case_id: str = Field(pattern=r"^[BTG](0[1-9]|10)$")
+    case_id: str = Field(pattern=r"^[BTG](0[1-9]|1[0-9])$")
     version: VERSION
     sources: list[Source] = Field(min_length=1, max_length=50)
     conditions: list[Annotated[RecordCount | ProductCount | ProductValues, Field(discriminator="kind")]] = (

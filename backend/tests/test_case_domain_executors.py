@@ -184,8 +184,8 @@ def test_static_executor_bindings_cover_every_role_without_new_assets(db):
     assert install(p["id"], ADMIN, db)["created"]
     managed = [item for item in db.list("agents", p["id"]) if item.get("case_role")]
     flows = [item for item in db.list("workflows", p["id"]) if item["task_type"] == "case_analysis"]
-    assert len(managed) == 32
-    assert len(flows) == 30
+    assert len(managed) == 52
+    assert len(flows) == 50
     assert set(ANALYZERS) == set(catalog())
     for agent in managed:
         stage = agent["parameters"]["case_stage"]
@@ -195,8 +195,8 @@ def test_static_executor_bindings_cover_every_role_without_new_assets(db):
         assert agent["executor_bindings"] == binding(stage, code)
         assert set(agent["executor_bindings"]) == {"local", "cloud"}
     assert install(p["id"], ADMIN, db, upgrade=True)["updated"] == []
-    assert len([item for item in db.list("agents", p["id"]) if item.get("case_role")]) == 32
-    assert len([item for item in db.list("workflows", p["id"]) if item["task_type"] == "case_analysis"]) == 30
+    assert len([item for item in db.list("agents", p["id"]) if item.get("case_role")]) == 52
+    assert len([item for item in db.list("workflows", p["id"]) if item["task_type"] == "case_analysis"]) == 50
 
 
 @pytest.mark.parametrize("code", sorted(catalog()))
