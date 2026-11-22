@@ -17,6 +17,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from ..platform.contracts import CASE_ID_PATTERN
+
 ROOT = Path(__file__).resolve().parents[3]
 HEX = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
 KEY = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,49}$")]
@@ -54,7 +56,7 @@ class ProductValues(Strict):
 
 class Batch(Strict):
     project_id: str | None = Field(default=None, min_length=1, max_length=100)
-    case_id: str = Field(pattern=r"^[BTG](0[1-9]|10)$")
+    case_id: str = Field(pattern=CASE_ID_PATTERN)
     version: VERSION
     sources: list[Source] = Field(min_length=1, max_length=50)
     conditions: list[Annotated[RecordCount | ProductCount | ProductValues, Field(discriminator="kind")]] = (

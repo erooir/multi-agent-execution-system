@@ -106,6 +106,37 @@ def test_role_contract_describes_actual_shared_and_distinct_handlers():
     assert ice["inputs"] != route["inputs"] and ice["outputs"] != route["outputs"]
 
 
+def test_catalog_expansion_appends_versions_to_existing_project(db, monkeypatch):
+    p = project(db)
+    pid = p["id"]
+    all_profiles = team.catalog()
+    old_profiles = {code: profile for code, profile in all_profiles.items() if int(code[1:]) <= 10}
+    current_contract = roles.contract
+
+    def old_contract(stage, code):
+        role = current_contract(stage, code)
+        return {**role, "shared_cases": [key for key in role["shared_cases"] if key in old_profiles]}
+
+    with monkeypatch.context() as previous:
+        previous.setattr(team, "catalog", lambda: old_profiles)
+        previous.setattr(roles, "contract", old_contract)
+        team.install(pid, ADMIN, db)
+        src = asset(db, p, {"records": samples("G03")}, classification="local")
+        initial = service.create_task(request(p, src), ADMIN, db)
+
+    tables = ("agent_versions", "workflow_versions", "tasks", "data_assets")
+    before = {kind: {row["id"]: row for row in db.list(kind, pid)} for kind in tables}
+    upgraded = team.install(pid, ADMIN, db, upgrade=True)
+    assert len(upgraded["created"]) == 40
+    for table, records in before.items():
+        assert all(db.get(table, key) == row for key, row in records.items())
+    assert len([a for a in db.list("agents", pid) if a.get("case_role")]) == 52
+    assert len([w for w in db.list("workflows", pid) if w["task_type"] == "case_analysis"]) == 50
+    assert db.get("tasks", initial["id"])["snapshot"] == initial["snapshot"]
+    assert service.create_task(request(p, src, "after"), ADMIN, db, preflight=True)["ready"]
+    assert team.install(pid, ADMIN, db, upgrade=True) == {"created": [], "updated": []}
+
+
 async def test_upgrade_appends_versions_and_preserves_old_task_snapshot_and_idempotency(db):
     p = project(db)
     wid, aids = legacy_workflow(db, p)

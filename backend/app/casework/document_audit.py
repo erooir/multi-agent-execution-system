@@ -168,6 +168,20 @@ def audit_products(code, products, records):
             "T08": "matrix",
             "T09": "trend_series",
             "T10": "citation_impact",
+            "B11": "observations",
+            "B12": "image_catalog",
+            "B13": "monthly",
+            "B14": "monthly",
+            "B15": "observations",
+            "B16": "timeline",
+            "B17": "matrix",
+            "T11": "milestones",
+            "T12": "figure_cards",
+            "T13": "milestones",
+            "T14": "milestones",
+            "T15": "image_catalog",
+            "T16": "portfolio",
+            "T17": "timeline",
         }[code]
         checks.append(
             {

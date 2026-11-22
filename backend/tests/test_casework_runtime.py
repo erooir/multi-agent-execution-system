@@ -112,7 +112,7 @@ def test_mismatched_team_and_cross_project_are_rejected(db):
     with pytest.raises(service.DomainError):
         install(p["id"], outsider, db)
     with TestClient(application()) as c:
-        assert len(c.get("/api/v2/casework/catalog", params={"project_id": p["id"]}).json()) == 30
+        assert len(c.get("/api/v2/casework/catalog", params={"project_id": p["id"]}).json()) == 50
 
 
 def test_case_catalog_detects_stale_binding_and_upgrades_neighbouring_cases_independently(db, monkeypatch):

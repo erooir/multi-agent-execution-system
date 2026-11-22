@@ -83,6 +83,17 @@ def _managed_shared_pin(tx, stage, agent_id, pinned, previous):
     return previous == pinned
 
 
+def _compatible_role(previous, expected):
+    """Adding cases to a managed role does not change its duties or grants."""
+    shared = previous.get("shared_cases")
+    return (
+        isinstance(shared, list)
+        and bool(shared)
+        and shared == [code for code in expected["shared_cases"] if code in shared]
+        and previous == {**expected, "shared_cases": shared}
+    )
+
+
 def install(project_id, user, repository, *, upgrade=False, case_id=None):
     from ..platform import service as s
     from ..platform.contracts import AgentInput
@@ -160,23 +171,18 @@ def install(project_id, user, repository, *, upgrade=False, case_id=None):
                         or (not agent.get("role_contract") and agent.get("tool_refs"))
                     ):
                         s.fail("asset_conflict", "项目含自定义或停用的用例岗位，请先核对版本。", 409)
-                    if (
-                        agent
-                        and agent.get("role_contract")
-                        and (agent.get("role_contract") != role or agent.get("tool_refs") != refs)
+                    previous_role = agent.get("role_contract") if agent else None
+                    if previous_role and (
+                        not _compatible_role(previous_role, role) or agent.get("tool_refs") != refs
                     ):
                         s.fail("asset_conflict", "岗位授权或职责已被编辑，不能自动覆盖。", 409)
-                    current_bindings = (
-                        freeze_bindings(agent)
-                        if agent and agent.get("role_contract") == role and agent.get("tool_refs") == refs
-                        else None
-                    )
+                    current_bindings = freeze_bindings(agent) if previous_role else None
                     runtime_changed = bool(agent and agent.get("runtime_bindings") != current_bindings)
                     if runtime_changed:
                         previous_bindings = agent.get("runtime_bindings") or {}
                         for kind in ("tools", "skills", "mcp_servers"):
                             previous_items = previous_bindings.get(kind, [])
-                            current_items = current_bindings.get(kind, [])
+                            current_items = (current_bindings or {}).get(kind, [])
                             if any(item.get("external") for item in previous_items) or sorted(
                                 (item["id"], str(item["version"])) for item in previous_items
                             ) != sorted((item["id"], str(item["version"])) for item in current_items):

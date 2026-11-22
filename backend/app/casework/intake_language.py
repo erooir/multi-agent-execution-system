@@ -156,4 +156,105 @@ INTENTS = {
         "受淹|受灾|暴露|淹没|受影响|重复受灾|灾损|淹了|exposure|flooded|inundation",
         "多期|洪水|面积|县|网格|flood|district",
     ),
+    "B11": (
+        "OPCW 化武销毁核验进度数据快报|b11",
+        "销毁|销毁进度|化武销毁|视察|申报量|销毁比例| chemical weapons|destruction|inspection|OPCW",
+        "化武|销毁|视察|申报|截至日|OPCW|chemical|stockpile",
+    ),
+    "B12": (
+        "二战航空宣传海报的 OCR 转录与档案要素抽取|b12",
+        "OCR|转录|识读|海报|馆藏要素|档案要素|抽取|transcribe|poster|archive",
+        "海报|图像|馆藏|NAID|版权|年代|poster|image",
+    ),
+    "B13": (
+        "UNMAS 地雷行动年度统计跨年核查|b13",
+        "跨年|跨年核查|年度统计|伤亡统计|UNMAS|annual|cross-year|casualties",
+        "地雷|年度|跨年| UNMAS|报告|伤亡|mine action",
+    ),
+    "B14": (
+        "《地雷监测 2025》伤亡与污染统计口径核查|b14",
+        "口径|统计口径|伤亡口径|污染统计|不一致|caliber|methodology|discrepancy",
+        "口径|伤亡|污染|监测|图表|报告|landmine",
+    ),
+    "B15": (
+        "OPCW 视察与销毁执行报告结构化快报|b15",
+        "视察|销毁执行|执行报告|设施|累计|inspection|destruction|facility",
+        "视察|销毁|设施|累计|当年|报告|OPCW",
+    ),
+    "B16": (
+        "ICRC 历史档案开放清单与数字化时间线复盘|b16",
+        "时间线|开放清单|数字化|档案开放|封闭期|timeline|archive|digitisation",
+        "档案|开放|数字化|封闭|时间线|ICRC|清单",
+    ),
+    "B17": (
+        "爆炸物污染与伤亡数据的多源交叉核验矩阵|b17",
+        "交叉核验|证据矩阵|多源|口径差异|互证|cross-check|matrix|corroborat",
+        "多源|机构|口径|证据|污染|伤亡|矩阵",
+    ),
+    "T11": (
+        "C919适航取证里程碑结构化快报|t11",
+        "取证|适航|里程碑|三证|审定|c919|certification|milestone|airworthy",
+        "C919|取证|适航|三证|审定|民航|机型",
+    ),
+    "T12": (
+        "GE9X发动机公开技术参数结构化速读|t12",
+        "参数|推力|技术参数|风扇|发动机|specification|thrust|GE9X|engine",
+        "GE9X|参数|推力|发动机|风扇|压气机|厂商",
+    ),
+    "T13": (
+        "EH216-S无人驾驶载人eVTOL取证事件卡|t13",
+        "取证|eVTOL|载人|适航|型号合格证|事件卡|EH216|certification|type certificate",
+        "EH216|亿航|eVTOL|载人|取证|型号合格证",
+    ),
+    "T14": (
+        "XB-1超声速试飞里程碑去重与参数表|t14",
+        "试飞|超声速|里程碑|去重|飞行序号|supersonic|flight test|XB-1|milestone",
+        "XB-1|试飞|超声速|飞行|声爆|次数",
+    ),
+    "T15": (
+        "NASA X-48B 翼身融合体技术照片的可见技术要素标注与型号依据核验|t15",
+        "技术照片|可见要素|型号依据|翼身融合|X-48B|photo|identification|blended wing",
+        "照片|图像|型号|翼身融合|X-48B|NASA|要素",
+    ),
+    "T16": (
+        "FAA NextGen空管现代化进度与建议跨报告复盘|t16",
+        "跨报告|建议状态|NextGen|空管现代化|进度复盘|recommendation|GAO|FAA",
+        "NextGen|空管|建议|GAO|FAA|状态|报告",
+    ),
+    "T17": (
+        "Artemis I无人绕月飞行试验跨源时间线与参数核对|t17",
+        "时间线|绕月|参数核对|Artemis|SLS|Orion|splashdown|timeline",
+        "Artemis|绕月|Orion|SLS|时间线|飞行|溅落",
+    ),
+    "G11": (
+        "德里与凤凰城夜间地表温度热岛快报|g11",
+        "热岛|地表温度|LST|温度分区|ECOSTRESS|heat island|surface temperature",
+        "热岛|地表温度|LST|德里|凤凰城|栅格|气温",
+    ),
+    "G12": (
+        "基于 Landsat 9 单景卫星影像的布卡尼尔群岛潮汐海岸地物要素判读|g12",
+        "地物|判读|潮汐海岸|Landsat|卫星影像|影像要素|feature|tidal|satellite",
+        "Landsat|影像|潮汐|群岛|地物|海岸|礁石",
+    ),
+    "G13": (
+        "亚马孙毁林预警驱动分区核查与口径对照|g13",
+        "毁林|预警|驱动|PRODES|GFW|deforestation|alert|driver",
+        "毁林|预警|驱动|亚马孙|保护区|道路|GFW",
+    ),
+    "G14": (
+        "VIIRS 夜间灯光异常与城市活动变化的分区判读|g14",
+        "夜光|夜间灯光|VIIRS|DNB|灯光变化|night light|luminosity",
+        "夜光|灯光|VIIRS|DNB|城市|光污染|月相",
+    ),
+    "G15": (
+        "青藏高原湖泊扩张与冰湖溃决风险的时序核验|g15",
+        "湖泊|冰湖|面积变化|溃决风险|lake|glacial|expansion",
+        "湖泊|冰湖|面积|溃决|冰川|高原|时序",
+    ),
+    "G16": (
+        "第四次全球珊瑚白化热压力预警与影响范围核查|g16",
+        "珊瑚|白化|热压力|HotSpot|DHW|coral|bleaching|NOAA",
+        "珊瑚|白化|热压力|DHW|HotSpot|礁区|NOAA",
+    ),
+
 }

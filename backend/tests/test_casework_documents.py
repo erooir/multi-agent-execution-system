@@ -289,6 +289,47 @@ def samples(code: str) -> list[dict]:
             statement="独立样本结果",
             cites=["10.1234/independent"],
         )
+
+    elif code in {"B11", "B15"}:
+        add(region="North", current=27, previous=35, report_number="test-4",
+            published_date="2024-07-03", observed_until="2024-07-02T18:00:00+02:00", timezone="UTC+02:00")
+        add(region="South", current=10, previous=4)
+        add(text="民用设施维护已记录。观察限制包括设备故障。受访者报告设施检修未完。")
+    elif code == "B12":
+        add(kind="image", image_id="poster-a", feature=" Aircraft silhouette", bbox=[10, 20, 40, 30], confidence="high")
+        add(kind="ocr", text="JOIN THE ARMY AIR FORCES", location_zh="海报标题")
+        add("catalog", kind="reference", field="archive_id", value="NARA-514429")
+    elif code in {"B13", "B14"}:
+        add(month="2024-01", start_date="2024-01-01", end_date="2024-01-31", deaths=12, injured=30, scope="iraq")
+        add(month="2024-02", start_date="2024-02-01", end_date="2024-02-29", deaths=15, injured=28, scope="iraq")
+        add(kind="total", deaths=27, injured=58, scope="iraq", text="Figures as reported; some months incomplete, estimates marked.")
+    elif code == "B16":
+        add(event=" Archives opened in 1966", event_date="1966-01-01", published_date="2017-01-01", status="open")
+        add(event="Audiovisual digitisation began", event_date="2010-01-01", published_date="2018-01-01", status="digitising")
+        add(event=" Closed records period", event_date="1975-01-01", published_date="2019-01-01", status="closed")
+    elif code == "B17":
+        add("investigation", kind="claim", question_id="Q1", role="investigation", statement="Contamination 40 sites", value=40, date="2024-01-01")
+        add("judicial", kind="claim", question_id="Q1", role="judicial", statement="Casualties 120", value=120, date="2024-06-01")
+        add("brief", kind="brief", question_id="Q1", role="brief", statement=" Reports differ in scope")
+    elif code in {"T11", "T13", "T14"}:
+        add(kind="historical", project="C919", event_type="type_certificate", event_date="2022-09-09", published_date="2022-09-30", role="baseline")
+        add(kind="event", project="C919", event_type="first_delivery", event_date="2023-12-09", published_date="2023-12-15")
+        add(kind="event", project="C919", event_type="milestone", event_date="2024-01-01", published_date="2024-02-01", role="new")
+    elif code == "T12":
+        add(kind="parameter", parameter="Fan diameter", value=134, unit="inch", scope="设计")
+        add(kind="parameter", parameter="Test thrust", value=134300, unit="lbf", scope="测试")
+        add(kind="figure", figure_id="fig-1", text="Figure 1: engine components")
+    elif code == "T15":
+        add(kind="image", image_id="x48b", feature="Blended wing body", bbox=[5, 5, 60, 40], confidence="high")
+        add(kind="identification", designation="X-48B", basis_from_image=" blended wing planform", basis_from_text="NASA project page")
+    elif code == "T16":
+        add(kind="report", topic="NextGen", report_id="GAO-24-105254", published_date="2024-01-01", data_as_of="2023-09-30", status="Open", recommendation="R1")
+        add(kind="report", topic="NextGen", report_id="GAO-25-108162", published_date="2025-01-01", data_as_of="2024-09-30", status="Closed-Implemented", recommendation="R1")
+        add(kind="report", topic="ADS-B", report_id="GAO-24-105254", published_date="2024-01-01", status="Open", recommendation="R2")
+    elif code == "T17":
+        add(event="Artemis I launch", event_date="2022-11-16", published_date="2022-11-16", role="baseline")
+        add(event="Orion entered lunar orbit", event_date="2022-11-16", published_date="2022-11-17")
+        add(event=" Splashdown", event_date="2022-12-11", published_date="2022-12-11", role="new")
     else:
         raise ValueError(code)
     return rows

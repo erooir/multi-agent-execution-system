@@ -101,8 +101,9 @@ export default function Casework({
         : 0),
     0,
   );
-  const needsUpgrade =
-    installed && catalog.some((c) => c.project_tools_current === false);
+  const needsUpgrade = catalog.some(
+    (c) => c.installed && c.project_tools_current === false,
+  );
   async function provision(upgrade: boolean, caseId?: string) {
     setBusy(true);
     const params = new URLSearchParams({ project_id: projectId });
@@ -153,7 +154,7 @@ export default function Casework({
             >
               <Users size={16} />
               {needsUpgrade
-                ? "发布新版用例岗位与流程"
+                ? "发布并更新用例岗位与流程"
                 : "发布本项目用例岗位与流程"}
             </button>
           )

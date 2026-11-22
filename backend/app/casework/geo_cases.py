@@ -12,6 +12,14 @@ from shapely.errors import ShapelyError
 from .geo_audit import audit_products
 from .geo_common import Run
 from .geo_context import TOPICS, document_context
+from .geo_extended import (
+    coral_heat_stress,
+    deforestation_alerts,
+    heat_islands,
+    lake_sequence,
+    night_lights,
+    scene_features,
+)
 from .geo_observations import buildings, hotspots, panels
 from .geo_overlay import agriculture, cover, flood
 from .geo_raster import resolve_grids
@@ -118,6 +126,49 @@ CATALOG = {
         ["exposure", "grid_exposure", "max_union", "repeat_coverage", "priority", "method"],
         ["多期空间并集", "耕地分区叠加", "分级规则复核"],
     ),
+    # 专属分析函数已实现
+    # 专属分析函数已实现
+    "G11": spec(
+        "德里与凤凰城夜间地表温度热岛快报",
+        ["上游提供德里 ECOSTRESS 夜景 LST 栅格 1 景（约 12,350 km²，像元 70m×38m），凤凰城 VIIRS VNP21IMG 2023-07-01 至 07-19 约凌晨 2 点的夜间 LST 序列 8—10 景，均附采集 UTC 时刻、质量层与传感器说明；另供城市边界和土地覆盖参照分类。公开网页的展示图只能用于背景说明，不能替代执行所需带坐标栅格；热浪期间的气象站气温序列未取得。 结构化记录需包含 kind、frame_id、zone、feature、delta、bbox、confidence、date、sensor；G15 用 lake_id/date/area/unit。"],
+        ["panels", "changes", "unreadable", "summary"],
+        ["时相归一", "像素定位", "观察与解释分栏"],
+    ),
+    # 专属分析函数已实现
+    "G12": spec(
+        "基于 Landsat 9 单景卫星影像的布卡尼尔群岛潮汐海岸地物要素判读",
+        ["需要一张可直接下载的单景 Landsat 9 高清影像 JPG 作为主输入（G12-M01，约 22.9MB）；一份 NASA Earth Observatory 官方图文条目页用于核对影像身份、传感器、获取日期、潮汐时刻与图像署名（G12-M02）；一份西澳政府 Buccaneer Archipelago Fact Sheet 用于地貌、潮汐、采矿与海洋公园等背景要素的判读依据（G12-M03）。缺口：影像为纯图像、不含逐字要素标注与地理坐标，需模型自行识读；单景单时相，无法做变化检测；红树林与礁石等要素判读受潮位与水色影响，存在不确定性。 结构化记录需包含 kind、frame_id、zone、feature、delta、bbox、confidence、date、sensor；G15 用 lake_id/date/area/unit。"],
+        ["panels", "changes", "unreadable", "summary"],
+        ["时相归一", "像素定位", "观察与解释分栏"],
+    ),
+    # 专属分析函数已实现
+    "G13": spec(
+        "亚马孙毁林预警驱动分区核查与口径对照",
+        ["上游提供指定 AOI（建议不超过 2 万 km²）的 2024 年整合预警点/面（10m，含 driver 类别、置信度、检测日期、来源系统 GLAD-L/GLAD-S2/RADD）、道路与保护区矢量、2021 年 GFW 与 PRODES 对照统计表。PRODES 原始图斑和 DETER 实时数据不在所给材料中；驱动分类为 AI 推断结果，需保留原文置信度与复核边界。 结构化记录需包含 kind、frame_id、zone、feature、delta、bbox、confidence、date、sensor；G15 用 lake_id/date/area/unit。"],
+        ["panels", "changes", "unreadable", "summary"],
+        ["时相归一", "像素定位", "观察与解释分栏"],
+    ),
+    # 专属分析函数已实现
+    "G14": spec(
+        "VIIRS 夜间灯光异常与城市活动变化的分区判读",
+        ["上游提供波多黎各两景 VIIRS DNB 夜景（2016-09-21 02:50、09-22 02:31 地方时，附 UTC）、图森实验若干夜序列（含 100%/60%/30% 调光时段）、月相与气辉说明、城市与道路底图、滤光处理说明。未处理的原始 DNB 影像与 Black Marble 逐夜产品需上游提供；本次核验的公开页面仅为展示图与说明文字。 结构化记录需包含 kind、frame_id、zone、feature、delta、bbox、confidence、date、sensor；G15 用 lake_id/date/area/unit。"],
+        ["panels", "changes", "unreadable", "summary"],
+        ["时相归一", "像素定位", "观察与解释分栏"],
+    ),
+    # 专属分析函数已实现
+    "G15": spec(
+        "青藏高原湖泊扩张与冰湖溃决风险的时序核验",
+        ["上游提供两期已配准 Landsat 影像（30m，含云量/雪盖质量层）、1991—2023 湖泊年度面积 CSV（含口径与来源定义）、道路/居民点/草场矢量与坐标系、喀喇昆仑冰川时序 GIF 与关键帧说明、Imja Tsho 湖面积与冰川退缩速率表。公开网页提供展示图、文献 DOI 与统计数值，原始湖泊矢量、淹没模型、冰湖坝体实测参数不在所给材料中。 结构化记录需包含 kind、frame_id、zone、feature、delta、bbox、confidence、date、sensor；G15 用 lake_id/date/area/unit。"],
+        ["timeline", "retrospective", "island_matrix", "map", "uncertainty"],
+        ["UTC时序对齐", "岛屿归属", "回溯证据核查"],
+    ),
+    # 专属分析函数已实现
+    "G16": spec(
+        "第四次全球珊瑚白化热压力预警与影响范围核查",
+        ["上游提供指定礁区（不超过 10 个 60°×40° 瓦片或限定 AOI）2023-01-01 至 2024-04-10 的 5km BAA 7 日最大逐日栅格或 CSV（含 HotSpot、DHW、等级）、全球最高等级图 1 幅、NOAA 2024-04-15 公告与 2026-06-02 NESDIS 公报各 1 份、礁区边界与现场白化观测点表。5km 格网与 reef-area 掩膜、现场观测点表需上游提供，公开材料不含这些图层。 结构化记录需包含 kind、frame_id、zone、feature、delta、bbox、confidence、date、sensor；G15 用 lake_id/date/area/unit。"],
+        ["panels", "changes", "unreadable", "summary"],
+        ["时相归一", "像素定位", "观察与解释分栏"],
+    ),
 }
 
 ANALYZERS = {
@@ -131,9 +182,15 @@ ANALYZERS = {
     "G08": timeline,
     "G09": routes,
     "G10": agriculture,
+    "G11": heat_islands,
+    "G12": scene_features,
+    "G13": deforestation_alerts,
+    "G14": night_lights,
+    "G15": lake_sequence,
+    "G16": coral_heat_stress,
 }
 
-MAP_CASES = {"G01", "G04", "G05", "G06", "G07", "G08", "G09", "G10"}
+MAP_CASES = {"G01", "G04", "G05", "G06", "G07", "G08", "G09", "G10", "G11", "G12", "G13", "G14", "G15", "G16"}
 for _code in MAP_CASES:
     CATALOG[_code]["outputs"].append("map_view")
 for _code in TOPICS:
