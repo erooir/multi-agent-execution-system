@@ -664,11 +664,17 @@ class MeteredTransport(httpx.AsyncBaseTransport):
             raise RuntimeError("模型请求目标不在授权范围")
         body = await request.aread()
         payload = json.loads(body)
-        if self.upstream and self.required_first_tool and payload.get("tools"):
+        if (
+            self.upstream
+            and self.auto_tool_rounds is not None
+            and len(self.request_ids) > self.auto_tool_rounds
+        ):
+            raise ModelCallError("tool_call_limit", "工具回合及最终输出机会已用尽，模型未生成完整产物")
+        if self.upstream and payload.get("tools"):
             names = {tool.get("function", {}).get("name") for tool in payload["tools"]}
-            if self.required_first_tool not in names:
+            if self.required_first_tool and self.required_first_tool not in names:
                 raise PermissionError("冻结主工具不在本次授权工具中")
-            if not self.request_ids:
+            if self.required_first_tool and not self.request_ids:
                 payload["tool_choice"] = {"type": "function", "function": {"name": self.required_first_tool}}
             elif self.auto_tool_rounds is not None and len(self.request_ids) >= self.auto_tool_rounds:
                 payload["tool_choice"] = "none"
@@ -678,13 +684,13 @@ class MeteredTransport(httpx.AsyncBaseTransport):
             request = httpx.Request(
                 request.method, request.url, headers=headers, content=body, extensions=request.extensions
             )
-        # Qwen's automatic tool parser emits XML tool calls. Forcing JSON here
-        # prevents those calls and can turn a proposed call into plain text.
-        # Agno still validates the final decision against its output schema.
+        # Qwen's tool parser emits XML tool calls. A final-response JSON grammar
+        # must not constrain either automatic or explicitly selected tool calls.
+        # Restore the schema when tool_choice=none ends the tool phase.
         if (
             self.upstream
             and payload.get("tools")
-            and payload.get("tool_choice", "auto") == "auto"
+            and payload.get("tool_choice", "auto") != "none"
             and payload.pop("response_format", None) is not None
         ):
             body = json.dumps(payload, ensure_ascii=False).encode()
@@ -979,7 +985,12 @@ class ModelGateway:
             timeout=upstream.timeout_seconds if upstream else 90,
             follow_redirects=False,
         ) as http_client:
-            model = self._client_model(transport, api_key, http_client, max_tokens, json_mode)
+            # Agno's native schema format must reach the self-hosted endpoint.
+            # A request_params json_object override otherwise replaces that
+            # schema and permits missing/renamed fields in downstream contracts.
+            model = self._client_model(
+                transport, api_key, http_client, max_tokens, json_mode and not (upstream and output_schema)
+            )
             agent = Agent(
                 name=f"workbench-{purpose}",
                 model=model,
@@ -989,7 +1000,7 @@ class ModelGateway:
                 retries=0,
                 add_history_to_context=False,
                 output_schema=output_schema,
-                use_json_mode=bool(output_schema),
+                use_json_mode=bool(output_schema) and not upstream,
             )
             if json_mode or output_schema:
                 prompt = str(prompt) + "\n请仅输出一个合法JSON对象。"
@@ -1107,7 +1118,12 @@ class ModelGateway:
             self.ledger, "agent_run", run_id, **({"upstream": upstream} if upstream else {})
         )
         transport.required_first_tool = required_first_tool
-        transport.auto_tool_rounds = auto_tool_rounds
+        # Agno refuses tools beyond tool_call_limit but can keep asking the model
+        # for more calls. Enforce the round budget on the wire, then allow one
+        # schema-constrained final response. This also applies to generic agents.
+        transport.auto_tool_rounds = max(
+            1, int(auto_tool_rounds if auto_tool_rounds is not None else max_rounds)
+        )
         tool_calls: list[dict] = []
         tools = [
             self._bind_tool(name, binding, tool_calls) for name, binding in (tool_bindings or {}).items()
@@ -1118,11 +1134,27 @@ class ModelGateway:
             timeout=upstream.timeout_seconds if upstream else 90,
             follow_redirects=False,
         ) as http_client:
-            model = self._client_model(transport, api_key, http_client, max_tokens, bool(output_schema))
+            model = self._client_model(
+                transport, api_key, http_client, max_tokens, bool(output_schema) and not upstream
+            )
+            instructions = str(agent_spec.get("instructions") or "你是严谨的研究助手。")
+            if upstream and output_schema:
+                # Custom system_message bypasses Agno's schema instructions.
+                # Tool rounds intentionally omit response_format, so make the
+                # final output contract available in their model context too.
+                schema = (
+                    output_schema.model_json_schema()
+                    if hasattr(output_schema, "model_json_schema")
+                    else output_schema
+                )
+                instructions += (
+                    "\n工具调用遵守工具参数合同；最终响应只输出符合以下JSON Schema的JSON，不含Markdown代码块：\n"
+                    + json.dumps(schema, ensure_ascii=False)
+                )
             agent = Agent(
                 name=f"workbench-agent-{agent_spec.get('name', 'run')}",
                 model=model,
-                system_message=str(agent_spec.get("instructions") or "你是严谨的研究助手。"),
+                system_message=instructions,
                 tools=tools or None,
                 skills=skills,
                 tool_call_limit=max(1, int(max_rounds)),
@@ -1131,7 +1163,7 @@ class ModelGateway:
                 retries=0,
                 add_history_to_context=False,
                 output_schema=output_schema,
-                use_json_mode=bool(output_schema),
+                use_json_mode=bool(output_schema) and not upstream,
             )
             media = [
                 Image(content=value["content"], mime_type=value["mime_type"])

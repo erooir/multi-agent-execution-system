@@ -8,6 +8,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from PIL import Image
 
@@ -298,6 +299,28 @@ async def test_image_json_uses_configured_generation_without_cloud_fields(model_
 
 
 @pytest.mark.asyncio
+async def test_typed_complete_sends_native_schema_including_with_images(model_endpoint):
+    from pydantic import BaseModel
+
+    class Result(BaseModel):
+        result: int
+
+    client, seen = model_endpoint
+    for images in (None, [_image_uri()]):
+        response = await client.complete(
+            "返回result整数", json_mode=True, output_schema=Result, images=images
+        )
+        assert Result.model_validate_json(response["text"]).result == 84
+    for _, _, payload in seen:
+        fmt = payload["response_format"]
+        assert fmt["type"] == "json_schema"
+        schema = fmt["json_schema"]["schema"]
+        assert schema["required"] == ["result"]
+        assert schema["properties"]["result"]["type"] == "integer"
+    assert client.usage()["request_count"] == 2
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("requested,expected", [(500, 256), (100, 100)])
 async def test_application_and_caller_output_caps_still_apply(
     model_endpoint, monkeypatch, requested, expected
@@ -394,6 +417,8 @@ async def test_structured_agent_preserves_real_automatic_tool_protocol(model_end
     result = await client.run_agent({}, "返回JSON", {"multiply": multiply}, output_schema=Result)
     assert executed == [(12, 7)] and json.loads(result["text"]) == {"result": 84}
     assert "response_format" not in seen[0][2]
+    assert '"result"' in seen[0][2]["messages"][0]["content"]
+    assert '"required"' in seen[0][2]["messages"][0]["content"]
     assert len(seen) == 2 and all(row[1] == "Bearer dedicated-synthetic-key" for row in seen)
 
 
@@ -458,5 +483,85 @@ async def test_required_main_tool_then_bounded_final_json(model_endpoint):
     )
     assert json.loads(result["text"]) == {"result": 84}
     assert seen[0][2]["tool_choice"] == {"type": "function", "function": {"name": "multiply"}}
+    assert "response_format" not in seen[0][2]
     assert seen[1][2]["tool_choice"] == "none"
-    assert seen[1][2]["response_format"] == {"type": "json_object"}
+    assert seen[1][2]["response_format"]["type"] == "json_schema"
+    assert seen[1][2]["response_format"]["json_schema"]["schema"]["required"] == ["result"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("explicit_limit", [False, True])
+async def test_generic_tool_round_budget_forces_a_final_schema_response(model_endpoint, explicit_limit):
+    from pydantic import BaseModel
+
+    class Result(BaseModel):
+        result: int
+
+    client, seen = model_endpoint
+
+    def multiply(a: int, b: int) -> int:
+        """Multiply integers."""
+        return a * b
+
+    response = await client.run_agent(
+        {},
+        "使用工具后返回result",
+        {"multiply": multiply},
+        output_schema=Result,
+        max_rounds=12 if explicit_limit else 1,
+        auto_tool_rounds=1 if explicit_limit else None,
+    )
+    assert Result.model_validate_json(response["text"]).result == 84
+    assert len(seen) == 2
+    assert "response_format" not in seen[0][2]
+    assert seen[1][2]["tool_choice"] == "none"
+    assert seen[1][2]["response_format"]["type"] == "json_schema"
+
+
+@pytest.mark.asyncio
+async def test_provider_cannot_continue_requests_after_final_tool_round(model_endpoint):
+    client, _ = model_endpoint
+    sent = []
+
+    def provider(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "model": "hangzhi-qwen38",
+                "choices": [
+                    {
+                        "finish_reason": "tool_calls",
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [{"id": "unexpected", "type": "function"}],
+                        },
+                    }
+                ],
+                "usage": {"prompt_tokens": 20, "completion_tokens": 10, "total_tokens": 30},
+            },
+        )
+
+    transport = gateway.MeteredTransport(
+        client.ledger,
+        "bounded",
+        "bounded",
+        inner=httpx.MockTransport(provider),
+        upstream=config.intranet_provider(),
+    )
+    transport.auto_tool_rounds = 1
+    body = {
+        "model": "hangzhi-qwen38",
+        "messages": [{"role": "user", "content": "synthetic"}],
+        "tools": [{"type": "function", "function": {"name": "synthetic"}}],
+        "max_tokens": 100,
+    }
+    with request_scope("bounded", 1, True):
+        async with httpx.AsyncClient(transport=transport) as http:
+            await http.post(config.intranet_provider().base_url + "/chat/completions", json=body)
+            await http.post(config.intranet_provider().base_url + "/chat/completions", json=body)
+            with pytest.raises(ModelCallError, match="工具回合"):
+                await http.post(config.intranet_provider().base_url + "/chat/completions", json=body)
+    assert len(sent) == 2 and sent[-1]["tool_choice"] == "none"
+    assert client.usage("bounded")["request_count"] == 2
