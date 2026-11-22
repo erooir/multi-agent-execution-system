@@ -18,7 +18,7 @@
 - `HANGZHI_DATABASE_URL` 配置平台业务库；正式入口强制达梦连接，连接配置缺失即停止启动。达梦凭据仅在服务端环境或受保护凭据文件中设置，不能写入 Git 或命令记录。
 - 身份及设置随业务保存在达梦，迁移保留账号和历史任务，旧登录会话失效。上传文件位于 `.local/platform-assets/`；任务产物以业务库内容及索引保存。
 - 模型历史账本固定为仓库 `.local/budget.sqlite3`。更换业务库、工作目录、`WORKBENCH_DATA_DIR` 或升级代码都不会获得新额度。默认网关在历史账本缺失时拒绝启动计费；只能从完整、可信的最新备份恢复。需要在独立适配目录或独立验收服务中共用同一历史账本时，可显式设置 `HANGZHI_BUDGET_LEDGER_PATH` 指向该唯一原件；不要复制成两份可分别消费的账本，API 与 Worker 必须配置相同路径。
-- 模型密钥只从当前进程的 `DEEPSEEK_API_KEY_ZX` 或 Windows 当前用户注册表中的同名用户变量读取；旧变量名不再生效。日志、截图、异常和前端只显示是否已配置，不显示值。真实 deepseek-flash 验收须重启 API/Worker 后确认新变量已识别，不得打印密钥或使用旧进程缓存。
+- 项目根目录 `.env` 会自动加载到 API/Worker。自部署模型使用 `HANGZHI_UPSTREAM_API_KEY`，配置见[最小运行说明](MODEL_API.md)。云模型继续使用 `DEEPSEEK_API_KEY_ZX`（也支持 Windows 同名用户变量）。修改后重启 API/Worker；日志与前端只显示是否已配置，不显示密钥值。
 - 外部 HTTP Tool 需要 `HANGZHI_TOOL_HOSTS`，Streamable HTTP MCP 需要 `HANGZHI_MCP_HOSTS`；stdio MCP 通过 `HANGZHI_MCP_LAUNCHERS` JSON 登记预装绝对路径、固定参数和 cwd。`HANGZHI_ALLOW_LOCAL_HTTP=true` 仅用于明确的本机 fixture。所有 `secret_ref` 只引用 Worker 环境变量，不能把密钥值写入定义。
 - 外部 MCP/Toolkit 由 Agno 原生驱动执行。升级后先运行 `uv sync --frozen --python 3.12`，再执行 `.venv/Scripts/python.exe -m scripts.enable_agent_tools` 补齐新模板；启动脚本会执行 schema v1→v2 加表迁移，不重置身份、业务或预算数据。
 - 禁止运行时安装依赖、下载模型/字体或启用遥测。RapidOCR 模型随固定依赖提供。对外部请求的许可由任务策略、部署白名单和网关共同执行。

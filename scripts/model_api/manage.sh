@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 umask 077
-config=${HANGZHI_MODEL_SERVER_ENV:?Point HANGZHI_MODEL_SERVER_ENV at the private compose.env}
+directory=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+config=${HANGZHI_MODEL_SERVER_ENV:-$directory/.env}
 if [[ ! -f "$config" ]] || (( (8#$(stat -c %a "$config") & 077) != 0 )); then
-    echo 'compose.env must exist with owner-only permissions' >&2
+    echo 'Model server .env must exist with owner-only permissions' >&2
     exit 1
 fi
-directory=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 set -a
 source "$config"
 set +a

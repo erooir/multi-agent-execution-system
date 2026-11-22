@@ -20,6 +20,20 @@ if (Test-Path -LiteralPath $pythonPointer) {
 if (-not (Test-Path -LiteralPath $pythonExecutable)) {
     throw 'Python environment is missing. Provision locked dependencies offline before starting the platform.'
 }
+# Read .env as data, never as executable PowerShell. Capture JSON privately.
+$envFile = Join-Path $projectRoot '.env'
+if (Test-Path -LiteralPath $envFile) {
+    $envJson = & $pythonExecutable -c 'import json; from dotenv import dotenv_values; print(json.dumps(dotenv_values(".env", interpolate=False, encoding="utf-8-sig")))'
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot load .env; verify the locked Python environment.' }
+    $envValues = $envJson | ConvertFrom-Json
+    foreach ($entry in $envValues.PSObject.Properties) {
+        if ($null -ne $entry.Value) { [Environment]::SetEnvironmentVariable($entry.Name, [string]$entry.Value, 'Process') }
+    }
+    Remove-Variable envJson, envValues, entry -ErrorAction SilentlyContinue
+}
+if (-not $PSBoundParameters.ContainsKey('Offline')) { $Offline = $env:HANGZHI_OFFLINE -eq 'true' }
+if (-not $PSBoundParameters.ContainsKey('AutoImprove')) { $AutoImprove = $env:HANGZHI_AUTO_IMPROVE -eq 'true' }
+if (-not $PSBoundParameters.ContainsKey('QuestionPublicEgress')) { $QuestionPublicEgress = $env:HANGZHI_QUESTION_PUBLIC_EGRESS -eq 'true' }
 $dmPointer = Join-Path $localDirectory 'dm-url-file.txt'
 if ($LegacySQLite) {
     if ($DmUrlFile) { throw 'Choose either DM8 or explicit legacy SQLite maintenance.' }
@@ -60,12 +74,15 @@ if (-not $env:HANGZHI_BUDGET_LEDGER_PATH) {
 }
 $env:HANGZHI_BUDGET_LEDGER_PATH = [System.IO.Path]::GetFullPath($env:HANGZHI_BUDGET_LEDGER_PATH)
 if (-not $Offline) {
-    & $pythonExecutable -c 'from backend.app.model_gateway import model_gateway; model_gateway.budget(); print(''Historical budget ledger verified.'')'
-    if ($LASTEXITCODE -ne 0) { throw 'Historical budget ledger unavailable; restore the configured original before online startup.' }
+    & $pythonExecutable -c 'from backend.app.model_gateway import model_gateway; model_gateway.budget(); print(''Model accounting configuration verified.'')'
+    if ($LASTEXITCODE -ne 0) { throw 'Model accounting configuration unavailable; inspect the selected provider or historical ledger.' }
 }
 $profile = $env:HANGZHI_DATABASE_URL + '|' + $env:HANGZHI_OFFLINE + '|' + $env:HANGZHI_AUTO_IMPROVE + '|' + $env:HANGZHI_QUESTION_PUBLIC_EGRESS + '|' + $env:HANGZHI_BUDGET_LEDGER_PATH
+$modelProfile = @(Get-ChildItem Env: | Where-Object { $_.Name -like 'HANGZHI_UPSTREAM_*' -or $_.Name -in @('HANGZHI_CONTEXT_TOKENS','HANGZHI_MODEL_SLOTS') } | Sort-Object Name | ForEach-Object { $_.Name + '=' + $_.Value })
+$profile += '|' + ($modelProfile -join '|')
 $sha = [System.Security.Cryptography.SHA256]::Create()
 try { $profileId = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($profile))).Replace('-','').ToLowerInvariant() } finally { $sha.Dispose() }
+Remove-Variable profile, modelProfile
 if (-not $SkipBuild) {
     Push-Location (Join-Path $projectRoot 'frontend')
     try {

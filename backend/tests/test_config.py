@@ -1,3 +1,7 @@
+import json
+import os
+import shutil
+import subprocess
 import sys
 from contextlib import nullcontext
 from types import SimpleNamespace
@@ -69,3 +73,64 @@ def test_legacy_api_key_variables_are_ignored(monkeypatch):
 
     install_registry(monkeypatch, missing)
     assert config.get_api_key() is None
+
+
+@pytest.mark.parametrize("mode", ["file", "bom", "process_override", "missing", "disabled"])
+def test_dotenv_loaded_before_model_configuration(tmp_path, mode):
+    from pathlib import Path
+
+    # Run the real package initialization in a fresh checkout without touching
+    # the developer's .env or importing a business database.
+    project = tmp_path / "checkout"
+    package = project / "backend/app"
+    package.mkdir(parents=True)
+    source = Path(config.__file__).parent
+    for name in ("__init__.py", "config.py", "resource_limits.py"):
+        shutil.copyfile(source / name, package / name)
+    key = "synthetic-$HOME-${USER}#literal"
+    if mode != "missing":
+        (project / ".env").write_text(
+            "HANGZHI_UPSTREAM_MODEL_URL=http://127.0.0.1:8001/v1\n"
+            "HANGZHI_UPSTREAM_MODEL_ID=hangzhi-qwen38\n"
+            f"HANGZHI_UPSTREAM_API_KEY='{key}'\n"
+            "HANGZHI_UPSTREAM_BILLING=internal_zero\n"
+            "HANGZHI_CONTEXT_TOKENS=32768\n"
+            "HANGZHI_OFFLINE=false\n",
+            encoding="utf-8-sig" if mode == "bom" else "utf-8",
+        )
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith(("HANGZHI_", "DEEPSEEK_")) and k != "PYTHON_DOTENV_DISABLED"
+    }
+    expected = key
+    if mode == "process_override":
+        env.update(HANGZHI_UPSTREAM_API_KEY="operator-process-key", HANGZHI_OFFLINE="true")
+        expected = "operator-process-key"
+    if mode == "disabled":
+        env["PYTHON_DOTENV_DISABLED"] = "1"
+    code = (
+        "import sys; sys.path.insert(0, sys.argv[1]); "
+        "import json, os; from backend.app.config import get_api_key, intranet_provider; "
+        "provider=intranet_provider(); "
+        f"print(json.dumps({{'model': provider.model if provider else None, 'key_matches': get_api_key()=={expected!r}, "
+        "'offline': os.environ.get('HANGZHI_OFFLINE')}))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(project)],
+        cwd=tmp_path,
+        env=env,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    assert key not in result.stdout and "operator-process-key" not in result.stdout
+    value = json.loads(result.stdout)
+    if mode in {"missing", "disabled"}:
+        assert value == {"model": None, "key_matches": False, "offline": None}
+    else:
+        assert value == {
+            "model": "hangzhi-qwen38",
+            "key_matches": True,
+            "offline": "true" if mode == "process_override" else "false",
+        }

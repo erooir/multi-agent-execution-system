@@ -6,9 +6,9 @@
 
 ## 本机启动
 
-连接已部署的 A100 Qwen3.8 模型，直接将[本地 Codex 最小接入说明](docs/MODEL_API_LOCAL_CODEX.md)交给本地 Codex 执行。说明包括 SSH 隧道、API 密钥安全取得、API/Worker 配置和无数据库探测。
+连接已部署的 A100 Qwen3.8 模型：本地复制 `.env.example` 为 `.env`、填入 API 密钥并保持 SSH 隧道运行，然后正常启动项目。启动脚本自动读取配置，见[最小运行说明](docs/MODEL_API.md)。
 
-正式入口使用自托管 Agno AgentOS、达梦 DM8 和独立 Worker。已配置的 Windows 开发机运行以下命令，然后访问 [本机工作台](http://127.0.0.1:8000)。当前开发入口默认开放受控云调用，复用原身份和累计模型账本。管理员给资料标注公开、任务获得外发授权且有预算后，统一网关才会放行真实模型请求。
+正式入口使用自托管 Agno AgentOS、达梦 DM8 和独立 Worker。已配置的 Windows 开发机运行以下命令，然后访问 [本机工作台](http://127.0.0.1:8000)。配置 `.env` 后使用自部署模型；未配置内网模型时沿用受控云调用、原身份和累计模型账本。资料授权与模型访问仍由统一网关检查。
 
 ```powershell
 ./scripts/start_dm8_dev.ps1
