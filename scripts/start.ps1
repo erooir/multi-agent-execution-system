@@ -21,9 +21,10 @@ if (-not (Test-Path -LiteralPath $pythonExecutable)) {
     throw 'Python environment is missing. Provision locked dependencies offline before starting the platform.'
 }
 # Read .env as data, never as executable PowerShell. Capture JSON privately.
+# Python literals use single quotes so Windows PowerShell 5.1 preserves them.
 $envFile = Join-Path $projectRoot '.env'
 if (Test-Path -LiteralPath $envFile) {
-    $envJson = & $pythonExecutable -c 'import json; from dotenv import dotenv_values; print(json.dumps(dotenv_values(".env", interpolate=False, encoding="utf-8-sig")))'
+    $envJson = & $pythonExecutable -c 'import json; from dotenv import dotenv_values; print(json.dumps(dotenv_values(''.env'', interpolate=False, encoding=''utf-8-sig'')))'
     if ($LASTEXITCODE -ne 0) { throw 'Cannot load .env; verify the locked Python environment.' }
     $envValues = $envJson | ConvertFrom-Json
     foreach ($entry in $envValues.PSObject.Properties) {

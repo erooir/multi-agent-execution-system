@@ -19,7 +19,7 @@ bash scripts/model_api/manage.sh start
 在本地电脑另开终端，使用平时登录 A100 的 SSH 地址或 Host 别名，并保持窗口运行：
 
 ```bash
-ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L 127.0.0.1:8001:127.0.0.1:8001 <A100的SSH目标>
+ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L 127.0.0.1:8001:127.0.0.1:8001 -p 5032 lxy@8.130.9.90
 ```
 
 本地模型地址固定为 `http://127.0.0.1:8001/v1`，模型名为 `hangzhi-qwen38`。
