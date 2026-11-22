@@ -107,6 +107,23 @@ def test_monthly_comparison_requires_source_scope_unit_roles_and_exact_value_fie
     assert not checks("B05", source(rows))[1]
 
 
+@pytest.mark.parametrize("bad_month", [None, "", "2024-01"])
+def test_structured_month_key_audit_excludes_only_marked_totals_and_reports_key_issues(bad_month):
+    months = [
+        {"month": "2024-01", "deaths": 0, "injured": 2, "scope": "workplace"},
+        {"month": "2024-02", "deaths": 1, "injured": 3, "scope": "workplace"},
+        {"kind": "reported_total", "deaths": 1, "injured": 5, "scope": "workplace"},
+    ]
+    _, [(tool, out, checks_good)] = checks("B05", source(months))
+    assert tool == "table.audit_keys" and checks_good[0]["passed"]
+    assert out["source_rows"]["locations"] == [{"row": 1}, {"row": 2}]
+    months[1]["month"] = bad_month
+    _, [(tool, out, checks_bad)] = checks("B05", source(months))
+    assert out["missing_key_count"] or out["conflict_groups"]
+    assert tool == "table.audit_keys" and checks_bad == []
+    assert not checks("B05", source([*months, {"kind": "metadata", "deaths": 10}]))[1]
+
+
 def test_printed_chart_key_audit_and_duplicate_clues():
     rows = [
         {
@@ -130,6 +147,7 @@ def test_printed_chart_key_audit_and_duplicate_clues():
 def test_project_ledger_excludes_frozen_taxonomy_and_detects_portfolio_count_tampering():
     rows = [r["fields"] for r in document_samples("T04")]
     candidate, results = checks("T04", source(rows))
+    assert [tool for tool, _, _ in results] == ["table.audit_keys"]
     tool, out, checked = results[0]
     assert tool == "table.audit_keys" and checked[0]["passed"] and out["total_rows"] == 2
     assert out["source_rows"]["locations"] == [{"row": 2}, {"row": 3}]
@@ -137,6 +155,35 @@ def test_project_ledger_excludes_frozen_taxonomy_and_detects_portfolio_count_tam
     bad["products"]["portfolio"].pop()
     assert not role_analysis.compare("T04", tool, out, bad)[0]["passed"]
     assert not checks("T04", source([*rows, rows[-1]]))[1][0][2]
+
+
+def test_project_funding_reconciliation_requires_typed_scoped_details_and_reported_amount():
+    rows = [dict(r["fields"]) for r in document_samples("T04")]
+    for row in rows[1:]:
+        row.update(kind="detail", scope="community")
+    rows.append(
+        {
+            "kind": "reported_total",
+            "scope": "community",
+            "currency": "EUR",
+            "total_cost": 102,
+            "contribution": 71,
+        }
+    )
+    _, results = checks("T04", source(rows))
+    assert [tool for tool, _, _ in results] == [
+        "table.audit_keys",
+        "stats.reconcile_total",
+        "stats.reconcile_total",
+    ]
+    assert results[0][1]["total_rows"] == 2
+    _, first, first_checks = results[1]
+    _, second, second_checks = results[2]
+    assert first["computed_total"] == first["reported_total"] == "102" and first_checks[0]["passed"]
+    assert second["computed_total"] == "73" and second["reported_total"] == "71"
+    assert not second_checks[0]["passed"] and second_checks[0]["hard"]
+    rows[-1]["currency"] = "CNY"
+    assert [tool for tool, _, _ in checks("T04", source(rows))[1]] == ["table.audit_keys"]
 
 
 def test_unregistered_geometry_and_foreign_records_are_not_silently_used():

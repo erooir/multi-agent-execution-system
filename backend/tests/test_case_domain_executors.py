@@ -270,8 +270,64 @@ async def test_cloud_agno_loop_preserves_three_node_contracts(db, tmp_path, monk
         assert call["instance_id"]
     for payload in rounds:
         assert len(json.dumps(payload, ensure_ascii=False).encode()) < 200_000
+        names = {tool["function"]["name"] for tool in payload["tools"]}
+        # The fixture supplies JSON records and, for some cases, PNG images.
+        assert names.isdisjoint({"read_pdf_page", "select_cues", "extract_quantities", "compare_passages"})
+        if code in {"B05", "T04"} and f"case_{code.lower()}_analyze" in names:
+            assert "audit_keys" in names and "reconcile_total" not in names
         if any(item.get("role") == "tool" for item in payload["messages"]):
             assert '"records": [' not in json.dumps(payload["messages"][-1])
+            if code == "G03" and "case_g03_analyze" in names:
+                content = payload["messages"][-1]["content"]
+                try:
+                    projection = json.loads(content)
+                except json.JSONDecodeError:
+                    projection = ast.literal_eval(content)
+                [cross_check] = projection["data"]["statistical_cross_checks"]
+                assert cross_check["tool"] == "baseline_anomaly"
+                assert cross_check["arguments"] == {
+                    "source_id": refs[0],
+                    "value_field": "extent",
+                    "rank_start": 2000,
+                    "target_year": 2004,
+                    "baseline_start": 2000,
+                    "baseline_end": 2002,
+                    "where": {"month": 9, "hemisphere": "N"},
+                    "min_valid_value": 0,
+                    "unit": "km²",
+                }
+
+
+@pytest.mark.parametrize(
+    ("media_types", "expected"),
+    [
+        (["application/json"], {"audit_keys"}),
+        (
+            ["application/json", "application/pdf; version=1.7"],
+            {"audit_keys", "read_pdf_page", "extract_quantities"},
+        ),
+        (
+            ["application/json", "text/vtt", "text/markdown"],
+            {"audit_keys", "select_cues", "extract_quantities", "compare_passages"},
+        ),
+    ],
+)
+def test_case_document_tools_require_matching_frozen_sources(media_types, expected):
+    from backend.app.casework.executors.base import _applicable_case_tools
+
+    granted = {
+        name: {"id": capability}
+        for name, capability in (
+            ("read_pdf_page", "evidence.pdf_page"),
+            ("select_cues", "evidence.select_cues"),
+            ("extract_quantities", "evidence.extract_quantities"),
+            ("compare_passages", "evidence.compare_passages"),
+            ("audit_keys", "table.audit_keys"),
+        )
+    }
+    inputs = [{"id": str(index), "media_type": mime} for index, mime in enumerate(media_types)]
+    assert set(_applicable_case_tools(granted, inputs)) == expected
+    assert _applicable_case_tools({}, inputs) == {}
 
 
 async def test_model_selects_supplementary_tool_and_result_reaches_review(db, tmp_path, monkeypatch):

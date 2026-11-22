@@ -9,6 +9,7 @@ import logging
 import os
 import signal
 import socket
+import sqlite3
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -17,6 +18,7 @@ from functools import partial
 
 from pydantic import ValidationError
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 
 from ..storage import store
 from .dameng import supports_row_lock
@@ -26,6 +28,16 @@ from .runtime import process_claim, timestamp
 log = logging.getLogger("hangzhi.worker")
 DEFAULT_CONCURRENCY = 2
 MAX_CONCURRENCY = 32
+
+
+def _admission_busy(exc: OperationalError) -> bool:
+    # This statement failed before the transaction obtained a writer lock.
+    # A later poll can start a fresh transaction without replaying any writes.
+    return (
+        exc.statement == "BEGIN IMMEDIATE"
+        and isinstance(exc.orig, sqlite3.OperationalError)
+        and (getattr(exc.orig, "sqlite_errorcode", 0) & 0xFF) in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}
+    )
 
 
 def worker_concurrency(value: int | str) -> int:
@@ -171,8 +183,14 @@ async def run_worker(
     control_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="hangzhi-scheduler")
     loop = asyncio.get_running_loop()
 
-    async def control(function, *args, **kwargs):
-        return await loop.run_in_executor(control_pool, partial(function, *args, **kwargs))
+    async def control(function, *args, defer_busy=False, **kwargs):
+        try:
+            return await loop.run_in_executor(control_pool, partial(function, *args, **kwargs))
+        except OperationalError as exc:
+            if once or not defer_busy or not _admission_busy(exc):
+                raise
+            log.warning("SQLite writer busy; deferred worker %s", function.__name__)
+            return None
 
     async def report(status, task_ids):
         await control(
@@ -181,6 +199,7 @@ async def run_worker(
             worker_id,
             status,
             task_ids,
+            defer_busy=True,
             concurrency=concurrency,
             maintenance_active=bool(maintenance and not maintenance.done()),
         )
@@ -205,10 +224,10 @@ async def run_worker(
                 maintenance = None
             heartbeat_due = time.monotonic() - last_heartbeat >= 5
             if heartbeat_due:
-                await control(schedule_due, repository)
+                await control(schedule_due, repository, defer_busy=True)
                 last_heartbeat = time.monotonic()
             while not stop.is_set() and len(active) < concurrency:
-                task = await control(repository.claim, worker_id)
+                task = await control(repository.claim, worker_id, defer_busy=True)
                 if task is None:
                     break
                 if stop.is_set():
