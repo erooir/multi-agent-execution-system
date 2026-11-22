@@ -227,7 +227,7 @@ def _execute(stage, profile, inputs, previous, read_bytes, feedback, revision, r
         "content": {
             "case_id": code,
             "scope": scope,
-            "title": profile["profile"]["title"],
+            "title": profile.get("report_title") or profile["profile"]["title"],
             **candidate,
             "gaps": list(dict.fromkeys(gaps)),
             **(

@@ -122,6 +122,7 @@ def routes(ctx):
     out = []
     features = []
     excluded = []
+    policy_refs = [ctx.policy_sources[k] for k in ("snapshot", "max_age_seconds") if k in ctx.policy_sources]
     for r in orders:
         f = r["fields"]
         order = str(f.get("od_id", ""))
@@ -194,6 +195,11 @@ def routes(ctx):
                     )
         paths = two_paths(ok, start, end)
         base = shortest(baseline, start, end)
+        # The OD can supply a fallback baseline. Otherwise the reported
+        # difference also needs the frozen edges used for the baseline path.
+        comparison_refs = list(
+            dict.fromkeys([oref, *policy_refs, *(ref for edge in (base or []) for ref in edge.refs)])
+        )
         dist_before = sum(v.km for v in base) if base is not None else number(f.get("baseline_distance_km"))
         time_before = _time(base) if base is not None else number(f.get("baseline_time_min"))
         candidates = []
@@ -210,7 +216,7 @@ def routes(ctx):
                 "extra_min": minutes - time_before
                 if minutes is not None and time_before is not None
                 else None,
-                "refs": list(dict.fromkeys([oref, *(ref for e in path for ref in e.refs)])),
+                "refs": list(dict.fromkeys([*comparison_refs, *(ref for e in path for ref in e.refs)])),
             }
             candidates.append(item)
             if path and all(e.geometry for e in path):
@@ -240,7 +246,7 @@ def routes(ctx):
                 "baseline_km": dist_before,
                 "baseline_min": time_before,
                 "candidates": candidates,
-                "refs": [oref],
+                "refs": comparison_refs,
             }
         )
     if conflicts:

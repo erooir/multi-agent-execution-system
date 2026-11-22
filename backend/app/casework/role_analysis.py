@@ -289,6 +289,52 @@ def _projects(records):
     return planned[:3]
 
 
+def _observation_keys(code, records):
+    """Audit raw observation identifiers only when the filter selects those exact rows."""
+    if code == "G01":
+        key = ["observed_at", "latitude", "longitude", "sensor"]
+        indicators = ("latitude", "longitude")
+    else:
+        key = ["sample_id", "date", "medium", "analyte"]
+        indicators = ("sample_id", "analyte")
+    requests = []
+    by_source = {}
+    for row in records:
+        by_source.setdefault(row["source_id"], []).append(row["fields"])
+    for sid, fields in by_source.items():
+        observations, other = [], []
+        for f in fields:
+            if f.get("kind") == "policy":
+                continue
+            if any(k in f for k in indicators) and (code != "G01" or f.get("kind") != "region"):
+                observations.append(f)
+            else:
+                other.append(f.get("kind"))
+        if not observations or any(not all(k in f for k in key) for f in observations):
+            continue
+        if code == "G01" and any(
+            f.get("orbit") is not None or f.get("scan") is not None for f in observations
+        ):
+            continue
+        kind = observations[0].get("kind")
+        if (
+            isinstance(kind, str)
+            and 1 <= len(kind) <= 100
+            and kind not in other
+            and all(f.get("kind") == kind for f in observations)
+        ):
+            filters = {"where": {"kind": kind}}
+        else:
+            if any(not isinstance(kind, str) or not 1 <= len(kind) <= 100 for kind in other):
+                continue
+            excluded = sorted(set(other))
+            if len(excluded) > 8 or any(f.get("kind") in excluded for f in observations):
+                continue
+            filters = {"exclude_kinds": excluded} if excluded else {}
+        requests.append(("table.audit_keys", {"source_id": sid, "key_fields": key, **filters}))
+    return requests[:3]
+
+
 def requests(code, inputs, records, candidate=None):
     """Only material explicitly present in the frozen case can select a cross-check."""
     frozen = {(a["id"], str(a["source_version"])) for a in inputs}
@@ -296,6 +342,8 @@ def requests(code, inputs, records, candidate=None):
         return []
     planner = {"B05": _monthly, "T04": _projects, "G03": _annual, "G06": _grids, "G09": _routes}.get(code)
     try:
+        if code in {"G01", "G07"}:
+            return _observation_keys(code, records)
         return planner(records) if planner else []
     except (KeyError, TypeError, ValueError):
         # Malformed data is still assessed by the case's primary source and domain

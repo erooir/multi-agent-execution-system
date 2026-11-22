@@ -236,6 +236,7 @@ async def test_cloud_agno_loop_preserves_three_node_contracts(db, tmp_path, monk
         "case_report",
     ]
     assert all(item["output"]["method"] == "domain_tool_agent" for item in nodes)
+    assert nodes[2]["output"]["content"]["title"] == request["name"]
     assert all(item["output"]["source_refs"] == refs for item in nodes)
     assert all(item["output"]["content"]["tool_findings"] == [] for item in nodes)
     prepared = next(item["output"]["content"] for item in nodes if item["node_id"] == "prepare")
@@ -515,6 +516,20 @@ def test_managed_executor_implementation_upgrade_appends_version(db):
     with pytest.raises(service.DomainError) as error:
         install(p["id"], ADMIN, db, upgrade=True, case_id="B01")
     assert error.value.code == "asset_conflict"
+
+
+def test_overlay_requires_two_independent_polygon_layers():
+    from backend.app.casework.executors.base import _applicable_case_tools
+
+    granted = {"area": {"id": "geo.overlay_area"}}
+    inputs = [{"id": sid, "media_type": "application/json"} for sid in ("left", "right")]
+    polygon = {"geometry": {"type": "Polygon"}, "crs": "EPSG:4326"}
+    records = [{"source_id": asset["id"], "fields": polygon} for asset in inputs]
+    assert _applicable_case_tools(granted, inputs, records) == granted
+    assert not _applicable_case_tools(granted, inputs, records[:1])
+    assert not _applicable_case_tools(
+        granted, inputs, [*records, {"source_id": "right", "fields": {"kind": "grid"}}]
+    )
 
 
 def test_model_suggested_gaps_do_not_change_authoritative_prepare_gaps():

@@ -2,6 +2,7 @@
 
 import io
 import re
+from itertools import islice, zip_longest
 
 from docx import Document
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
@@ -295,6 +296,18 @@ def cite(ids):
 def row_text(row, limit=165):
     if not isinstance(row, dict):
         return show(row, limit)
+    if "claim_id" in row and "action" in row:
+        actions = {
+            "withdraw": "撤回",
+            "downgrade": "降低结论强度",
+            "unaffected": "保留",
+            "unverified": "待核实",
+        }
+        action = actions.get(row["action"], row["action"])
+        return (
+            f"主张 {show(row['claim_id'], 32)} 建议{show(action, 32)}。"
+            f"{show(row.get('original'), 72)}。依据：{show(row.get('reason'), 72)}" + cite(refs(row))
+        )
     preferred = (
         "question",
         "event",
@@ -333,6 +346,127 @@ def row_text(row, limit=165):
     return clean("；".join(parts), limit) + cite(refs(row))
 
 
+def representative_rows(groups, limit=7):
+    """Pick one row per group before taking another row from the same group."""
+    ordered = (row for batch in zip_longest(*groups.values()) for row in batch if row is not None)
+    return list(islice(ordered, limit))
+
+
+def matrix_findings(questions):
+    roles = {
+        "project": "项目方",
+        "audit": "审计",
+        "study": "研究",
+        "brief": "简报",
+        "investigation": "调查",
+        "judicial": "司法",
+    }
+    comparisons = {
+        "conflicting_values": "同口径数值有分歧",
+        "scope_differs": "口径不同",
+        "single_source": "仅一类来源",
+        "same_statement": "各来源表述相同",
+    }
+    by_role = {}
+    for question in questions:
+        for claim in question.get("claims") or []:
+            by_role.setdefault(claim.get("role"), []).append((question, claim))
+    chosen = representative_rows(by_role)
+    chosen.sort(key=lambda item: (not item[1].get("published_at"), str(item[1].get("published_at") or "")))
+    notes = []
+    for question, claim in chosen:
+        role = roles.get(claim.get("role"), claim.get("role") or "来源角色未说明")
+        question_text = show(question.get("question") or question.get("question_id"), 64).rstrip("？?。")
+        parts = [show(role, 32)]
+        if claim.get("published_at"):
+            parts.append(f"{show(claim['published_at'], 40)}发布")
+        if claim.get("statement"):
+            parts.append(show(claim["statement"], 120))
+        if claim.get("comparable_value") is not None:
+            parts.append(f"可比值 {show(claim['comparable_value'], 40)}")
+        if claim.get("scope"):
+            parts.append(f"范围为{show(claim['scope'], 60)}")
+        if question.get("status") in comparisons:
+            parts.append(comparisons[question["status"]])
+        notes.append(f"{question_text} — " + "，".join(parts) + cite(refs(claim)) + "。")
+    total = sum(len(group) for group in by_role.values())
+    omitted = []
+    if total > len(chosen):
+        omitted.append(f"简报摘列{len(chosen)}条来源陈述，共{total}条。")
+    missing = sum(not question.get("claims") for question in questions)
+    if missing:
+        omitted.append(f"另有{missing}个问题缺少来源陈述。")
+    if omitted:
+        notes.append("".join(omitted) + "完整证据矩阵见 report.json 的 products.matrix。")
+    return notes
+
+
+def portfolio_findings(products):
+    portfolio = products.get("portfolio") or []
+    funding = {
+        (row.get("theme"), row.get("currency")): row
+        for row in (products.get("theme_summary") or {}).get("known_funding") or []
+    }
+    projects = {}
+    for project in portfolio:
+        if project.get("status") != "version_conflict":
+            key = (project.get("theme"), project.get("currency"))
+            projects.setdefault(key, []).append(project)
+            funding.setdefault(key, {})
+    notes = []
+    for (theme, currency), group in islice(funding.items(), 3):
+        members = projects.get((theme, currency), [])
+        amounts = []
+        for key, label in (("total_cost", "已知总成本"), ("contribution", "已知贡献额")):
+            field = group.get(key) or {}
+            missing = [p for p in members if p.get(key) is None]
+            if currency and field.get("known_amount") is not None:
+                value = f"{label} {show(field['known_amount'])} {show(currency, 20)}" + cite(refs(field))
+                count = field.get("records")
+                if isinstance(count, int) and count < len(members):
+                    value += (
+                        f"（{len(members) - count}项未计入该数额"
+                        + cite([i for p in missing for i in refs(p)])
+                        + "）"
+                    )
+            elif currency:
+                state = "未提供" if members and len(missing) == len(members) else "未列汇总"
+                value = label + state + cite([i for p in members for i in refs(p)])
+            else:
+                value = "币种未提供，未计入资金汇总" + cite([i for p in members for i in refs(p)])
+                amounts.append(value)
+                break
+            amounts.append(value)
+        group_name = show(theme or "主题未列", 48)
+        if currency:
+            group_name += f"（{show(currency, 20)}）"
+        notes.append(group_name + "，" + "，".join(amounts) + "。")
+    edges = (products.get("organization_graph") or {}).get("edges") or []
+    by_project = {}
+    for edge in edges:
+        by_project.setdefault(edge.get("from"), []).append(edge)
+    selected = representative_rows(by_project, 4)
+    for edge in selected:
+        role = {"coordinator": "协调机构", "participant": "参与机构"}.get(edge.get("role"), edge.get("role"))
+        notes.append(
+            f"项目 {show(edge.get('from'), 48)} 的{show(role, 24)}为{show(edge.get('to'), 64)}"
+            + cite(refs(edge))
+            + "。"
+        )
+    if portfolio:
+        prefix = f"项目清单共{len(portfolio)}项。"
+        if notes:
+            notes[0] = prefix + notes[0]
+        else:
+            notes.append(prefix)
+    if len(funding) > 3 or len(edges) > len(selected):
+        notes.append(
+            f"完整{len(funding)}组资金与{len(edges)}条角色关系见 report.json 的 "
+            "products.theme_summary、products.organization_graph 及逐项目 products.portfolio。"
+        )
+    return notes
+
+
 def findings(report):
     products = report["products"]
     code = report["case_id"]
@@ -340,7 +474,7 @@ def findings(report):
     if code == "B01":
         for r in products.get("observations") or []:
             notes.append(
-                f"{show(r.get('region'))}在本报告范围内，本期记录{show(r.get('count'))}起，上期{show(r.get('previous'))}起，差额为{show(r.get('change'))}起。"
+                f"{show(r.get('region'))}在本报告范围内，本期数量为{show(r.get('count'))}，上期为{show(r.get('previous'))}，差额为{show(r.get('change'))}。"
                 + cite(refs(r))
             )
         window = products.get("report_window") or {}
@@ -366,6 +500,78 @@ def findings(report):
         ]
         if months:
             notes.append(f"{show(months, 100)}的覆盖未确认为完整自然月，不直接进行整月趋势比较。")
+    elif code in {"B08", "B10", "T08"}:
+        notes.extend(matrix_findings(products.get("matrix") or []))
+    elif code == "T04":
+        notes.extend(portfolio_findings(products))
+    elif code == "T05":
+        by_figure = {}
+        for row in products.get("comparison") or []:
+            if isinstance(row, dict) and row.get("value") is not None:
+                by_figure.setdefault(row.get("figure"), []).append(row)
+        for row in representative_rows(by_figure):
+            kind = {"historical": "历史", "forecast": "预测", "assumption": "核算前提"}.get(
+                row.get("kind"), row.get("时间属性") or row.get("kind")
+            )
+            parts = [f"图{show(row.get('figure'))}"]
+            if row.get("year") is not None:
+                parts.append(f"{show(row['year'])}年")
+            if row.get("scenario"):
+                parts.append(f"情景“{show(row['scenario'], 64)}”")
+            if kind:
+                parts.append(show(kind, 32))
+            if row.get("metric_role") and row["metric_role"] != "来源标注值":
+                parts.append(show(row["metric_role"], 64))
+            parts.append(
+                f"{show(row['value'])} {show(row['unit'])}" if row.get("unit") else show(row["value"])
+            )
+            loc = row.get("location") or {}
+            if loc.get("page") is not None:
+                parts.append(f"第{show(loc['page'])}页")
+            if loc.get("row") is not None:
+                parts.append(f"第{show(loc['row'])}行")
+            notes.append("，".join(parts) + cite(refs(row)) + "。")
+        count = sum(len(group) for group in by_figure.values())
+        if count > len(notes):
+            notes.append(
+                f"简报摘列{len(notes)}条，共{count}条。其余标注见 report.json 的 products.comparison。"
+            )
+    elif code == "T09":
+        by_metric = {}
+        for series in products.get("trend_series") or []:
+            if series.get("points"):
+                by_metric.setdefault(series.get("metric"), []).append(series)
+        series_rows = representative_rows(by_metric, 5)
+        for series in series_rows:
+            points = series["points"]
+            first, last = points[0], points[-1]
+            metric = {"capacity": "容量", "resistance": "内阻"}.get(
+                series.get("metric"), series.get("metric")
+            )
+            unit = f" {show(series['unit'], 32)}" if series.get("unit") else ""
+            notes.append(
+                f"样本 {show(series.get('cell'), 48)} 的{show(metric)}："
+                f"第{show(first.get('cycle'))}循环为{show(first.get('value'))}{unit}，"
+                f"第{show(last.get('cycle'))}循环为{show(last.get('value'))}{unit}，"
+                f"首末差为{show(series.get('observed_difference'))}{unit}"
+                + cite(refs(first) + refs(last))
+                + "。"
+            )
+        total = sum(len(group) for group in by_metric.values())
+        if total > len(series_rows):
+            notes.append(
+                f"简报摘列{len(series_rows)}组趋势，共{total}组。完整序列见 report.json 的 products.trend_series。"
+            )
+        literature = (products.get("applicability") or {}).get("literature") or []
+        if literature:
+            record = literature[0]
+            notes.append(
+                f"文献列明的样本为{show(record.get('population'), 80)}，实验条件为{show(record.get('conditions'), 100)}"
+                + cite(refs(record))
+                + "。"
+            )
+            if len(literature) > 1:
+                notes.append(f"其余{len(literature) - 1}项文献记录见 report.json 的 products.applicability。")
     elif code == "G03":
         r = products.get("anomaly")
         if r:
@@ -428,6 +634,17 @@ def findings(report):
                 and value.get("type") == "FeatureCollection"
             ):
                 continue
+            if code == "T10" and key == "citation_impact" and isinstance(value, list):
+                by_action = {}
+                for claim in value:
+                    by_action.setdefault(claim.get("action"), []).append(claim)
+                selected = representative_rows(by_action, 4)
+                notes.extend(row_text(claim) for claim in selected)
+                if len(selected) < len(value):
+                    notes.append(
+                        f"简报摘列{len(selected)}条主张，共{len(value)}条。其余见 report.json 的 products.citation_impact。"
+                    )
+                continue
             examples = value[:2] if isinstance(value, list) else [value]
             text = "；".join(row_text(v) for v in examples)
             if text:
@@ -471,7 +688,8 @@ def document_bytes(report, metadata):
         pf.space_after = Pt(6)
         for border in list(style.element.iter(qn("w:pBdr"))):
             border.getparent().remove(border)
-    doc.core_properties.title = clean(report["title"], 90) + "研究简报"
+    title = metadata.get("name") if report.get("scope") in {"sample", "project"} else None
+    doc.core_properties.title = clean(title or report["title"], 90) + "研究简报"
     doc.core_properties.author = "航智平台"
     doc.add_paragraph(doc.core_properties.title, "Title")
     doc.add_paragraph("验收范围：" + scope_text(report))

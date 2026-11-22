@@ -244,6 +244,7 @@ def assert_expected(code, candidate):
         assert len(p["changes"]) == 3 and all("data:image/png" in x["pixel_overlay_svg"] for x in p["panels"])
     elif code == "G03":
         assert p["anomaly"]["difference"] == -3 and p["anomaly"]["ascending_rank"] == 1
+        assert cited_record_rows(candidate, p["anomaly"]) == {1, 2, 3, 4, 5, 6}
     elif code == "G04":
         assert p["road_exposure"]["records"][0]["potential_exposure_m"] == 10
     elif code == "G05":
@@ -260,8 +261,48 @@ def assert_expected(code, candidate):
         assert len(p["timeline"]) == 6 and len(p["retrospective"]) == 1 and len(p["island_matrix"]) == 5
     elif code == "G09":
         assert len(p["od_comparison"]) == 5 and p["od_comparison"][0]["candidates"][0]["extra_km"] == 3
+        order = p["od_comparison"][0]
+        assert {1, 2, 7, 8} <= cited_record_rows(candidate, order)
+        assert {1, 2, 3, 4, 7, 8} <= cited_record_rows(candidate, order["candidates"][0])
     elif code == "G10":
         assert len(p["priority"]) == 3 and p["priority"][0]["max_union_exposed_m2"] == 320
+        assert {1, 2, 8, 9, 10, 11, 12, 13, 14} <= cited_record_rows(candidate, p["priority"][0])
+        for key in ("max_union", "repeat_coverage"):
+            assert 8 in cited_record_rows(candidate, p[key]["features"][0]["properties"])
+
+
+def cited_record_rows(candidate, product):
+    by_id = {r["id"]: r["location"] for r in candidate["evidence"]}
+    return {by_id[key]["row"] for key in product["evidence_ids"]}
+
+
+@pytest.mark.parametrize(
+    ("code", "missing_row"),
+    [("G03", 1), ("G03", 2), ("G03", 5), ("G03", 6), ("G09", 2), ("G09", 7), ("G10", 1), ("G10", 8)],
+)
+def test_rejects_incomplete_composite_sources(code, missing_row):
+    asset = {
+        "id": "synthetic-observations",
+        "source_version": "1",
+        "modality": "structured",
+        "media_type": "application/json",
+        "content": {"records": samples(code)},
+    }
+    normalized, gaps = extract([asset], lambda _: b"")
+    assert not gaps
+    candidate = verify(code, normalized)
+    assert_expected(code, candidate)
+    products = candidate["products"]
+    if code == "G03":
+        target = products["anomaly"]
+    elif code == "G09":
+        target = products["od_comparison"][0]["candidates"][0]
+    else:
+        target = products["priority"][0]
+    ref = next(row["id"] for row in candidate["evidence"] if row["location"].get("row") == missing_row)
+    target["evidence_ids"].remove(ref)
+    with pytest.raises(AssertionError):
+        assert_expected(code, candidate)
 
 
 @pytest.mark.parametrize("code", sorted(CATALOG))

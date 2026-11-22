@@ -44,6 +44,21 @@ def checks(case, src, candidate=None):
     return candidate, output
 
 
+def test_hotspot_key_audit_reads_actual_observations_without_inventing_a_kind():
+    rows = samples("G01")
+    src = source(rows)
+    records, _ = extract([src], lambda _: None)
+    ((tool, args),) = role_analysis.requests("G01", [src], records)
+    assert tool == "table.audit_keys" and args["exclude_kinds"] == ["batch"] and "where" not in args
+    _, results = checks("G01", src)
+    assert results[0][1]["total_rows"] == 8
+    for row in rows:
+        if "observed_at" in row:
+            row["kind"] = "hotspot"
+    records, _ = extract([src], lambda _: None)
+    assert role_analysis.requests("G01", [src], records)[0][1]["where"] == {"kind": "hotspot"}
+
+
 @pytest.mark.parametrize(
     ("code", "id", "count"),
     [
@@ -70,6 +85,11 @@ def test_registered_computation_and_semantic_tamper_rejection(code, id, count):
         for _, out, _ in results
         for c in role_analysis.compare(code, id, out, forged)
     )
+
+
+def test_soil_sample_key_audit_does_not_invent_sample_kind():
+    _, results = checks("G07", source(samples("G07")))
+    assert len(results) == 1 and results[0][1]["total_rows"] == 2
 
 
 def test_monthly_comparison_requires_source_scope_unit_roles_and_exact_value_field():

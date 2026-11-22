@@ -15,6 +15,7 @@ def ice(ctx):
     observations = defaultdict(list)
     versions = set()
     units = set()
+    uses_policy_unit = False
     for row in ctx.rows:
         f = row["fields"]
         if "year" not in f:
@@ -36,6 +37,8 @@ def ice(ctx):
             continue
         val = number(f.get("extent"))
         unit = str(f.get("unit") or ctx.policy.get("extent_unit") or "").strip()
+        if not f.get("unit") and ctx.policy.get("extent_unit"):
+            uses_policy_unit = True
         if not unit and str(row.get("location", {}).get("sheet", "")).casefold() == "september-nh":
             # Public Sea Ice Index workbook: dedicated NH monthly sheet, F=extent, G=area.
             unit = "Mkm²" if "source_dataset" in f and "area" in f else ""
@@ -70,7 +73,13 @@ def ice(ctx):
     base = fmean(baseline_values) if comparable and len(baseline_values) == b - a + 1 else None
     diff = target - base if target is not None and base is not None else None
     unit = next(iter(units)) if len(units) == 1 else None
+    policy_keys = ["start_year", "target_year", "baseline_years"]
+    if uses_policy_unit:
+        policy_keys.append("extent_unit")
+    refs = [ctx.policy_sources[key] for key in policy_keys if key in ctx.policy_sources]
+    refs.extend(ref for row in clean for ref in row["refs"])
     stats = {
+        "refs": list(dict.fromkeys(refs)),
         "target_year": end,
         "unit": unit,
         "versions": sorted(versions),

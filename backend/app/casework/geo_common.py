@@ -48,6 +48,7 @@ class Run:
         self.gaps = []
         self._indexes = {}
         self.policy = {}
+        self.policy_sources = {}
         for idx, row in enumerate(records):
             if not isinstance(row, dict) or not isinstance(row.get("fields"), dict):
                 self.gap("输入记录没有字段对象")
@@ -63,7 +64,8 @@ class Run:
             self._indexes[id(row)] = idx + 1
             if row["fields"].get("kind") == "policy":
                 self.policy.update(row["fields"])
-                self.ref(row)
+                ref = self.ref(row)
+                self.policy_sources.update({key: ref for key in row["fields"] if key != "kind"})
             else:
                 self.rows.append(row)
 

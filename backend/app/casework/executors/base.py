@@ -194,7 +194,7 @@ def validate_node_output(context: ExecutorContext, output: dict):
             raise ValueError("case_review_contract")
 
 
-def _applicable_case_tools(granted_tools, inputs):
+def _applicable_case_tools(granted_tools, inputs, records=None):
     # These operations read original assets, not the stage's parsed JSON records.
     media = {item["id"]: item["media_type"].partition(";")[0].lower() for item in inputs}.values()
     subtitles = {"text/vtt", "application/x-subrip"}
@@ -208,6 +208,24 @@ def _applicable_case_tools(granted_tools, inputs):
         roles.DATES: passage_count >= 1,
         roles.TERMS: passage_count >= 1,
     }
+    if records is not None and any(spec["id"] == roles.AREA for spec in granted_tools.values()):
+        # overlay_area consumes two independent, exclusively polygonal sources.
+        # A single mixed table or raster with two dates cannot satisfy that contract.
+        layers = {}
+        for row in records:
+            fields = row["fields"]
+            if fields.get("kind") == "policy":
+                continue
+            geometry = fields.get("geometry")
+            polygon = (
+                isinstance(geometry, dict)
+                and geometry.get("type") in ("Polygon", "MultiPolygon")
+                and isinstance(fields.get("crs"), str)
+                and fields["crs"].startswith("EPSG:")
+            )
+            source = row["source_id"]
+            layers[source] = layers.get(source, True) and polygon
+        available[roles.AREA] = sum(layers.values()) >= 2
     return {name: spec for name, spec in granted_tools.items() if available.get(spec["id"], True)}
 
 
@@ -228,9 +246,13 @@ class CaseDomainToolSession(NodeDomainToolSession):
             context.permissions,
             context.instance_id,
         )
-        self.tools = _applicable_case_tools(self.tools, context.execution.inputs)
+        self.tools = _applicable_case_tools(
+            self.tools,
+            context.execution.inputs,
+            context.prepared["records"] if context.stage == "analyze" else None,
+        )
         self.statistical_cross_checks = None
-        if context.stage == "analyze" and context.code in {"B05", "G03", "T04"}:
+        if context.stage == "analyze" and context.code in {"B05", "G01", "G03", "G07", "T04"}:
             # Plan from the frozen prepare checkpoint before exposing tool schemas.
             # These are supported call arguments. Results still require a governed tool call.
             options = statistical_requests(
@@ -243,7 +265,13 @@ class CaseDomainToolSession(NodeDomainToolSession):
                 if tool_id in names and len(json.dumps(arguments, ensure_ascii=False).encode()) <= 4096
             ]
             applicable_names = {item["tool"] for item in self.statistical_cross_checks}
-            for tool_id in (roles.TOTAL, roles.KEYS) if context.code == "B05" else (roles.TOTAL,):
+            planned_only = {
+                "B05": (roles.TOTAL, roles.KEYS),
+                "G01": (roles.KEYS,),
+                "G07": (roles.KEYS,),
+                "T04": (roles.TOTAL,),
+            }
+            for tool_id in planned_only.get(context.code, ()):
                 if tool_id in names and names[tool_id] not in applicable_names:
                     del self.tools[names[tool_id]]
         self.tools[self.main_name] = {
@@ -515,6 +543,8 @@ async def run_domain_executor(executor: DomainExecutor, context: ExecutorContext
             + "如果不需要其他核查，直接提交决策JSON，不再调用主工具。"
             + "最终artifact必须逐字复制本次主工具返回的tool_call_id和result_checksum。"
             + "只能引用真实产物中的证据ID，不得伪造来源、版本、位置、校验和、数值或空间结论。"
+            + "投影是节选。未显示的字段不能据此断言原件缺失、由处理器推断或已核验。"
+            + "辅助工具返回失败时如实说明未完成的核查，不宣布审核通过或缺口已消除。"
             + "不要增加用户目标和本角色合同之外的质量要求；信息不足时只列具体缺口。"
             + "source_gaps、gaps和additional_checks仅作诊断建议保存在模型决策检查点，不直接改变权威gaps/review；"
             + "主工具和确定性审核才决定质量。"

@@ -30,7 +30,12 @@ def hotspots(ctx):
     if not isinstance(confidence, list) or not confidence:
         ctx.gap("缺少显式置信度筛选规则")
         confidence = None
-    complete = set()
+    complete = {}
+    policy_refs = [
+        ctx.policy_sources[key]
+        for key in ("start", "end", "match_radius_m", "confidence_levels")
+        if key in ctx.policy_sources
+    ]
     region_shapes = []
     bad = []
     duplicates = []
@@ -51,8 +56,7 @@ def hotspots(ctx):
         f = r["fields"]
         if f.get("kind") == "batch":
             if f.get("complete") is True and day(f.get("date")):
-                complete.add(day(f["date"]))
-                ctx.ref(r)
+                complete.setdefault(day(f["date"]), ctx.ref(r))
             continue
         if not ("latitude" in f or "longitude" in f or f.get("kind") == "hotspot"):
             continue
@@ -116,6 +120,8 @@ def hotspots(ctx):
             xyz = _sphere(entry["coords"])
             k = tuple(math.floor(t / cell) for t in xyz)
             buckets[k].append((xyz, entry["id"]))
+        prior_observations = [entry["id"] for entry in days[prev]]
+        comparison_refs = list(dict.fromkeys(policy_refs + ([complete[prev]] if prev in complete else [])))
         if prev not in complete:
             ctx.gap(f"{prev}前日完整批次未确认，未匹配点不能判为新增")
         if current not in complete:
@@ -134,12 +140,21 @@ def hotspots(ctx):
                 "matched" if matches else "new" if prev in complete and radius and confidence else "unknown"
             )
             entry["previous_ref"] = min(matches)[1] if matches else None
+            # The complete prior set is stored once per day. Small sets also fit
+            # directly on unmatched points; never present a sample as the full set.
+            direct_prior = (
+                [entry["previous_ref"]]
+                if matches
+                else (prior_observations if len(prior_observations) <= 8 else [])
+            )
+            entry["refs"] = list(dict.fromkeys([*entry["refs"], *comparison_refs, *direct_prior]))
+            entry["daily_comparison"] = str(current)
             counts[(entry["region"], entry["match"])] += 1
             items.append(entry)
             points.append(
                 feature(
                     {"type": "Point", "coordinates": entry["coords"]},
-                    {k: entry[k] for k in ("id", "match", "region", "refs")},
+                    {k: entry[k] for k in ("id", "match", "region", "refs", "daily_comparison")},
                 )
             )
         stats.append(
@@ -147,6 +162,14 @@ def hotspots(ctx):
                 "date": str(current),
                 "complete": current in complete,
                 "count": len(days[current]),
+                "previous_batch": {
+                    "date": str(prev),
+                    "complete": prev in complete,
+                    "eligible_observation_count": len(prior_observations),
+                    "refs": [*comparison_refs, *prior_observations],
+                },
+                "refs": ([complete[current]] if current in complete else [])
+                + [r["id"] for r in days[current]],
                 "by_region": [{"region": rg, "match": m, "count": c} for (rg, m), c in counts.items()],
             }
         )

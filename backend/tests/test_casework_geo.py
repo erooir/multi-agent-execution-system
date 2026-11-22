@@ -122,9 +122,54 @@ def test_hotspots_use_day_baseline_and_exclude_duplicates_and_invalid_points():
     result = verify("G01", batch)
     p = result["products"]
     assert [r["match"] for r in p["hotspots"]] == ["unknown", "matched", "new"]
+    unknown, matched, new = p["hotspots"]
+    assert unknown["evidence_ids"] == ["g4", "g1"]
+    assert matched["id"] == "g5" and matched["previous_ref"] == "g4"
+    assert matched["evidence_ids"] == ["g5", "g1", "g2", "g4"]
+    assert new["id"] == "g6" and new["previous_ref"] is None
+    assert new["evidence_ids"] == ["g6", "g1", "g2", "g4"]
+    assert p["daily"][1]["previous_batch"] == {
+        "date": "2024-05-01",
+        "complete": True,
+        "eligible_observation_count": 1,
+        "evidence_ids": ["g1", "g2", "g4"],
+    }
     assert {x["properties"]["id"] for x in p["points"]["features"]} == {x["id"] for x in p["hotspots"]}
     assert len(p["exceptions"]["invalid"]) == len(p["exceptions"]["duplicates"]) == 1
     assert any("前日" in gap for gap in result["gaps"])
+
+
+def test_park_fire_comparison_links_full_large_prior_batch_once():
+    def observation(date, lon):
+        return {
+            "longitude": lon,
+            "latitude": 0,
+            "observed_at": f"{date}T01:00:00Z",
+            "available_at": f"{date}T02:00:00Z",
+            "region": "fictional park",
+            "sensor": "park-test",
+            "confidence": "high",
+            "frp": 1,
+        }
+
+    records = rows(
+        policy(start="2024-01-02", end="2024-01-02", match_radius_m=30),
+        policy(match_radius_m=50, confidence_levels=["high"]),
+        {"kind": "batch", "complete": True, "date": "2024-01-01"},
+        {"kind": "batch", "complete": True, "date": "2024-01-02"},
+        *[observation("2024-01-01", i / 100) for i in range(10)],
+        observation("2024-01-02", 1),
+    )
+    p = verify("G01", records)["products"]
+    (entry,), (batch,) = p["hotspots"], p["daily"]
+    assert entry["id"] == "g15" and entry["match"] == "new"
+    assert entry["daily_comparison"] == batch["date"] == "2024-01-02"
+    assert entry["evidence_ids"] == ["g15", "g1", "g2", "g3"]
+    previous = batch["previous_batch"]
+    assert previous["eligible_observation_count"] == 10 and previous["complete"]
+    assert previous["evidence_ids"] == ["g1", "g2", "g3", *[f"g{i}" for i in range(5, 15)]]
+    assert batch["evidence_ids"] == ["g4", "g15"]
+    assert p["points"]["features"][0]["properties"]["daily_comparison"] == batch["date"]
 
 
 def test_image_panels_overlay_real_image_avoid_invented_coordinates():
@@ -178,6 +223,7 @@ def test_series_baseline_rank_ties_freeze_cutoff_and_ignore_wrong_month_and_hemi
     s = r["products"]["anomaly"]
     assert not r["gaps"] and s["baseline_mean"] == 6 and s["difference"] == -2 and s["ascending_rank"] == 1
     assert s["percent"] == pytest.approx(-100 / 3)
+    assert set(s["evidence_ids"]) == {"g1", "g2", "g3", "g4", "g5"}
     assert "<svg" in r["products"]["trend_svg"] and len(r["products"]["annual_series"]) == 4
     conflict = base + rows(
         {"year": 2001, "month": 9, "hemisphere": "N", "extent": 2}, asset="conflicting-series"
@@ -185,6 +231,27 @@ def test_series_baseline_rank_ties_freeze_cutoff_and_ignore_wrong_month_and_hemi
     bad = verify("G03", conflict)
     assert bad["gaps"] and bad["products"]["anomaly"]["ascending_rank"] is None
     assert bad["products"]["anomaly"]["baseline_mean"] is None
+    assert set(bad["products"]["anomaly"]["evidence_ids"]) == {"g1", "g2", "g3", "g4", "g5", "g9"}
+
+
+def test_ice_sources_follow_effective_policy_and_missing_years():
+    records = rows(
+        policy(start_year=1998),
+        policy(start_year=2000, baseline_years=[2000, 2001]),
+        policy(target_year=2003),
+        policy(extent_unit="km²"),
+        {"year": 2000, "month": 9, "hemisphere": "N", "extent": 4, "unit": "km²"},
+        {"year": 2001, "month": 9, "hemisphere": "N", "extent": 6, "unit": "km²"},
+        {"year": 2003, "month": 9, "hemisphere": "N", "extent": 3, "unit": "km²"},
+    )
+    products = verify("G03", records)["products"]
+    stats = products["anomaly"]
+    assert stats["baseline_mean"] == 5 and stats["difference"] == -2 and stats["ascending_rank"] is None
+    assert products["annual_series"][2]["evidence_ids"] == []
+    assert set(stats["evidence_ids"]) == {"g2", "g3", "g5", "g6", "g7"}
+    del records[-1]["fields"]["unit"]
+    fallback = verify("G03", records)["products"]["anomaly"]
+    assert set(fallback["evidence_ids"]) == {"g2", "g3", "g4", "g5", "g6", "g7"}
 
 
 def test_review_uses_only_frozen_field_dictionary_to_repair_aliases():
