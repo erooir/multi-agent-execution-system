@@ -25,6 +25,10 @@ def is_file_index(asset):
     return (asset.get("media_type") or "").partition(";")[0].strip().lower() == FILE_INDEX_MEDIA_TYPE
 
 
+def is_supplementary(asset):
+    return asset.get("case_library_role") == "supplementary"
+
+
 class Contract(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, hide_input_in_errors=True)
 
@@ -533,6 +537,7 @@ class KnowledgeQuery(Contract):
     project_id: str
     query: str = Field(min_length=1, max_length=500)
     limit: int = Field(default=10, ge=1, le=50)
+    include_supplementary: bool = False
 
 
 class MemoryInput(Contract):

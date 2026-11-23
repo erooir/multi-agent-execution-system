@@ -3286,6 +3286,20 @@
               "type": "string",
               "title": "Asset Id"
             }
+          },
+          {
+            "name": "disposition",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "attachment",
+                "inline"
+              ],
+              "type": "string",
+              "default": "attachment",
+              "title": "Disposition"
+            }
           }
         ],
         "responses": {
@@ -3293,6 +3307,12 @@
             "description": "Successful Response",
             "content": {
               "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/pdf": {
                 "schema": {
                   "type": "string",
                   "format": "binary"
@@ -5403,6 +5423,11 @@
             "minimum": 1.0,
             "title": "Limit",
             "default": 10
+          },
+          "include_supplementary": {
+            "type": "boolean",
+            "title": "Include Supplementary",
+            "default": false
           }
         },
         "additionalProperties": false,

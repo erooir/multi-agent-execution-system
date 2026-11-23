@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from .contracts import ConnectorInput, KnowledgeQuery, MemoryInput, is_file_index
+from .contracts import ConnectorInput, KnowledgeQuery, MemoryInput, is_file_index, is_supplementary
 from .db import now, repo
 from .quality import text_of
 from .service import DomainError, audit, fail, project_access, required, timestamp, usable_asset
@@ -151,7 +151,7 @@ async def search(body, user):
     result = []
     query = body["query"].casefold()
     for asset in repo.list("data_assets", body["project_id"]):
-        if asset.get("task_case_id"):
+        if asset.get("task_case_id") or (is_supplementary(asset) and not body["include_supplementary"]):
             continue
         try:
             usable_asset(asset)
@@ -192,7 +192,7 @@ async def search(body, user):
         if not item.get("connector_id"):
             current = repo.get("data_assets", item["id"])
             try:
-                if not current:
+                if not current or (is_supplementary(current) and not body["include_supplementary"]):
                     continue
                 usable_asset(current)
             except DomainError:

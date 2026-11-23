@@ -1,6 +1,7 @@
 import { businessLabel, caseBusiness } from "./agentBusiness";
-import { OriginalDownload } from "./OriginalDownload";
-import { useEffect, useRef, useState } from "react";
+import { CatalogRange } from "./CatalogRange";
+import { OriginalDownload, pdfPreviewHref } from "./OriginalDownload";
+import { useEffect, useState } from "react";
 import {
   Plus,
   Search,
@@ -464,30 +465,52 @@ export function WorkflowDetailsDialog({
   );
 }
 export function DataPage({
+  projectId,
   assets,
   canEdit,
   mutate,
   notify,
 }: Props & { assets: Item[] }) {
-  const [selected, setSelected] = useState<Item | null>(null),
-    [content, setContent] = useState<any>(undefined),
+  const [selectedId, setSelectedId] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("project") === projectId ? params.get("asset") : null;
+  }),
+    [loaded, setLoaded] = useState<{ id: string; value: any } | null>(null),
     [revoke, setRevoke] = useState<Item | null>(null),
+    [includeSupplementary, setIncludeSupplementary] = useState(false),
     [search, setSearch] = useState("");
-  const list = assets.filter((a) =>
-    `${a.name} ${a.source_id} ${a.original_file?.filename ?? ""}`.toLowerCase().includes(search.toLowerCase()),
+  const list = assets.filter(
+    (a) =>
+      (includeSupplementary || a.case_library_role !== "supplementary") &&
+      `${a.name} ${a.source_id} ${a.original_file?.filename ?? ""}`.toLowerCase().includes(search.toLowerCase()),
   );
-  const activeAsset = useRef("");
-  const inspect = async (item: Item) => {
-    activeAsset.current = item.id;
-    setSelected(item);
-    setContent(undefined);
-    if (item.status === "active")
-      try {
-        const result = await readAssetContent(item.id);
-        if (activeAsset.current === item.id) setContent(result);
-      } catch (e) {
-        notify((e as Error).message, true);
-      }
+  const selected = assets.find((asset) => asset.project_id === projectId && asset.id === selectedId);
+  const readable = selected?.status === "active" && Date.parse(selected.expires_at) > Date.now();
+  const pdfPreview = pdfPreviewHref(selected);
+  const contentId = readable && (!pdfPreview || selected.is_file_index) ? selected.id : null;
+  const content = loaded && loaded.id === contentId ? loaded.value : undefined;
+  useEffect(() => {
+    let current = true;
+    setLoaded(null);
+    if (contentId) {
+      void readAssetContent(contentId)
+        .then((value) => { if (current) setLoaded({ id: contentId, value }); })
+        .catch((e: Error) => { if (current) notify(e.message, true); });
+    }
+    return () => { current = false; };
+  }, [contentId, notify]);
+  const selectAsset = (id: string | null) => {
+    setSelectedId(id);
+    const url = new URL(window.location.href);
+    if (id) {
+      url.searchParams.set("view", "library");
+      url.searchParams.set("tab", "data");
+      url.searchParams.set("project", projectId);
+      url.searchParams.set("asset", id);
+    } else {
+      url.searchParams.delete("asset");
+    }
+    window.history.replaceState(null, "", url);
   };
   return (
     <>
@@ -506,6 +529,11 @@ export function DataPage({
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+        <CatalogRange
+          assets={assets}
+          includeSupplementary={includeSupplementary}
+          onChange={setIncludeSupplementary}
+        />
         <span className="muted">{list.length} 条记录</span>
       </div>
       <Panel>
@@ -528,7 +556,7 @@ export function DataPage({
                     <td>
                       <button
                         className="text-button"
-                        onClick={() => void inspect(a)}
+                        onClick={() => selectAsset(a.id)}
                       >
                         {a.name}
                       </button>
@@ -575,12 +603,12 @@ export function DataPage({
         )}
       </Panel>
       {selected && (
-        <Modal wide title={selected.name} onClose={() => setSelected(null)}>
+        <Modal wide title={selected.name} onClose={() => selectAsset(null)}>
           <div className="modal-body">
             <Badge status={selected.status} />
             <p>{selected.provenance}</p>
             <JsonView value={selected} label="元数据、来源与完整性" />
-            {selected.modality === "image" && selected.status === "active" && (
+            {selected.modality === "image" && readable && (
               <img
                 src={`/api/v2/data-assets/${encodeURIComponent(selected.id)}/content`}
                 alt={selected.name}
@@ -609,7 +637,14 @@ export function DataPage({
             {selected.original_file && (
               <div><p>{selected.original_file.filename}</p><OriginalDownload asset={selected} /></div>
             )}
-            {!selected.original_file && selected.status === "active" && (
+            {pdfPreview && (
+              <iframe
+                title={`PDF 预览 · ${selected.original_file.filename}`}
+                src={pdfPreview}
+                style={{ width: "100%", height: "60vh", border: 0 }}
+              />
+            )}
+            {!selected.original_file && readable && (
               <a
                 className="button"
                 href={`/api/v2/data-assets/${encodeURIComponent(selected.id)}/content`}

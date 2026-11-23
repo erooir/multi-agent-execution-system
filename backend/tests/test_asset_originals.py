@@ -1,10 +1,12 @@
 import hashlib
 import os
 import subprocess
+from io import BytesIO
 from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
+from pypdf import PdfWriter
 
 from backend.app import auth
 from backend.app.platform import asset_originals as originals
@@ -50,6 +52,7 @@ def test_idempotent_attachment_and_authorized_binary_download(db, source):
         assert hashlib.sha256(response.content).hexdigest() == meta["sha256"]
         assert int(response.headers["content-length"]) == path.stat().st_size
         assert response.headers["content-type"] == "application/octet-stream"
+        assert client.get(url, params={"disposition": "inline"}).status_code == 415
         assert response.headers["x-content-type-options"] == "nosniff"
         assert response.headers["content-disposition"] == "attachment; filename*=UTF-8''" + quote(
             meta["filename"]
@@ -78,7 +81,47 @@ def test_forbidden_assets_do_not_expose_originals(db, source, change, expected):
     row, meta, _ = source
     db.put("data_assets", {**row, **change, "original_file": meta})
     with TestClient(application()) as client:
-        assert client.get("/api/v2/data-assets/" + row["id"] + "/original").status_code == expected
+        url = "/api/v2/data-assets/" + row["id"] + "/original"
+        for disposition in ("attachment", "inline"):
+            assert client.get(url, params={"disposition": disposition}).status_code == expected
+
+
+def test_pdf_preview_and_download_serve_the_same_verified_original(db, source):
+    row, _, _ = source
+    writer = PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    buffer = BytesIO()
+    writer.write(buffer)
+    payload = buffer.getvalue()
+    digest = hashlib.sha256(payload).hexdigest()
+    metadata = {"filename": "演示.PDF", "sha256": digest, "bytes": len(payload)}
+    path = originals.original_path(row["project_id"], digest)
+    path.write_bytes(payload)
+    originals.attach_original(row["id"], metadata, ADMIN, db)
+    app = application()
+    url = "/api/v2/data-assets/" + row["id"] + "/original"
+    with TestClient(app) as client:
+        for disposition, mime in (("inline", "application/pdf"), ("attachment", "application/octet-stream")):
+            response = client.get(url, params={"disposition": disposition})
+            assert response.status_code == 200 and response.content == payload
+            assert response.headers["content-type"] == mime
+            assert response.headers["content-disposition"].startswith(disposition + ";")
+            assert response.headers["x-content-type-options"] == "nosniff"
+        with path.open("r+b") as stream:
+            stream.write(b"X")
+        assert client.get(url, params={"disposition": "inline"}).status_code == 409
+        app.dependency_overrides[auth.get_current_user] = lambda: OTHER
+        assert client.get(url, params={"disposition": "inline"}).status_code == 403
+
+
+def test_inline_preview_rejects_non_pdf_bytes_even_with_pdf_filename(db, source):
+    row, metadata, _ = source
+    originals.attach_original(row["id"], {**metadata, "filename": "index.pdf"}, ADMIN, db)
+    with TestClient(application()) as client:
+        url = "/api/v2/data-assets/" + row["id"] + "/original"
+        response = client.get(url, params={"disposition": "inline"})
+        assert response.status_code == 415 and response.json()["detail"]["code"] == "original_not_pdf"
+        assert client.get(url).status_code == 200
 
 
 async def test_search_attached_original_matches_content_then_display_metadata(db, source):
@@ -114,6 +157,25 @@ async def test_original_search_respects_project_scope_and_source_availability(db
     assert await knowledge.search({**query, "project_id": project(db)["id"]}, ADMIN) == []
     db.put("data_assets", {**stored, **hidden})
     assert await knowledge.search(query, ADMIN) == []
+
+
+async def test_catalog_search_defaults_to_ordinary_and_primary_and_can_include_supplementary(db):
+    p = project(db)
+    query = {"project_id": p["id"], "query": "catalog-example"}
+    ordinary, primary, supplement = [asset(db, p, content="catalog-example") for _ in range(3)]
+    db.put("data_assets", {**primary, "case_library_role": "primary"})
+    db.put("data_assets", {**supplement, "case_library_role": "supplementary"})
+    asset(db, project(db), content="catalog-example")
+    primary_ids = {ordinary["id"], primary["id"]}
+    assert {hit["id"] for hit in await knowledge.search(query, ADMIN)} == primary_ids
+    full_query = {**query, "include_supplementary": True}
+    all_ids = {hit["id"] for hit in await knowledge.search(full_query, ADMIN)}
+    assert all_ids == primary_ids | {supplement["id"]}
+    with pytest.raises(service.DomainError) as denied:
+        await knowledge.search(full_query, OTHER)
+    assert denied.value.status == 403
+    service.revoke_asset(supplement["id"], ADMIN, db)
+    assert {hit["id"] for hit in await knowledge.search(full_query, ADMIN)} == primary_ids
 
 
 def test_missing_and_corrupt_storage_fail_before_serving_bytes(db, source):

@@ -789,19 +789,27 @@ def asset_content(asset_id: str, user: dict = read):
     "/data-assets/{asset_id}/original",
     response_class=StreamingResponse,
     responses={
-        200: {"content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}}}
+        200: {
+            "content": {
+                media_type: {"schema": {"type": "string", "format": "binary"}}
+                for media_type in ("application/octet-stream", "application/pdf")
+            }
+        }
     },
 )
-def download_asset_original(asset_id: str, user: dict = read):
+def download_asset_original(
+    asset_id: str, disposition: Literal["attachment", "inline"] = "attachment", user: dict = read
+):
     from .asset_originals import open_original
 
-    stream, metadata = open_original(asset_id, user, repo)
+    preview = disposition == "inline"
+    stream, metadata = open_original(asset_id, user, repo, pdf_preview=preview)
     return StreamingResponse(
         iter(lambda: stream.read(1024 * 1024), b""),
-        media_type="application/octet-stream",
+        media_type="application/pdf" if preview else "application/octet-stream",
         headers={
             "Content-Length": str(metadata["bytes"]),
-            "Content-Disposition": "attachment; filename*=UTF-8''" + quote(metadata["filename"], safe=""),
+            "Content-Disposition": f"{disposition}; filename*=UTF-8''" + quote(metadata["filename"], safe=""),
             "X-Content-Type-Options": "nosniff",
             "Cache-Control": "private, no-store",
         },

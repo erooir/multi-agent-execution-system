@@ -1,4 +1,4 @@
-"""Verified, download-only attachments registered by the deployment's offline importer."""
+"""Verified original attachments registered by the deployment's offline importer."""
 
 import hashlib
 import os
@@ -100,13 +100,17 @@ def attach_original(asset_id, metadata, user, repository=None):
         return s.safe_asset(updated)
 
 
-def open_original(asset_id, user, repository):
+def open_original(asset_id, user, repository, *, pdf_preview=False):
     asset = _catalog_asset(asset_id, user, repository)
     metadata = asset.get("original_file")
     if metadata is None:
         s.fail("original_not_found", "此资料未登记可下载的原件", 404)
     stream = _verified_file(asset["project_id"], metadata)
     try:
+        if pdf_preview:
+            if not metadata["filename"].lower().endswith(".pdf") or stream.read(5) != b"%PDF-":
+                s.fail("original_not_pdf", "此原件无法作为 PDF 在线打开，可下载原件。", 415)
+            stream.seek(0)
         # Hashing a large original can overlap with revocation or a membership change.
         current = _catalog_asset(asset_id, user, repository)
         if current.get("original_file") != metadata:

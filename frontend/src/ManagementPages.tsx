@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { CatalogRange } from "./CatalogRange";
 import { OriginalDownload } from "./OriginalDownload";
 import {
   Database,
@@ -42,6 +43,7 @@ export function KnowledgePage({
 }: Common & { onConnectors: () => void; memories: Item[]; assets: Item[] }) {
   const [tab, setTab] = useState("search"),
     [query, setQuery] = useState(""),
+    [includeSupplementary, setIncludeSupplementary] = useState(false),
     [results, setResults] = useState<any>(null),
     [busy, setBusy] = useState(false),
     [create, setCreate] = useState<"memory" | null>(null);
@@ -50,7 +52,7 @@ export function KnowledgePage({
       source_refs: [] as string[],
       retention_days: 7,
     });
-  async function search() {
+  async function search(include = includeSupplementary) {
     if (!query.trim()) return;
     setBusy(true);
     try {
@@ -59,6 +61,7 @@ export function KnowledgePage({
           project_id: projectId,
           query,
           limit: 20,
+          include_supplementary: include,
         }),
       );
     } catch (e) {
@@ -109,6 +112,16 @@ export function KnowledgePage({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="在工作空间的授权资料中检索"
+            />
+            <CatalogRange
+              assets={assets}
+              includeSupplementary={includeSupplementary}
+              disabled={busy}
+              onChange={(include) => {
+                setIncludeSupplementary(include);
+                setResults(null);
+                if (results !== null) void search(include);
+              }}
             />
             <button className="primary" disabled={busy}>
               {busy ? "正在检索…" : "检索来源"}

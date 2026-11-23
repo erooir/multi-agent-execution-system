@@ -409,13 +409,14 @@ function ManagementApp() {
       <Login
         initialError={authError}
         onLogin={(value) => {
-          selectedProject.current = "";
+          const params = new URLSearchParams(window.location.search);
+          selectedProject.current = params.get("project") || "";
           refreshSequence.current++;
           setUser(value);
           setAuthError("");
           setData(null);
           setProjectId("");
-          const view = new URLSearchParams(window.location.search).get("view");
+          const view = params.get("view");
           setPage(nav.some((n) => n.id === view) ? (view as Page) : "overview");
         }}
       />

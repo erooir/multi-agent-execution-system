@@ -2185,6 +2185,11 @@ export interface components {
              * @default 10
              */
             limit: number;
+            /**
+             * Include Supplementary
+             * @default false
+             */
+            include_supplementary: boolean;
         };
         /** LatencyMetrics */
         LatencyMetrics: {
@@ -5444,7 +5449,9 @@ export interface operations {
     };
     download_asset_original_api_v2_data_assets__asset_id__original_get: {
         parameters: {
-            query?: never;
+            query?: {
+                disposition?: "attachment" | "inline";
+            };
             header?: never;
             path: {
                 asset_id: string;
@@ -5460,6 +5467,7 @@ export interface operations {
                 };
                 content: {
                     "application/octet-stream": string;
+                    "application/pdf": string;
                 };
             };
             /** @description Validation Error */
