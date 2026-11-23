@@ -5,7 +5,7 @@ import { parseObject, splitList, taskTypes } from "./domain";
 import type { Item, Mutation } from "./types";
 import type { components } from "./generated/api";
 import { Field, FormModal, Modal } from "./ui";
-import { businessKey, businessLabels } from "./ExpertInterview";
+import { businessKey, businessLabels, caseBusiness } from "./agentBusiness";
 import ToolParameters from "./ToolParameters";
 import WorkflowBuilder from "./WorkflowBuilder";
 import { workflowIssues } from "./workflowEditorModel";
@@ -54,6 +54,7 @@ export function AgentForm({
     ...item,
   });
   const [business,setBusiness] = useState<string>(() => businessKey(item || {}));
+  const linkedBusiness = item && caseBusiness(item);
   const [reason,setReason] = useState<string>(item?.management_profile?.reason || "");
   const [extensions, setExtensions] = useState<Item>({ tools: [], skills: [] });
   const [extensionError, setExtensionError] = useState("");
@@ -164,9 +165,12 @@ export function AgentForm({
       }}
     >
       <div className="form-grid">
-        <Field label="业务方向"><select value={business} onChange={e=>setBusiness(e.target.value)}>
-        {Object.entries(businessLabels).map(([id,label])=><option key={id} value={id}>{label}</option>)}
-      </select></Field>
+        <Field label="业务方向">
+          <select value={business} disabled={!!linkedBusiness} onChange={e => setBusiness(e.target.value)}>
+            {Object.entries(businessLabels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+          {linkedBusiness && <small>{linkedBusiness.caseId ? `按所属案例 ${linkedBusiness.caseId} 归类` : "跨案例共享岗位"}</small>}
+        </Field>
       {business && <Field label="创建或分类原因"><input value={reason} maxLength={500} onChange={e=>setReason(e.target.value)}/></Field>}
       <Field
           label="运行方式"

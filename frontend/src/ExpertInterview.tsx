@@ -3,25 +3,6 @@ import { post } from "./api";
 import type { Item } from "./types";
 import { ErrorLine, Modal } from "./ui";
 
-export const businessLabels: Record<string, string> = {
-  general: "通用",
-  battlefield: "战场情报",
-  science: "科技情报",
-  geographic: "地理情报",
-};
-
-export function businessKey(agent: Item) {
-  const selected = agent.management_profile?.business;
-  if (selected === "historical") return "battlefield";
-  if (selected && Object.hasOwn(businessLabels, selected)) return selected;
-  if (agent.parameters?.case_scope?.startsWith("T")) return "science";
-  return "general";
-}
-
-export function businessLabel(agent: Item) {
-  return businessLabels[businessKey(agent)];
-}
-
 const example = "请创建一个月报核对智能体。它负责复算明细和合计，标出差异及原文位置，最后输出一份问题清单。";
 
 export default function ExpertInterview({

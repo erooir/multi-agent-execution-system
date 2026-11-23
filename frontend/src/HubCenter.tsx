@@ -22,8 +22,9 @@ import { AgentDetailsDialog, WorkflowDetailsDialog } from "./AssetPages";
 import CapabilityPages from "./CapabilityPages";
 import { agentScopeLabel, candidateStatusLabels, isRestrictedAgent, isTaskScoped } from "./agentScopeModel";
 import { stageNames } from "./agentPreviewModel";
+import { businessLabel, businessLabels, caseBusiness } from "./agentBusiness";
 import { mcpConnectorId } from "./toolCatalogModel";
-import ExpertInterview, { businessLabel } from "./ExpertInterview";
+import ExpertInterview from "./ExpertInterview";
 import ToolCatalog from "./ToolCatalog";
 import { Badge, Empty, ErrorLine, Field, FormModal, Modal } from "./ui";
 import { AgentCreateFields, WorkflowCreateFields } from "./Forms";
@@ -112,6 +113,7 @@ function itemIconKind(
 }
 const pretty = (value: string) =>
   taskTypes[value] || FIELD_LABELS[value] || value;
+const businessGroups: readonly string[] = Object.values(businessLabels);
 
 function asLinks(rows: Item[], target: HubLink["target"] = "asset"): HubLink[] {
   return rows.slice(0, 3).map((row) => ({
@@ -301,6 +303,7 @@ export default function HubCenter({
           (a): HubItem => ({
             id: String(a.id),
             name: String(a.name || a.id),
+            techId: caseBusiness(a)?.caseId,
             desc: String(a.description || a.purpose || ""),
             tags: [
               agentScopeLabel(a),
@@ -314,7 +317,7 @@ export default function HubCenter({
               .filter(Boolean)
               .map(pretty),
             meta: statusNames[String(a.status)] || String(a.status || ""),
-            group: pretty(String(a.purpose || a.structure || "其他")),
+            group: businessLabel(a),
             weight: a.status === "published" || a.built_in ? 1 : 0,
             createdAt: a.created_at,
             bucket: "primary" as const,
@@ -434,31 +437,27 @@ export default function HubCenter({
     }
   }, [kind, items]);
 
-  // Secondary filter row (expert page only), built from real asset fields.
-  const isWorkflowView = kind === "expert" && category === "workflow";
+  const isWorkflow = kind === "expert" && category === "workflow";
+  const isAgentList = kind === "expert" && !isWorkflow;
   const filterGroups = useMemo(() => {
     if (kind !== "expert") return [];
-    const values = isWorkflowView
-      ? items.map((item) =>
-          (item.extra?.nodes || []).length > 1 ? "多节点流程" : "单节点流程",
-        )
-      : items.flatMap((item) => [item.group, ...item.tags]);
-    return [
-      "全部",
-      ...Array.from(new Set(values.filter(Boolean).map(String))).slice(0, 12),
-    ];
-  }, [kind, isWorkflowView, items]);
+    if (isAgentList) return ["全部", ...businessGroups];
+    const values = items.map((item) =>
+      (item.extra?.nodes || []).length > 1 ? "多节点流程" : "单节点流程",
+    );
+    return ["全部", ...new Set(values)];
+  }, [kind, isAgentList, items]);
 
   function inFilterGroup(item: HubItem) {
     if (filterGroup === "全部") return true;
-    if (isWorkflowView) {
+    if (isWorkflow) {
       return (
         ((item.extra?.nodes || []).length > 1
           ? "多节点流程"
           : "单节点流程") === filterGroup
       );
     }
-    return item.group === filterGroup || item.tags.includes(filterGroup);
+    return item.group === filterGroup;
   }
 
   const visible = useMemo(() => {
@@ -467,7 +466,7 @@ export default function HubCenter({
     let rows = items.filter(
       (item) => {
         const a = item.extra || {};
-        if (kind === "expert" && category !== "workflow") {
+        if (isAgentList) {
           if (a.status === "destroyed") return false;
           const matchesAgent =
             (purpose === "all" || a.purpose === purpose) &&
@@ -479,7 +478,7 @@ export default function HubCenter({
               (strategy === "dual"
                 ? a.executor_bindings?.local && a.executor_bindings?.cloud
                 : (a.execution_strategy || "fixed") === strategy)) &&
-            (!agentQuery || [item.name, item.desc, a.role_contract?.case_id, a.role_contract?.operation]
+            (!agentQuery || [item.name, item.desc, item.group, item.techId, a.role_contract?.operation, ...item.tags]
               .join(" ").toLowerCase().includes(agentQuery));
           if (!matchesAgent) return false;
         }
@@ -487,7 +486,7 @@ export default function HubCenter({
           (category === "workflow" ||
             item.bucket === (category === "secondary" ? "secondary" : "primary")) &&
           inFilterGroup(item) &&
-          (!q || [item.name, item.desc, item.techId || "", ...item.tags].some((v) =>
+          (!q || [item.name, item.desc, item.techId || "", isAgentList ? item.group : "", ...item.tags].some((v) =>
             v.toLowerCase().includes(q),
           ))
         );
@@ -499,7 +498,7 @@ export default function HubCenter({
         String(b.createdAt || "").localeCompare(String(a.createdAt || "")),
       );
     return rows;
-  }, [items, query, kind, category, sort, filterGroup, search, purpose, structure, status, stage, strategy, scope]);
+  }, [items, query, isAgentList, category, sort, filterGroup, search, purpose, structure, status, stage, strategy, scope]);
 
   /* 48 evenly spaced hue slots, one per item. A stable hash picks the slot;
      neighbours must be at least ~105 degrees apart so the list never reads
@@ -535,17 +534,16 @@ export default function HubCenter({
   }, [visible]);
 
   const meta = TAB_META[kind];
-  const isWorkflow = kind === "expert" && category === "workflow";
-  const isAgentList = kind === "expert" && !isWorkflow;
   const scoped = agents.filter((a) => a.status !== "destroyed");
   const published = scoped.filter((a) => a.status === "published" && !isRestrictedAgent(a));
   const hasFilters =
-    !!search ||
+    !!search || filterGroup !== "全部" ||
     [purpose, structure, status, stage, strategy, scope].some(
       (v) => v !== "all",
     );
   function clearFilters() {
     setSearch("");
+    setFilterGroup("全部");
     setPurpose("all");
     setStructure("all");
     setStatus("all");
@@ -559,12 +557,16 @@ export default function HubCenter({
     const group = !isAgentList
       ? ""
       : groupBy === "business"
-        ? businessLabel(agent)
+        ? item.group
         : pretty(agent.structure || "未分类");
     const cards = cardGroups.get(group) || [];
     cards.push({ item, hue: hues[index] });
     cardGroups.set(group, cards);
   });
+  const orderedGroups = [...cardGroups];
+  if (isAgentList && groupBy === "business") {
+    orderedGroups.sort(([a], [b]) => businessGroups.indexOf(a) - businessGroups.indexOf(b));
+  }
   const addLabel = isWorkflow
     ? "新建流程"
     : kind === "expert"
@@ -854,7 +856,7 @@ export default function HubCenter({
                 <Search size={17} />
                 <input
                   aria-label="搜索智能体"
-                  placeholder="搜索名称、职责、用例编号或算法"
+                  placeholder="搜索名称、职责、业务方向、用例编号或算法"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -933,7 +935,7 @@ export default function HubCenter({
         </details>
       )}
       {cardGroups.size ? (
-        [...cardGroups].map(([group, cards]) => (
+        orderedGroups.map(([group, cards]) => (
           <section key={group} className={isAgentList ? "expert-group" : undefined}>
             {isAgentList && <h3>{group} <small>({cards.length})</small></h3>}
             <div className="hub-card-grid">
@@ -952,7 +954,8 @@ export default function HubCenter({
                 <strong>{item.name}</strong>
                 <span className="hub-card-desc">{item.desc || "—"}</span>
                 <span className="hub-card-tags">
-                  {item.tags.slice(0, 3).map((tag) => (
+                  {isAgentList && <small>{item.techId ? `${item.techId} · ${item.group}` : item.group}</small>}
+                  {item.tags.slice(0, isAgentList ? 2 : 3).map((tag) => (
                     <small key={tag}>{tag}</small>
                   ))}
                 </span>

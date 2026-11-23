@@ -1,4 +1,4 @@
-import {businessLabel} from "./ExpertInterview";
+import { businessLabel, caseBusiness } from "./agentBusiness";
 import { useEffect, useRef, useState } from "react";
 import {
   Plus,
@@ -68,6 +68,7 @@ export function AgentDetailsDialog({
     [detailError, setDetailError] = useState(""),
     [action, setAction] = useState<{ item: Item; type: string } | null>(null);
   const fresh = agents.find((a) => a.id === selectedId && a.project_id === projectId);
+  const caseId = fresh && caseBusiness(fresh)?.caseId;
   useEffect(() => {
     if (!fresh) return;
     let active = true;
@@ -130,11 +131,14 @@ export function AgentDetailsDialog({
                 <p>本地可解码图像、检查亮度与对比度，并对清晰或低对比度的文档提取文字。动图只处理首帧。</p>
                 <p>视觉模型在两张合成展板上正确读取编号、图形和颜色。来源位置和版本可以校验；文字遮挡、图外日期和拍摄地点需要额外证据。自然场景尚缺独立实测。</p>
               </details>}
-            {fresh.management_profile && <dl className="catalog-fields">
+            <dl className="catalog-fields">
               <dt>业务方向</dt><dd>{businessLabel(fresh)}</dd>
-              <dt>创建方式</dt><dd>{fresh.management_profile.creation_method==="interview" ? "对话生成" : "管理配置"}</dd>
-              <dt>创建或分类原因</dt><dd>{fresh.management_profile.reason}</dd>
-            </dl>}
+              {caseId && <><dt>所属案例</dt><dd>{caseId}</dd></>}
+              {fresh.management_profile && <>
+                <dt>创建方式</dt><dd>{fresh.management_profile.creation_method==="interview" ? "对话生成" : "管理配置"}</dd>
+                <dt>创建或分类原因</dt><dd>{fresh.management_profile.reason}</dd>
+              </>}
+            </dl>
             {detailError && (
               <p role="alert" className="error-line">
                 {detailError}
