@@ -27,6 +27,7 @@ export default function SemanticEvidence({
   const usable = assets.filter(
     (a) =>
       a.status === "active" &&
+      !a.is_file_index &&
       a.classification === "public" &&
       a.parsed_content_available &&
       ["structured", "text"].includes(a.modality),

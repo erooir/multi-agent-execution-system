@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { OriginalDownload } from "./OriginalDownload";
 import {
   Database,
   FlaskConical,
@@ -129,11 +130,13 @@ export function KnowledgePage({
                     <span className="mono small">{hit.id}</span>
                   </div>
                   <p className="prose">
+                    {hit.location?.field === "metadata" && <small>匹配资料信息 · </small>}
                     {typeof (hit.snippet || hit.content || hit.text) ===
                     "string"
                       ? hit.snippet || hit.content || hit.text
                       : JSON.stringify(hit.snippet || hit.content || hit.text)}
                   </p>
+                  {!hit.connector_id && <OriginalDownload asset={assets.find((a) => a.id === hit.id)} />}
                   <JsonView value={hit} label="来源、版本与权限元数据" />
                 </article>
               ))

@@ -1,4 +1,5 @@
 import { businessLabel, caseBusiness } from "./agentBusiness";
+import { OriginalDownload } from "./OriginalDownload";
 import { useEffect, useRef, useState } from "react";
 import {
   Plus,
@@ -473,7 +474,7 @@ export function DataPage({
     [revoke, setRevoke] = useState<Item | null>(null),
     [search, setSearch] = useState("");
   const list = assets.filter((a) =>
-    `${a.name} ${a.source_id}`.toLowerCase().includes(search.toLowerCase()),
+    `${a.name} ${a.source_id} ${a.original_file?.filename ?? ""}`.toLowerCase().includes(search.toLowerCase()),
   );
   const activeAsset = useRef("");
   const inspect = async (item: Item) => {
@@ -534,10 +535,10 @@ export function DataPage({
                       <small className="mono">{a.id}</small>
                     </td>
                     <td>
-                      {a.modality}
+                      {a.is_file_index ? "原件归档" : a.modality}
                       <small>
-                        {typeof a.bytes === "number"
-                          ? `${a.bytes.toLocaleString()} bytes`
+                        {typeof (a.original_file?.bytes ?? a.bytes) === "number"
+                          ? `${(a.original_file?.bytes ?? a.bytes).toLocaleString()} bytes`
                           : "—"}
                       </small>
                     </td>
@@ -551,6 +552,7 @@ export function DataPage({
                       <small>{time(a.expires_at)}</small>
                     </td>
                     <td>
+                      <OriginalDownload asset={a} />
                       {canEdit && a.status === "active" && (
                         <button
                           className="danger subtle"
@@ -591,7 +593,7 @@ export function DataPage({
             )}
             {content !== undefined && !content?.binary && (
               <>
-                <h3>数据内容</h3>
+                <h3>{selected.is_file_index ? "原件索引" : "数据内容"}</h3>
                 <pre className="prose">
                   {typeof content === "string"
                     ? content
@@ -604,7 +606,10 @@ export function DataPage({
                 媒体文件已登记，内容通过受控下载读取。文件接入不表示已经具备语义理解能力。
               </p>
             )}
-            {selected.status === "active" && (
+            {selected.original_file && (
+              <div><p>{selected.original_file.filename}</p><OriginalDownload asset={selected} /></div>
+            )}
+            {!selected.original_file && selected.status === "active" && (
               <a
                 className="button"
                 href={`/api/v2/data-assets/${encodeURIComponent(selected.id)}/content`}

@@ -612,6 +612,7 @@ export function TaskForm({
       ? assets.filter(
           (asset) =>
             !asset.task_case_id &&
+            !asset.is_file_index &&
             asset.status === "active" &&
             new Date(asset.expires_at).getTime() > Date.now(),
         )

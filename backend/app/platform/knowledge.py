@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from .contracts import ConnectorInput, KnowledgeQuery, MemoryInput
+from .contracts import ConnectorInput, KnowledgeQuery, MemoryInput, is_file_index
 from .db import now, repo
 from .quality import text_of
 from .service import DomainError, audit, fail, project_access, required, timestamp, usable_asset
@@ -157,10 +157,14 @@ async def search(body, user):
             usable_asset(asset)
         except DomainError:
             continue
-        if asset.get("content") is None:
-            continue
-        content = text_of(asset)
+        content = text_of(asset) if asset.get("content") is not None else ""
         offset = content.casefold().find(query)
+        metadata_hit = is_file_index(asset)
+        original = asset.get("original_file")
+        if offset < 0 and original:
+            content = "\n".join((asset["name"], asset["source_id"], original["filename"]))
+            offset = content.casefold().find(query)
+            metadata_hit = True
         if offset >= 0:
             result.append(
                 {
@@ -169,7 +173,9 @@ async def search(body, user):
                     "source_version": asset["source_version"],
                     "name": asset["name"],
                     "text": content[max(0, offset - 80) : offset + 400],
-                    "location": {"offset": offset},
+                    "location": {"offset": offset, "field": "metadata"}
+                    if metadata_hit
+                    else {"offset": offset},
                     "provenance": asset["provenance"],
                     "retrieved_at": now(),
                 }

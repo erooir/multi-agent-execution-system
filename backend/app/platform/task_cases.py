@@ -59,7 +59,7 @@ def _available(tx, record):
         if asset.get("task_case_id") and asset["task_case_id"] != record["id"]:
             continue
         try:
-            s.usable_asset(asset)
+            s.usable_task_input(asset)
         except s.DomainError:
             continue
         result.append(asset)
@@ -265,7 +265,7 @@ def missing_source_ids(tx, row):
         ):
             continue
         try:
-            s.usable_asset(asset)
+            s.usable_task_input(asset)
         except s.DomainError:
             continue
         if row["mode"] == "cloud" and asset["classification"] != "public":
@@ -381,7 +381,7 @@ def submit(case_id, body, user, repository, *, replace_sources=False):
                 or asset.get("task_case_id") not in {None, case_id}
             ):
                 s.fail("permission_denied", "资料不属于当前项目或此任务的授权范围", 403)
-            s.usable_asset(asset)
+            s.usable_task_input(asset)
             s.verify_frozen_asset(asset, asset)
         if replace_sources:
             new_ids = set(body["input_refs"])

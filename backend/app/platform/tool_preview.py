@@ -43,6 +43,7 @@ def preview(repository, user, agent_id, tool_id, body):
             asset = s.required("data_assets", key, user, repository=tx)
             if asset["project_id"] != project_id:
                 s.fail("permission_denied", "试用资料须属于智能体项目", 403)
+            s.usable_task_input(asset)
             inputs.append(asset)
         check(tx)
 

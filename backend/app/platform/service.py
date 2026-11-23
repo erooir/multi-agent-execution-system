@@ -12,7 +12,7 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from .contracts import AgentInput, AssetInput, TaskInput, ToolParameters, WorkflowInput
+from .contracts import AgentInput, AssetInput, TaskInput, ToolParameters, WorkflowInput, is_file_index
 from .db import QUEUE_AGING_SECONDS, QUEUE_POLICY_VERSION, ROOT, TERMINAL, json_scalar, now, repo, tables
 from .tool_registry import freeze_bindings, permissions, validate_frozen
 
@@ -874,6 +874,12 @@ def usable_asset(asset):
         fail("expired_input", "来源数据已过期", 409)
 
 
+def usable_task_input(asset):
+    usable_asset(asset)
+    if is_file_index(asset):
+        fail("unsupported_input", "档案索引仅供检索和下载，请选择包含可处理正文或数据的资料", 422)
+
+
 def verify_frozen_asset(frozen, current):
     if not current:
         fail("missing_input", "冻结来源不存在", 409)
@@ -1019,7 +1025,7 @@ def create_task(body, user, repository=None, *, preflight=False, task_case_id=No
                 fail("permission_denied", "任务不能引用其他项目数据", 403)
             if asset.get("task_case_id") and asset["task_case_id"] != task_case_id:
                 fail("permission_denied", "资料仅授权给所属任务，不能跨任务引用", 403)
-            usable_asset(asset)
+            usable_task_input(asset)
             if body["mode"] == "cloud" and asset["classification"] != "public":
                 fail("data_egress_blocked", "云任务仅能处理已明确授权外发的公开资料", 403)
             inputs.append(asset)
@@ -1036,7 +1042,7 @@ def create_task(body, user, repository=None, *, preflight=False, task_case_id=No
                 ):
                     continue
                 try:
-                    usable_asset(asset)
+                    usable_task_input(asset)
                 except DomainError:
                     continue
                 inputs.append(asset)
@@ -1285,6 +1291,7 @@ def delete_task(task_id, user, repository=None):
 def safe_asset(record):
     return {
         **{k: v for k, v in record.items() if k not in ("content", "content_ref")},
+        "is_file_index": is_file_index(record),
         "parsed_content_available": record.get("content") is not None,
     }
 

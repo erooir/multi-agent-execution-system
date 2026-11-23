@@ -16,6 +16,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from sqlalchemy import select
+from starlette.background import BackgroundTask
 
 from .. import auth
 from ..model_gateway import HARD_CAP, model_gateway
@@ -782,6 +783,30 @@ def asset_content(asset_id: str, user: dict = read):
             s.fail("invalid_storage_ref", "非法存储引用", 403)
         return FileResponse(path, media_type=asset["media_type"], filename=asset["name"])
     return {"content": asset["content"], "checksum": asset["checksum"]}
+
+
+@router.get(
+    "/data-assets/{asset_id}/original",
+    response_class=StreamingResponse,
+    responses={
+        200: {"content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}}}
+    },
+)
+def download_asset_original(asset_id: str, user: dict = read):
+    from .asset_originals import open_original
+
+    stream, metadata = open_original(asset_id, user, repo)
+    return StreamingResponse(
+        iter(lambda: stream.read(1024 * 1024), b""),
+        media_type="application/octet-stream",
+        headers={
+            "Content-Length": str(metadata["bytes"]),
+            "Content-Disposition": "attachment; filename*=UTF-8''" + quote(metadata["filename"], safe=""),
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+        },
+        background=BackgroundTask(stream.close),
+    )
 
 
 @router.get("/tasks")

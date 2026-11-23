@@ -14,6 +14,7 @@ from pathlib import PurePath
 from openpyxl.utils.exceptions import InvalidFileException
 from pypdf.errors import PdfReadError
 
+from ..platform.contracts import is_file_index
 from . import intake_sources, reference_batches
 from .intake_language import INTENTS
 from .team import catalog
@@ -100,7 +101,12 @@ def _intent(code, text, profile):
 
 
 def _eligible(asset, project, now):
-    if asset.get("project_id") != project or asset.get("status") != "active" or not asset.get("id"):
+    if (
+        asset.get("project_id") != project
+        or asset.get("status") != "active"
+        or not asset.get("id")
+        or is_file_index(asset)
+    ):
         return False
     try:
         expires = datetime.fromisoformat(str(asset["expires_at"]))

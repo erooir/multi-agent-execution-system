@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 CASE_ID_PATTERN = r"^(?:[BT](?:0[1-9]|1[0-7])|G(?:0[1-9]|1[0-6]))$"
+FILE_INDEX_MEDIA_TYPE = "application/vnd.hangzhi.file-index+json"
 
 TaskType = Literal[
     "structured_transform",
@@ -18,6 +19,10 @@ TaskType = Literal[
     "case_analysis",
     "autonomous_analysis",
 ]
+
+
+def is_file_index(asset):
+    return (asset.get("media_type") or "").partition(";")[0].strip().lower() == FILE_INDEX_MEDIA_TYPE
 
 
 class Contract(BaseModel):

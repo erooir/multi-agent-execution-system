@@ -5,11 +5,13 @@ import json
 import httpx
 import pytest
 
-from backend.app.platform import knowledge, runtime, task_cases, task_intake
+from backend.app.casework.intake_plan import plan_question
+from backend.app.platform import knowledge, runtime, service, task_cases, task_intake
+from backend.app.platform.contracts import FILE_INDEX_MEDIA_TYPE, TaskInput
 from backend.tests import test_v2_platform as fixtures
 from backend.tests.test_task_cases import REQUESTER, create, setup
 from backend.tests.test_task_requirements import requirement_response
-from backend.tests.test_v2_platform import ADMIN, asset, project
+from backend.tests.test_v2_platform import ADMIN, asset, project, task_body
 
 db = fixtures.db
 
@@ -29,6 +31,7 @@ async def awaiting_sales(db, p, monkeypatch, **kwargs):
 async def test_auto_catalog_binding_honors_version_scope_and_egress(db, monkeypatch):
     p = setup(db, monkeypatch)
     source = asset(db, p, name="门店经营流水", source_id="s1")
+    asset(db, p, name="经营流水原件索引", source_id="s1", media_type=FILE_INDEX_MEDIA_TYPE)
     asset(db, p, name="不可外发", source_id="s1", classification="local")
     asset(db, project(db), name="其他项目", source_id="s1")
     private = asset(db, p, name="其他任务", source_id="s1")
@@ -41,6 +44,33 @@ async def test_auto_catalog_binding_honors_version_scope_and_egress(db, monkeypa
     assert run["snapshot"]["inputs"][0]["checksum"] == source["checksum"]
     assert current["intake"]["status"] == "ready" and "claim" not in current["intake"]
     assert not await task_intake.retrieve_one(db)
+
+
+async def test_archival_metadata_is_searchable_but_cannot_supply_task_evidence(db, monkeypatch):
+    p = setup(db, monkeypatch)
+    index = asset(
+        db,
+        p,
+        content={"filename": "sample-archive.zip"},
+        source_id="sample-archive",
+        media_type=FILE_INDEX_MEDIA_TYPE,
+    )
+    hits = await knowledge.search({"project_id": p["id"], "query": "sample-archive.zip"}, ADMIN)
+    assert [hit["id"] for hit in hits] == [index["id"]]
+    assert service.safe_asset(index)["is_file_index"] is True
+    body = task_body(p, index, goal="Summarize sample-archive")
+    selection = TaskInput.model_validate({k: v for k, v in body.items() if k != "input_refs"})
+    assert task_intake.management_inputs(selection, ADMIN, db)["input_refs"] == []
+    assert plan_question(body["goal"], p["id"], [index])["input_refs"] == []
+    for preflight in (True, False):
+        with pytest.raises(service.DomainError) as denied:
+            service.create_task(body, ADMIN, db, preflight=preflight)
+        assert denied.value.code == "unsupported_input"
+    row = create(db, p, mode="local", goal="提取 sample-archive 数据")
+    with pytest.raises(service.DomainError) as denied:
+        task_cases.submit(row["id"], {"input_refs": [index["id"]], "idempotency_key": "ref"}, REQUESTER, db)
+    assert denied.value.code == "unsupported_input"
+    assert task_cases.get(row["id"], REQUESTER, db)["input_refs"] == []
 
 
 @pytest.mark.parametrize("variant", ["valid", "mismatched_project", "private", "disabled"])

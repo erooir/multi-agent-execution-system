@@ -103,7 +103,7 @@ def management_inputs(body, user, repository):
         if asset.get("task_case_id"):
             continue
         try:
-            s.usable_asset(asset)
+            s.usable_task_input(asset)
         except s.DomainError:
             continue
         available.append(asset)

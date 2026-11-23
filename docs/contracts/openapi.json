@@ -3273,6 +3273,46 @@
         }
       }
     },
+    "/api/v2/data-assets/{asset_id}/original": {
+      "get": {
+        "summary": "Download Asset Original",
+        "operationId": "download_asset_original_api_v2_data_assets__asset_id__original_get",
+        "parameters": [
+          {
+            "name": "asset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Asset Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/tasks": {
       "get": {
         "summary": "Tasks",

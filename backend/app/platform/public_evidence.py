@@ -46,7 +46,7 @@ def _active_public(tx, project_id, key, user):
     asset = s.required("data_assets", key, user, repository=tx)
     if asset["project_id"] != project_id:
         s.fail("permission_denied", "不能引用其他项目的资料", 403)
-    s.usable_asset(asset)
+    s.usable_task_input(asset)
     if asset.get("classification") != "public":
         s.fail("data_egress_blocked", "语义取证仅允许明确授权外发的公开资料", 403)
     if asset.get("modality") not in {"text", "structured"} or asset.get("content") is None:
