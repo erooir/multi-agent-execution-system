@@ -2009,13 +2009,16 @@ code {
 .hub-native-dialog > *:not(dialog) {
   display: none !important;
 }
+:root:has(.hub-native-dialog dialog:modal) {
+  overflow-y: hidden;
+}
 .hub-native-dialog dialog.modal {
   width: min(880px, calc(100vw - 48px));
   max-height: 86dvh;
   border: 0;
   border-radius: 18px;
   box-shadow: 0 32px 90px #18222645;
-  overflow: hidden;
+  overscroll-behavior-y: contain;
 }
 .hub-native-dialog dialog.modal::backdrop {
   background: #14242169;

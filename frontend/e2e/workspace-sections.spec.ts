@@ -2,6 +2,36 @@ import { expect, test } from "@playwright/test";
 import { adminSession } from "./admin-session";
 import { group, workspacePage } from "./workspace-navigation";
 
+test("智能体卡片详情可用滚轮浏览且背景保持原位", async ({ page }) => {
+  expect((await adminSession(page.context())).ok()).toBeTruthy();
+  await page.setViewportSize({ width: 1280, height: 480 });
+  await page.goto("/manage?view=hub&tab=expert");
+  const card = page.locator(".hub-card").first();
+  const name = await card.locator("strong").innerText();
+  await card.scrollIntoViewIfNeeded();
+  const pageScroll = () => page.evaluate(() => window.scrollY);
+  const backgroundTop = await pageScroll();
+  await card.click();
+
+  const dialog = page.getByRole("dialog", { name, exact: true });
+  const definition = dialog.getByRole("button", { name: "定义与生命周期" });
+  const definitionTop = () =>
+    definition.evaluate((el) => el.getBoundingClientRect().top);
+  await expect(definition).toBeVisible();
+  const startingTop = await definitionTop();
+  await dialog.hover({ position: { x: 32, y: 120 } });
+  await page.mouse.wheel(0, 450);
+  await expect.poll(definitionTop).toBeLessThan(startingTop - 40);
+  expect(await pageScroll()).toBe(backgroundTop);
+
+  await dialog.getByRole("button", { name: "关闭对话框" }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await pageScroll()).toBe(backgroundTop);
+  await card.hover();
+  await page.mouse.wheel(0, backgroundTop > 0 ? -300 : 300);
+  await expect.poll(pageScroll).not.toBe(backgroundTop);
+});
+
 test("资源计量、流程弹窗、连接器和侧栏都使用当前工作台", async ({ page }) => {
   expect((await adminSession(page.context())).ok()).toBeTruthy();
   const stamp = Date.now();
