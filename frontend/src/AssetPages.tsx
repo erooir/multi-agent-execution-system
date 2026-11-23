@@ -1,6 +1,7 @@
 import { businessLabel, caseBusiness } from "./agentBusiness";
 import { CatalogRange } from "./CatalogRange";
 import { OriginalDownload, pdfPreviewHref } from "./OriginalDownload";
+import { ProjectFileUpload } from "./ProjectFileUpload";
 import { useEffect, useState } from "react";
 import {
   Plus,
@@ -518,6 +519,7 @@ export function DataPage({
         eyebrow="DATA CATALOG"
         title="上游数据目录"
         description="按原始模态接入数据，保留来源、版本、访问范围与有效期。"
+        actions={canEdit && <ProjectFileUpload projectId={projectId} mutate={mutate} onUploaded={(asset) => selectAsset(asset.id)} />}
       />
       <div className="toolbar">
         <div className="search">
@@ -598,7 +600,7 @@ export function DataPage({
         ) : (
           <Empty
             title="暂无数据资产"
-            description="上游系统接入的项目来源会显示在这里。"
+            description="本地上传和上游接入的项目资料会显示在这里。"
           />
         )}
       </Panel>

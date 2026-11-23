@@ -114,6 +114,68 @@ def test_pdf_preview_and_download_serve_the_same_verified_original(db, source):
         assert client.get(url, params={"disposition": "inline"}).status_code == 403
 
 
+@pytest.mark.parametrize(
+    ("filename", "title"),
+    [("公开示例.PDF", "资料展示标题"), ("原始记录.csv", "表格标题"), ("a" * 150 + ".csv", "")],
+)
+def test_uploaded_file_is_searchable_and_downloads_with_its_original_name(
+    db, tmp_path, monkeypatch, filename, title
+):
+    monkeypatch.setattr(service, "ASSET_DIR", tmp_path / "platform-assets")
+    p = project(db)
+    app = application()
+    if filename.endswith(".PDF"):
+        writer = PdfWriter()
+        writer.add_blank_page(width=72, height=72)
+        buffer = BytesIO()
+        writer.write(buffer)
+        payload = buffer.getvalue()
+    else:
+        payload = "列名,值\r\n示例,1\r\n".encode("utf-8-sig")
+    form = {
+        "project_id": p["id"],
+        "name": title,
+        "source_id": "catalog-source",
+        "provenance": "合成数据",
+    }
+    with TestClient(app) as client:
+
+        def upload():
+            return client.post(
+                "/api/v2/upstream/data-assets/files", data=form, files={"file": (filename, payload)}
+            )
+
+        for denied in (OTHER, {**ADMIN, "role": "reviewer"}, {**ADMIN, "role": "requester"}):
+            app.dependency_overrides[auth.get_current_user] = lambda denied=denied: denied
+            assert upload().status_code == 403
+        app.dependency_overrides[auth.get_current_user] = lambda: {**ADMIN, "role": "operator"}
+        response = upload()
+        assert response.status_code == 201, response.text
+        row = response.json()
+        assert row["original_file"] == {
+            "filename": filename,
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "bytes": len(payload),
+        }
+        assert "content_ref" not in row and row["name"] == (title or filename[:150])
+        listing = client.get("/api/v2/bootstrap", params={"project_id": p["id"]}).json()["data_assets"]
+        assert listing == [row]
+        hits = client.post("/api/v2/knowledge/search", json={"project_id": p["id"], "query": filename}).json()
+        assert [hit["id"] for hit in hits] == [row["id"]] and hits[0]["location"]["field"] == "metadata"
+        url = f"/api/v2/data-assets/{row['id']}/original"
+        download = client.get(url)
+        assert download.status_code == 200 and download.content == payload
+        assert download.headers["content-disposition"] == "attachment; filename*=UTF-8''" + quote(filename)
+        preview = client.get(url, params={"disposition": "inline"})
+        if filename.endswith(".PDF"):
+            assert preview.status_code == 200 and preview.content == payload
+            assert preview.headers["content-type"] == "application/pdf"
+        else:
+            assert preview.status_code == 415
+        client.post(f"/api/v2/data-assets/{row['id']}/revoke").raise_for_status()
+        assert client.get(url).status_code == 409
+
+
 def test_inline_preview_rejects_non_pdf_bytes_even_with_pdf_filename(db, source):
     row, metadata, _ = source
     originals.attach_original(row["id"], {**metadata, "filename": "index.pdf"}, ADMIN, db)

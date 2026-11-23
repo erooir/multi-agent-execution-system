@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { CatalogRange } from "./CatalogRange";
 import { OriginalDownload } from "./OriginalDownload";
+import { ProjectFileUpload } from "./ProjectFileUpload";
 import {
   Database,
   FlaskConical,
@@ -82,6 +83,9 @@ export function KnowledgePage({
         actions={
           canEdit && (
             <>
+              <ProjectFileUpload projectId={projectId} mutate={mutate} onUploaded={() => {
+                if (tab === "search" && results !== null) void search();
+              }} />
               <button onClick={() => setCreate("memory")}>保存核心记忆</button>
               <button onClick={onConnectors}>连接器管理</button>
             </>

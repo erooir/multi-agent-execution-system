@@ -776,7 +776,7 @@ async def receive_project_file(
     asset = s.create_asset(
         {
             "project_id": project_id,
-            "name": name or filename,
+            "name": name or filename[:150],
             "modality": inferred,
             "media_type": media_type,
             "content": value,
@@ -788,6 +788,7 @@ async def receive_project_file(
         },
         user,
         file_data=content,
+        original_filename=filename,
     )
     return s.safe_asset(asset)
 

@@ -829,10 +829,16 @@ def publish_workflow(workflow_id, user, repository=None):
         return workflow
 
 
-def create_asset(body, user, repository=None, file_data=None):
+def create_asset(body, user, repository=None, file_data=None, *, original_filename=None):
     repository = repository or repo
     body = AssetInput.model_validate(body).model_dump()
     project_access(body["project_id"], user, True, repository)
+    if original_filename is not None:
+        from .asset_originals import valid_filename
+
+        if not file_data or not valid_filename(original_filename):
+            fail("invalid_filename", "请提供有效的原文件名", 422)
+        body["uploaded_filename"] = original_filename
     serialized = (
         json.dumps(
             body["content"], ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
@@ -1290,12 +1296,28 @@ def delete_task(task_id, user, repository=None):
         audit(tx, task["project_id"], "task.deleted", task_id, user)
 
 
+def original_file_metadata(record):
+    if record.get("original_file") is not None:
+        return record["original_file"]
+    if record.get("uploaded_filename"):
+        return {
+            "filename": record["uploaded_filename"],
+            "sha256": record["checksum"],
+            "bytes": record["bytes"],
+        }
+    return None
+
+
 def safe_asset(record):
-    return {
-        **{k: v for k, v in record.items() if k not in ("content", "content_ref")},
+    result = {
+        **{k: v for k, v in record.items() if k not in ("content", "content_ref", "uploaded_filename")},
         "is_file_index": is_file_index(record),
         "parsed_content_available": record.get("content") is not None,
     }
+    original = original_file_metadata(record)
+    if original is not None:
+        result["original_file"] = original
+    return result
 
 
 @lru_cache(maxsize=8)

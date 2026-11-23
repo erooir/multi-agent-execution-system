@@ -12,7 +12,16 @@ import httpx
 from .contracts import ConnectorInput, KnowledgeQuery, MemoryInput, is_file_index, is_supplementary
 from .db import now, repo
 from .quality import text_of
-from .service import DomainError, audit, fail, project_access, required, timestamp, usable_asset
+from .service import (
+    DomainError,
+    audit,
+    fail,
+    original_file_metadata,
+    project_access,
+    required,
+    timestamp,
+    usable_asset,
+)
 
 
 def project_connectors(project_id, user, repository):
@@ -160,7 +169,7 @@ async def search(body, user):
         content = text_of(asset) if asset.get("content") is not None else ""
         offset = content.casefold().find(query)
         metadata_hit = is_file_index(asset)
-        original = asset.get("original_file")
+        original = original_file_metadata(asset)
         if offset < 0 and original:
             content = "\n".join((asset["name"], asset["source_id"], original["filename"]))
             offset = content.casefold().find(query)

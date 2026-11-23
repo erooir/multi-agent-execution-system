@@ -30,25 +30,39 @@ def original_path(project_id, sha256):
     return path
 
 
+def valid_filename(name):
+    return (
+        isinstance(name, str)
+        and 1 <= len(name) <= 255
+        and not name.endswith((" ", "."))
+        and not PureWindowsPath(name).is_reserved()
+        and not any(c in '<>:"/\\|?*' or unicodedata.category(c) in {"Cc", "Cf", "Cs"} for c in name)
+    )
+
+
 def _validate_metadata(metadata):
     if not isinstance(metadata, dict) or set(metadata) != {"filename", "sha256", "bytes"}:
         s.fail("invalid_original", "原件信息不完整", 409)
-    name = metadata["filename"]
     if (
-        not isinstance(name, str)
-        or not 1 <= len(name) <= 255
-        or name.endswith((" ", "."))
-        or PureWindowsPath(name).is_reserved()
-        or any(c in '<>:"/\\|?*' or unicodedata.category(c) in {"Cc", "Cf", "Cs"} for c in name)
+        not valid_filename(metadata["filename"])
         or type(metadata["bytes"]) is not int
         or metadata["bytes"] < 0
     ):
         s.fail("invalid_original", "原件文件名或大小无效", 409)
 
 
-def _verified_file(project_id, metadata):
+def _verified_file(project_id, metadata, *, uploaded_asset=None):
     _validate_metadata(metadata)
-    path = original_path(project_id, metadata["sha256"])
+    if uploaded_asset is None:
+        path = original_path(project_id, metadata["sha256"])
+    else:
+        if not re.fullmatch(r"[0-9a-f]{32}", uploaded_asset["id"]):
+            s.fail("invalid_storage_ref", "上传文件存储标识无效", 409)
+        path = s.ASSET_DIR / uploaded_asset["id"]
+        if str(path) != uploaded_asset.get("content_ref") or any(
+            part.is_symlink() or part.is_junction() for part in (path.parent.parent, path.parent, path)
+        ):
+            s.fail("invalid_storage_ref", "上传文件不在受控存储位置", 409)
     try:
         info = path.lstat()
         if not stat.S_ISREG(info.st_mode):
@@ -90,7 +104,7 @@ def attach_original(asset_id, metadata, user, repository=None):
         pass
     with repository.transaction() as tx:
         asset = _catalog_asset(asset_id, user, tx, write=True)
-        existing = asset.get("original_file")
+        existing = s.original_file_metadata(asset)
         if existing is not None:
             if existing != metadata:
                 s.fail("original_conflict", "此资料已登记其他原件", 409)
@@ -102,10 +116,11 @@ def attach_original(asset_id, metadata, user, repository=None):
 
 def open_original(asset_id, user, repository, *, pdf_preview=False):
     asset = _catalog_asset(asset_id, user, repository)
-    metadata = asset.get("original_file")
+    metadata = s.original_file_metadata(asset)
     if metadata is None:
         s.fail("original_not_found", "此资料未登记可下载的原件", 404)
-    stream = _verified_file(asset["project_id"], metadata)
+    uploaded = asset if asset.get("original_file") is None else None
+    stream = _verified_file(asset["project_id"], metadata, uploaded_asset=uploaded)
     try:
         if pdf_preview:
             if not metadata["filename"].lower().endswith(".pdf") or stream.read(5) != b"%PDF-":
@@ -113,7 +128,7 @@ def open_original(asset_id, user, repository, *, pdf_preview=False):
             stream.seek(0)
         # Hashing a large original can overlap with revocation or a membership change.
         current = _catalog_asset(asset_id, user, repository)
-        if current.get("original_file") != metadata:
+        if s.original_file_metadata(current) != metadata:
             s.fail("original_changed", "原件登记已变化", 409)
         return stream, metadata
     except BaseException:
