@@ -57,6 +57,42 @@ def test_bootstrap_scopes_business_queries_and_active_tasks_but_keeps_the_projec
         )
 
 
+def test_scoped_bootstrap_refreshes_only_changed_project_asset_payloads(db, monkeypatch):
+    p, other = project(db), project(db)
+    first = asset(db, p)
+    second = asset(db, p, source_id="second")
+    foreign = asset(db, other)
+    first = db.put("data_assets", {**first, "legacy_metadata": {"list": [1, 2]}, "content_ref": "private"})
+    requested = []
+    load = db.project_records_by_id
+
+    def record_reads(kind, project_id, ids):
+        assert kind == "data_assets" and project_id == p["id"]
+        requested.extend(ids)
+        return load(kind, project_id, ids)
+
+    monkeypatch.setattr(db, "project_records_by_id", record_reads)
+    url = f"/api/v2/bootstrap?scope=current&project_id={p['id']}"
+    with TestClient(application()) as client:
+        expected = [service.safe_asset(first), service.safe_asset(second)]
+        assert client.get(url).json()["data_assets"] == expected
+        assert set(requested) == {first["id"], second["id"]}
+        requested.clear()
+        assert client.get(url).json()["data_assets"] == expected
+        assert requested == []
+
+        writer = type(db)(engine=db.engine)
+        updated = writer.put("data_assets", {**second, "status": "revoked", "content": None})
+        writer.delete("data_assets", first["id"])
+        writer.put("data_assets", {**foreign, "status": "revoked"})
+        third = asset(db, p, source_id="third")
+        assert client.get(url).json()["data_assets"] == [
+            service.safe_asset(updated),
+            service.safe_asset(third),
+        ]
+        assert set(requested) == {second["id"], third["id"]}
+
+
 def test_bootstrap_requires_membership_and_returns_no_business_data_for_unassigned_reviewer(db):
     first, second = project(db), project(db)
     viewer = {"id": "scoped-reader", "role": "reviewer"}

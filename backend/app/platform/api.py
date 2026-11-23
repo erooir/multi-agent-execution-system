@@ -238,7 +238,9 @@ def bootstrap(user: dict = read, scope: Literal["all", "current"] = "all", proje
         "memories",
         "evaluations",
     ):
-        if scoped:
+        if scoped and kind == "data_assets":
+            result[kind] = s.project_asset_summaries(selected, repo) if selected else []
+        elif scoped:
             result[kind] = (
                 [
                     derived_view(kind, row)
@@ -250,7 +252,8 @@ def bootstrap(user: dict = read, scope: Literal["all", "current"] = "all", proje
             )
         else:
             result[kind] = visible_records(kind, user)
-    result["data_assets"] = [s.safe_asset(a) for a in result["data_assets"]]
+    if not scoped:
+        result["data_assets"] = [s.safe_asset(a) for a in result["data_assets"]]
     tasks = result["tasks"]
     workers = workers_view(user, {t["id"] for t in tasks} if scoped or user["role"] != "admin" else None)
     terminal = [t for t in tasks if t["status"] in TERMINAL]
@@ -292,26 +295,48 @@ def projects(user: dict = read):
 
 @router.get("/casework/catalog")
 def case_catalog(project_id: str, user: dict = read):
+    from ..casework.executors.registry import catalog_binding_batch
+
+    s.project_access(project_id, user)
+    with catalog_binding_batch():
+        return _project_case_catalog(project_id)
+
+
+def _project_case_catalog(project_id):
     from ..casework.executors.registry import validate_binding
     from ..casework.roles import contract
     from ..casework.team import STAGES, assigned_workflow, catalog, role_id
     from .tool_registry import catalog as tool_catalog
 
-    s.project_access(project_id, user)
-    flows = {w["id"]: w for w in repo.list("workflows", project_id)}
-    agents = {a["id"]: a for a in repo.list("agents", project_id)}
-    versions = {v["id"]: v for v in repo.list("agent_versions", project_id)}
-    tool_specs = {v["id"]: v for v in tool_catalog()["tools"]}
+    profiles = catalog()
+    workflow_ids = {code: assigned_workflow(project_id, code) for code in profiles}
+    flows = repo.project_records_by_id("workflows", project_id, workflow_ids.values())
+    pinned_ids = {
+        wid: f"{wid}:{flow['current_version']}"
+        for wid, flow in flows.items()
+        if flow.get("status") == "published"
+    }
+    pins = repo.project_records_by_id("workflow_versions", project_id, pinned_ids.values())
+    nodes = [node for pin in pins.values() for node in pin["nodes"]]
+    agents = repo.project_records_by_id(
+        "agents", project_id, (n["agent_id"] for n in nodes if n.get("agent_id"))
+    )
+    versions = repo.project_records_by_id(
+        "agent_versions",
+        project_id,
+        (
+            f"{n['agent_id']}:{n['agent_version']}"
+            for n in nodes
+            if n.get("agent_id") and n.get("agent_version")
+        ),
+    )
+    tool_specs = {v["id"]: v for v in tool_catalog(include_readiness=False)["tools"]}
     items = []
-    for code, profile in sorted(catalog().items()):
-        wid = assigned_workflow(project_id, code)
+    for code, profile in sorted(profiles.items()):
+        wid = workflow_ids[code]
         flow = flows.get(wid, {})
         roles = {stage: contract(stage, code) for stage in ("prepare", "analyze", "review")}
-        pinned = (
-            repo.get("workflow_versions", f"{wid}:{flow['current_version']}")
-            if flow.get("status") == "published"
-            else None
-        )
+        pinned = pins.get(pinned_ids.get(wid))
         current = bool(pinned) and [n["id"] for n in pinned["nodes"]] == list(STAGES)
         if current:
             for n in pinned["nodes"]:

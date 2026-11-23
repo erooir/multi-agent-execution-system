@@ -548,12 +548,16 @@ export function TaskForm({
   schedule = false,
   afterCreate,
   initial,
+  caseProfiles,
+  taskCapabilities,
 }: Common & {
   assets: Item[];
   workflows: Item[];
   schedule?: boolean;
   afterCreate?: (item: Item) => void;
   initial?: Item;
+  caseProfiles?: Item[];
+  taskCapabilities?: Item[];
 }) {
   const [form, setForm] = useState<Item>({
     name: "",
@@ -571,11 +575,13 @@ export function TaskForm({
     ...initial,
     idempotency_key: crypto.randomUUID(),
   });
-  const [catalog, setCatalog] = useState<Item[]>([]);
+  const [fetchedCatalog, setCatalog] = useState<Item[]>([]);
+  const catalog = taskCapabilities ?? fetchedCatalog;
   const [catalogError, setCatalogError] = useState("");
-  const [profiles, setProfiles] = useState<Item[]>([]);
+  const [fetchedProfiles, setProfiles] = useState<Item[]>([]);
+  const profiles = caseProfiles ?? fetchedProfiles;
   useEffect(() => {
-    if (form.task_type !== "case_analysis") return;
+    if (caseProfiles !== undefined || form.task_type !== "case_analysis") return;
     const c = new AbortController();
     api<Item[]>(
       "/v2/casework/catalog?project_id=" + encodeURIComponent(projectId),
@@ -586,13 +592,14 @@ export function TaskForm({
         if (e.name !== "AbortError") setCatalogError(e.message);
       });
     return () => c.abort();
-  }, [form.task_type, projectId]);
+  }, [form.task_type, projectId, caseProfiles]);
   const [preview, setPreview] = useState<
     components["schemas"]["TaskPreflight"] | null
   >(null);
   const [previewError, setPreviewError] = useState("");
   const [previewBusy, setPreviewBusy] = useState(false);
   useEffect(() => {
+    if (taskCapabilities !== undefined) return;
     const controller = new AbortController();
     api(`/v2/capabilities?project_id=${encodeURIComponent(projectId)}`, {
       signal: controller.signal,
@@ -605,7 +612,7 @@ export function TaskForm({
         if (error.name !== "AbortError") setCatalogError(error.message);
       });
     return () => controller.abort();
-  }, [projectId]);
+  }, [projectId, taskCapabilities]);
   const capability = catalog.find((c) => c.id === form.task_type);
   const caseAssets =
     form.task_type === "case_analysis"

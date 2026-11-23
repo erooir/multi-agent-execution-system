@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import inspect
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import lru_cache
 from pathlib import Path
 
@@ -37,6 +39,7 @@ from .geospatial import (
     RouteExecutor,
 )
 from .prepare import SourcePreparationExecutor
+from .profile_batch import case_signatures
 from .review import IndependentReviewExecutor
 
 ANALYZERS = {
@@ -105,13 +108,28 @@ def executor_class(stage, code):
     raise ValueError("case_executor_unavailable")
 
 
+_batch_signatures = ContextVar("catalog_binding_signatures", default=None)
+
+
+@contextmanager
+def catalog_binding_batch():
+    # Warm role cache hits and uninstalled catalogs never read provider files.
+    token = _batch_signatures.set(lru_cache(maxsize=1)(case_signatures))
+    try:
+        yield
+    finally:
+        _batch_signatures.reset(token)
+
+
 @lru_cache(maxsize=64)
 def _profile_signature(stage, code):
-    from ..team import catalog, frozen_profile
+    from ..team import frozen_profile
 
-    if stage == "analyze":
+    batch = _batch_signatures.get()
+    if batch is None and stage == "analyze":
         return frozen_profile(code)["signature"]
-    return digest({item: frozen_profile(item)["signature"] for item in sorted(catalog())})
+    signatures = batch() if batch is not None else case_signatures()
+    return signatures[code] if stage == "analyze" else digest(signatures)
 
 
 @lru_cache(maxsize=64)

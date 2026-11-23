@@ -16,6 +16,43 @@ const families: Record<string, string> = {
   G: "地理与时序",
 };
 
+export function useCaseCatalog(projectId: string, userId?: string) {
+  const [revision, setRevision] = useState(0);
+  const [result, setResult] = useState<{
+    projectId: string; userId: string; rows?: Item[]; error?: string;
+  } | null>(null);
+  useEffect(() => {
+    if (!projectId || !userId) {
+      setResult(null);
+      return;
+    }
+    const controller = new AbortController();
+    const { signal } = controller;
+    api<Item[]>("/v2/casework/catalog?project_id=" + encodeURIComponent(projectId), { signal })
+      .then((rows) => { if (!signal.aborted) setResult({ projectId, userId, rows }); })
+      .catch((e: Error) => { if (!signal.aborted) setResult({ projectId, userId, error: e.message }); });
+    return () => controller.abort();
+  }, [projectId, userId, revision]);
+  const current = result?.projectId === projectId && result.userId === userId ? result : null;
+  return { rows: current?.rows, error: current?.error, refresh: () => setRevision((n) => n + 1) };
+}
+
+function CaseRoleDetails({ role, agents, caseId, tools, onOpen }: {
+  role: Item; agents: Item[]; caseId: string; tools: Item[]; onOpen: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details onToggle={(event) => {
+      const expanded = event.currentTarget.open;
+      setOpen(expanded);
+      if (expanded) onOpen();
+    }}>
+      <summary>职责、共用算法与授权清单</summary>
+      {open && <RoleFacts role={role} tools={tools} agent={caseRoleAgent(agents, caseId, "analyze")} />}
+    </details>
+  );
+}
+
 export default function Casework({
   projectId,
   canEdit,
@@ -24,6 +61,8 @@ export default function Casework({
   agents,
   workflows,
   tasks,
+  directory,
+  capabilities,
   offline,
   initialTab = "catalog",
   onTask,
@@ -35,43 +74,41 @@ export default function Casework({
   agents: Item[];
   workflows: Item[];
   tasks: Item[];
+  directory: ReturnType<typeof useCaseCatalog>;
+  capabilities?: Item[];
   offline: boolean;
   initialTab?: CaseTab;
   onTask: (id: string) => void;
 }) {
-  const [catalog, setCatalog] = useState<Item[]>([]),
-    [tools, setTools] = useState<Item[]>([]),
+  const catalog = directory.rows ?? [];
+  const catalogLoaded = directory.rows !== undefined;
+  const [tools, setTools] = useState<Item[]>([]),
+    [toolsRequested, setToolsRequested] = useState(initialTab === "roles"),
+    [toolError, setToolError] = useState(""),
     [compareId, setCompareId] = useState("B06"),
     [family, setFamily] = useState("all"),
     [query, setQuery] = useState(""),
     [profile, setProfile] = useState<Item | null>(null),
     [tab, setTab] = useState<CaseTab>(initialTab),
-    [catalogLoaded, setCatalogLoaded] = useState(false),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [openingCase, setOpeningCase] = useState<string | null>(null),
-    [epoch, refresh] = useState(0);
+    [openingCase, setOpeningCase] = useState<string | null>(null);
   useEffect(() => {
-    const c = new AbortController(),
-      signal = c.signal;
-    const scope = "?project_id=" + encodeURIComponent(projectId);
-    Promise.all([
-      api<Item[]>("/v2/casework/catalog" + scope, { signal }),
-      api<Item>("/v2/capabilities" + scope, { signal }),
-    ])
-      .then(([profiles, capabilities]) => {
+    if (!toolsRequested || !directory.rows) return;
+    const controller = new AbortController();
+    const { signal } = controller;
+    api<Item>("/v2/capabilities?project_id=" + encodeURIComponent(projectId), { signal })
+      .then((data) => {
         if (!signal.aborted) {
-          setCatalog(profiles);
-          setTools(capabilities.tools || []);
-          setCatalogLoaded(true);
-          setError("");
+          setTools(data.tools || []);
+          setToolError("");
         }
       })
       .catch((e) => {
-        if (!signal.aborted) setError(e.message);
+        if (!signal.aborted) setToolError(e.message);
       });
-    return () => c.abort();
-  }, [projectId, epoch]);
+    return () => controller.abort();
+  }, [projectId, toolsRequested, directory.rows]);
   const needle = query.trim().toLowerCase();
   const matches = catalog.filter(
     (p) =>
@@ -120,7 +157,7 @@ export default function Casework({
             ? "新版用例岗位与流程已发布，后续任务可使用新版本"
             : "本项目用例岗位与流程已发布",
       );
-      refresh((n) => n + 1);
+      directory.refresh();
       setError("");
       return true;
     } catch (e) {
@@ -177,7 +214,7 @@ export default function Casework({
         <button
           className={tab === "roles" ? "selected" : ""}
           aria-pressed={tab === "roles"}
-          onClick={() => setTab("roles")}
+          onClick={() => { setToolsRequested(true); setTab("roles"); }}
         >
           <Users size={16} />
           用例岗位对照
@@ -192,9 +229,9 @@ export default function Casework({
           </button>
         )}
       </div>
-      {error && (
+      {(error || directory.error || toolError) && (
         <p className="warning" role="alert">
-          {error}
+          {error || directory.error || toolError}
         </p>
       )}
       {tab === "catalog" ? (
@@ -269,7 +306,7 @@ export default function Casework({
               <b>{matches.length}</b> 项符合当前条件 · 目录共 {catalog.length} 项
             </p>
           )}
-          {!catalogLoaded && !error && (
+          {!catalogLoaded && !directory.error && (
             <p role="status">正在读取项目用例目录…</p>
           )}
           {catalogLoaded && matches.length === 0 && (
@@ -342,6 +379,7 @@ export default function Casework({
                       className="cc-ghost"
                       onClick={() => {
                         setCompareId(p.id);
+                        setToolsRequested(true);
                         setTab("roles");
                       }}
                     >
@@ -362,14 +400,8 @@ export default function Casework({
                       )}
                     </details>
                     {rc && (
-                      <details>
-                        <summary>职责、共用算法与授权清单</summary>
-                        <RoleFacts
-                          role={rc}
-                          tools={tools}
-                          agent={caseRoleAgent(agents, p.id, "analyze")}
-                        />
-                      </details>
+                      <CaseRoleDetails role={rc} tools={tools} agents={agents} caseId={p.id}
+                        onOpen={() => setToolsRequested(true)} />
                     )}
                   </div>
                 </article>
@@ -395,6 +427,8 @@ export default function Casework({
       ) : null}
       {profile && (
         <TaskForm
+          caseProfiles={catalog}
+          taskCapabilities={capabilities}
           projectId={projectId}
           assets={assets}
           workflows={workflows}

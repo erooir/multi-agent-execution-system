@@ -5,11 +5,13 @@ from copy import deepcopy
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 
 from backend.app.casework.engine import audit
 from backend.app.casework.monitor import activity
 from backend.app.casework.team import assigned_workflow, catalog, install, role_id
 from backend.app.platform import runtime, service
+from backend.app.platform.api import case_catalog
 from backend.tests import test_v2_platform as fixtures
 from backend.tests.test_casework_documents import samples as document_samples
 from backend.tests.test_casework_geo_samples import assert_expected, media_samples
@@ -18,6 +20,34 @@ from backend.tests.test_v2_api_review import application
 from backend.tests.test_v2_platform import ADMIN, asset, project, run, task_body
 
 db = fixtures.db
+
+
+def test_catalog_binding_batch_matches_every_frozen_profile_with_one_provider_read(monkeypatch):
+    from backend.app.casework import provider_versions, team
+    from backend.app.casework.executors import registry
+
+    reads = 0
+
+    def providers():
+        nonlocal reads
+        reads += 1
+        return {"tools": {"合成": "v1"}, "packages": {"example": "1.0"}}
+
+    monkeypatch.setattr(provider_versions, "profile", providers)
+    expected = {code: team.frozen_profile(code)["signature"] for code in catalog()}
+    shared = registry.digest(expected)
+    reads = 0
+    registry._profile_signature.cache_clear()
+    try:
+        for _ in range(2):
+            with registry.catalog_binding_batch():
+                for code, signature in expected.items():
+                    assert registry._profile_signature("analyze", code) == signature
+                assert registry._profile_signature("prepare", None) == shared
+                assert registry._profile_signature("review", None) == shared
+            assert reads == 1
+    finally:
+        registry._profile_signature.cache_clear()
 
 
 @pytest.mark.parametrize("code", sorted(catalog()))
@@ -113,6 +143,59 @@ def test_mismatched_team_and_cross_project_are_rejected(db):
         install(p["id"], outsider, db)
     with TestClient(application()) as c:
         assert len(c.get("/api/v2/casework/catalog", params={"project_id": p["id"]}).json()) == 50
+
+
+def test_case_catalog_batches_reads_of_published_pins(db, monkeypatch):
+    from backend.app.platform import tool_registry
+
+    pid = project(db)["id"]
+    codes = sorted(catalog())
+    statements = []
+
+    def add_flow(code):
+        wid = assigned_workflow(pid, code)
+        db.put("workflows", {"id": wid, "project_id": pid, "status": "published", "current_version": 2})
+        db.put(
+            "workflow_versions",
+            {
+                "id": wid + ":2",
+                "project_id": pid,
+                "definition_id": wid,
+                "version": 2,
+                "nodes": [
+                    {"id": stage, "agent_id": role_id(pid, stage, code), "agent_version": 1}
+                    for stage in ("prepare", "analyze", "review")
+                ],
+            },
+        )
+
+    def observe(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+
+    def load():
+        statements.clear()
+        event.listen(db.engine, "before_cursor_execute", observe)
+        try:
+            rows = case_catalog(pid, ADMIN)
+        finally:
+            event.remove(db.engine, "before_cursor_execute", observe)
+        return rows, len(statements)
+
+    monkeypatch.setattr(
+        tool_registry, "capability_readiness", lambda _: pytest.fail("unused readiness probe")
+    )
+    add_flow(codes[0])
+    small, small_count = load()
+    assert sum(row["installed"] for row in small) == 1
+    for code in codes[1:]:
+        add_flow(code)
+    full, full_count = load()
+    assert len(full) == len(codes) and all(row["installed"] for row in full)
+    assert full_count == small_count
+    for table in ("workflows", "workflow_versions", "agents", "agent_versions"):
+        reads = [sql for sql in statements if f"FROM {table} " in " ".join(sql.split()) + " "]
+        assert len(reads) == 1 and f"{table}.id IN (" in reads[0] and f"{table}.project_id =" in reads[0]
 
 
 def test_case_catalog_detects_stale_binding_and_upgrades_neighbouring_cases_independently(db, monkeypatch):

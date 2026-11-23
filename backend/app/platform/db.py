@@ -186,6 +186,19 @@ class Repository:
             query = query.with_for_update()
         return self._record(self.connection.execute(query).first())
 
+    def project_records_by_id(self, kind, project_id, record_ids):
+        ids = set(record_ids)
+        if not ids:
+            return {}
+        if self.connection is None:
+            with self.engine.connect() as conn:
+                return Repository(engine=self.engine, connection=conn).project_records_by_id(
+                    kind, project_id, ids
+                )
+        table = tables[kind]
+        query = select(table).where(table.c.project_id == project_id, table.c.id.in_(ids))
+        return {row._mapping["id"]: self._record(row) for row in self.connection.execute(query)}
+
     def list(self, kind, project_id=None, **filters):
         if self.connection is None:
             with self.engine.connect() as conn:
@@ -202,6 +215,19 @@ class Repository:
         query = query.order_by(table.c.sequence if kind == "events" else table.c.created_at)
         rows = [self._record(row) for row in self.connection.execute(query)]
         return [row for row in rows if all(row.get(k) == v for k, v in filters.items())]
+
+    def project_asset_revisions(self, project_id):
+        """Return the same ordering as list(), without fetching asset document CLOBs."""
+        if self.connection is None:
+            with self.engine.connect() as conn:
+                return Repository(engine=self.engine, connection=conn).project_asset_revisions(project_id)
+        assets = tables["data_assets"]
+        query = (
+            select(assets.c.id, assets.c.updated_at)
+            .where(assets.c.project_id == project_id)
+            .order_by(assets.c.created_at)
+        )
+        return self.connection.execute(query).all()
 
     def operational_tasks(self, project_ids):
         """Read only scheduling/timing columns; do not materialize source snapshots."""

@@ -48,7 +48,7 @@ import ResourceManagement from "./ResourceManagement";
 import WorkflowLearning from "./WorkflowLearning";
 import AgentActivity from "./AgentActivity";
 import MetricsPanel from "./MetricsPanel";
-import Casework, { type CaseTab } from "./Casework";
+import Casework, { type CaseTab, useCaseCatalog } from "./Casework";
 import ToolCatalog from "./ToolCatalog";
 import WorkspaceEntry from "./WorkspaceEntry";
 import QuestionPortal from "./QuestionPortal";
@@ -203,6 +203,9 @@ function ManagementApp() {
     selectedProject = useRef(new URLSearchParams(window.location.search).get("project") || ""),
     refreshSequence = useRef(0);
   currentUser.current = user?.id || null;
+  const caseProject = page === "casework" && user && user.role !== "requester"
+    ? projectId || selectedProject.current : "";
+  const caseDirectory = useCaseCatalog(caseProject, user?.id);
   const notify = useCallback((text: string, error = false) => {
     setToast({ text, error });
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -705,6 +708,8 @@ function ManagementApp() {
                 <Casework
                   key={projectId}
                   {...common}
+                  directory={caseDirectory}
+                  capabilities={Array.isArray(data.capabilities) ? data.capabilities : undefined}
                   assets={assets}
                   agents={agents}
                   workflows={workflows}

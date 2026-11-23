@@ -10,7 +10,9 @@ import os
 import uuid
 from collections import Counter
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
+from threading import Lock
 
 from .contracts import AgentInput, AssetInput, TaskInput, ToolParameters, WorkflowInput, is_file_index
 from .db import QUEUE_AGING_SECONDS, QUEUE_POLICY_VERSION, ROOT, TERMINAL, json_scalar, now, repo, tables
@@ -1294,6 +1296,30 @@ def safe_asset(record):
         "is_file_index": is_file_index(record),
         "parsed_content_available": record.get("content") is not None,
     }
+
+
+@lru_cache(maxsize=8)
+def _project_asset_cache(repository, project_id):
+    return Lock(), {}
+
+
+def project_asset_summaries(project_id, repository):
+    """Read display metadata for an authorized project, rechecking revisions on every request."""
+    lock, cache = _project_asset_cache(repository, project_id)
+    with lock:
+        revisions = repository.project_asset_revisions(project_id)
+        current = {
+            key: cache[key]
+            for key, stamp in revisions
+            if stamp and key in cache and cache[key]["updated_at"] == stamp
+        }
+        missing = [key for key, _ in revisions if key not in current]
+        for start in range(0, len(missing), 500):
+            rows = repository.project_records_by_id("data_assets", project_id, missing[start : start + 500])
+            current.update((key, safe_asset(row)) for key, row in rows.items())
+        cache.clear()
+        cache.update(current)
+        return [copy.deepcopy(current[key]) for key, _ in revisions if key in current]
 
 
 def safe_task(record):
