@@ -944,11 +944,9 @@ export function TaskForm({
           </select>
         </Field>
       </div>
-      {form.mode === "cloud" && (
+      {form.mode === "cloud" && form.task_type !== "case_analysis" && (
         <p className="warning">
-          {form.task_type === "case_analysis"
-            ? "用例的资料解析、专业分析、独立核查三个节点均调用真实模型并分别计费；仅可外发标记 public 的公开资料，离线部署不可调用。执行、自动评审与修订均经过统一网关并计入历史累计 300 元上限。"
-            : "只允许外发已标记公开的数据。执行、自动评审与修订均经过统一网关并计入历史累计 300 元上限。"}
+          只允许外发已标记公开的数据。执行、自动评审与修订均经过统一网关并计入历史累计 300 元上限。
         </p>
       )}
       {form.mode === "cloud" && (
