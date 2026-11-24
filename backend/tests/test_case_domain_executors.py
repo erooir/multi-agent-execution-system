@@ -418,6 +418,102 @@ async def test_model_selects_supplementary_tool_and_result_reaches_review(db, tm
     assert all(item["passed"] for item in report["review"])
 
 
+def test_g02_annotations_keep_repeated_keys_and_reject_ambiguous_groups():
+    from backend.app.casework.executors.panel_audit import panel_key_checks
+    from backend.app.platform.domain_tool import dispatch
+
+    source = {"id": "nursery", "source_version": "v1", "classification": "public", "modality": "structured"}
+    observation = {"image_id": "field", "date": "2024-04-01", "observation": "first marker"}
+    fields = [
+        {"kind": "policy"},
+        {"kind": "raster_binding", "role": "panel", "image_id": "field", "date": "2024-04-01"},
+        observation,
+        {**observation, "observation": "another marker"},
+    ]
+    rows = [
+        {"source_id": "nursery", "source_version": "v1", "location": {"row": i}, "fields": f}
+        for i, f in enumerate(fields, 1)
+    ]
+    reader = {"nursery": {**source, "prepared_records": rows}}.__getitem__
+    checks = panel_key_checks([source], rows)
+    result = dispatch("table.audit_keys", checks["observations:nursery"], reader)
+    assert result["total_rows"] == 2 and result["conflict_groups"] == 1
+    assert panel_key_checks([{**source, "classification": "local"}], rows) == {}
+    assert panel_key_checks([{**source, "bytes": 10_000_001}], rows) == {}
+    assert panel_key_checks([{**source, "source_version": "v2"}], rows) == {}
+    rows.append({**rows[-1], "fields": {"note": "untagged, unrelated"}})
+    assert set(panel_key_checks([source], rows)) == {"bindings:nursery"}
+
+
+@pytest.mark.parametrize("guessed", [False, True])
+async def test_g02_auxiliary_audit_uses_only_offered_row_groups(db, tmp_path, monkeypatch, guessed):
+    p = project(db)
+    install(p["id"], ADMIN, db)
+    last, refs = _inputs(db, p, "G02", tmp_path, monkeypatch)
+    rounds = []
+    source = refs[-1]
+
+    def choose(stage, main, messages):
+        if stage != "analyze" or len(messages) != 1:
+            return None
+        raw = messages[0]["content"]
+        try:
+            projected = json.loads(raw)
+        except json.JSONDecodeError:
+            projected = ast.literal_eval(raw)
+        checks = projected["data"]["panel_key_checks"]
+        schema = next(
+            t["function"]["parameters"] for t in rounds[-1]["tools"] if t["function"]["name"] == "audit_keys"
+        )
+        assert set(schema["properties"]) == {"group"}
+        assert (
+            set(schema["properties"]["group"]["enum"])
+            == set(checks)
+            == {f"observations:{source}", f"bindings:{source}"}
+        )
+        args = checks[f"observations:{source}"]
+        assert args == {
+            "source_id": source,
+            "key_fields": ["image_id", "date"],
+            "exclude_kinds": ["raster_binding"],
+        }
+        if guessed:
+            return "audit_keys", {
+                "source_id": source,
+                "key_fields": ["image_id", "date"],
+                "where": {"kind": "observation"},
+            }
+        return "audit_keys", {"group": f"observations:{source}"}
+
+    _patch_provider(monkeypatch, rounds, choose)
+    final = await run(
+        db,
+        task_body(
+            p,
+            last,
+            task_type="case_analysis",
+            case_id="G02",
+            case_scope="sample",
+            input_refs=refs,
+            mode="cloud",
+            max_cost_cny=2,
+            max_revisions=0,
+            allow_partial=False,
+        ),
+    )
+    output = db.get("nodes", f"{final['id']}:0:analyze")["output"]["content"]
+    (finding,) = output["tool_findings"]
+    assert finding["tool_id"] == "table.audit_keys"
+    if guessed:
+        assert final["status"] == "failed" and final["reason_code"] == "quality_not_met"
+        assert finding["status"] == "unavailable"
+    else:
+        assert final["status"] == "succeeded", final.get("reason_code")
+        assert finding["status"] == "completed" and finding["result"]["total_rows"] == 3
+        assert finding["source_refs"] == [source]
+        assert finding["arguments"]["exclude_kinds"] == ["raster_binding"]
+
+
 async def test_forged_artifact_reference_uses_bounded_recovery(db, tmp_path, monkeypatch):
     p = project(db)
     install(p["id"], ADMIN, db)

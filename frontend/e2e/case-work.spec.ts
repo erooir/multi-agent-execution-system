@@ -49,6 +49,7 @@ test("用例任务：真实提交、三节点审核、来源证据与智能体�
   const card = page.locator(".cc-card").filter({ hasText: "G03" });
   await card.getByRole("button", { name: "创建用例任务" }).click();
   const dlg = page.getByRole("dialog");
+  await dlg.getByRole("button", { name: "自定义项目资料" }).click();
   await expect(dlg.getByRole("combobox", { name: /^分析用例/ })).toHaveValue(
     "G03",
   );

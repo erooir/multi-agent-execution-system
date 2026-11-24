@@ -655,6 +655,7 @@ function ManagementApp() {
                 <TasksPage
                   key={projectId}
                   {...common}
+                  offline={!!data.system.offline}
                   tasks={tasks}
                   agents={agents}
                   assets={assets}
@@ -759,6 +760,7 @@ function ManagementApp() {
                 <TasksPage
                   key={projectId}
                   {...common}
+                  offline={!!data.system.offline}
                   tasks={tasks}
                   agents={agents}
                   assets={assets}

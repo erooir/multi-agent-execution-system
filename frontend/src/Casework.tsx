@@ -5,6 +5,7 @@ import type { Item, Mutation } from "./types";
 import { SectionTitle, Empty } from "./ui";
 import { TaskForm } from "./Forms";
 import { verifiedCaseSamples } from "./caseSamples";
+import type { CaseChoice } from "./CaseDemoSample";
 import SemanticEvidence from "./SemanticEvidence";
 import { CaseRoleComparison, caseRoleAgent, RoleFacts } from "./CaseRoles";
 import "./case-catalog.css";
@@ -89,7 +90,7 @@ export default function Casework({
     [compareId, setCompareId] = useState("B06"),
     [family, setFamily] = useState("all"),
     [query, setQuery] = useState(""),
-    [draft, setDraft] = useState<Item | null>(null),
+    [draft, setDraft] = useState<CaseChoice | null>(null),
     [tab, setTab] = useState<CaseTab>(initialTab),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -169,30 +170,14 @@ export default function Casework({
     }
   }
   const samples = verifiedCaseSamples(projectId, tasks, assets);
-  async function openCase(item: Item, sample?: Item) {
+  async function openCase(item: Item) {
     if (!item.project_tools_current) {
       setOpeningCase(item.id);
       const ready = await provision(true, item.id);
       setOpeningCase(null);
       if (!ready) return;
     }
-    const request = sample?.request;
-    setDraft({
-      task_type: "case_analysis",
-      case_id: item.id,
-      name: request?.name ?? item.title,
-      goal: request?.goal ?? ("根据授权资料完成" + item.title + "，列出证据与信息缺口。"),
-      allow_partial: false,
-      deadline_seconds: request?.deadline_seconds ?? 1800,
-      max_revisions: request?.max_revisions ?? 1,
-      ...(request && {
-        mode: "cloud",
-        case_scope: "sample",
-        input_refs: [...request.input_refs],
-        max_cost_cny: request.max_cost_cny,
-        quality: request.quality,
-      }),
-    });
+    setDraft({ id: item.id, title: item.title });
   }
   return (
     <>
@@ -385,7 +370,7 @@ export default function Casework({
                       <button
                         className="cc-ghost"
                         disabled={!p.installed || busy}
-                        onClick={() => openCase(p, samples.get(p.id))}
+                        onClick={() => openCase(p)}
                       >
                         使用已验证样本
                       </button>
@@ -461,7 +446,8 @@ export default function Casework({
           workflows={workflows}
           mutate={mutate}
           onClose={() => setDraft(null)}
-          initial={draft}
+          demoCase={draft}
+          offline={offline}
           afterCreate={(t) => {
             setDraft(null);
             onTask(t.id);

@@ -612,6 +612,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/casework/{case_id}/demo-sample": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Case Demo Sample */
+        get: operations["case_demo_sample_api_v2_casework__case_id__demo_sample_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/casework/install": {
         parameters: {
             query?: never;
@@ -1981,6 +1998,30 @@ export interface components {
             readiness?: {
                 [key: string]: unknown;
             };
+        };
+        /** CaseDemoDraft */
+        CaseDemoDraft: {
+            /** Name */
+            name: string;
+            /** Goal */
+            goal: string;
+            /** Input Refs */
+            input_refs: string[];
+            /** Max Cost Cny */
+            max_cost_cny: number;
+            /** Max Revisions */
+            max_revisions: number;
+            /** Deadline Seconds */
+            deadline_seconds: number;
+            quality: components["schemas"]["Quality"];
+        };
+        /** CaseDemoSample */
+        CaseDemoSample: {
+            /** Available */
+            available: boolean;
+            /** Verified Task Id */
+            verified_task_id: string | null;
+            request: components["schemas"]["CaseDemoDraft"] | null;
         };
         /** ConfirmInterview */
         ConfirmInterview: {
@@ -4014,6 +4055,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    case_demo_sample_api_v2_casework__case_id__demo_sample_get: {
+        parameters: {
+            query: {
+                project_id: string;
+            };
+            header?: never;
+            path: {
+                case_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaseDemoSample"];
                 };
             };
             /** @description Validation Error */

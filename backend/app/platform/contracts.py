@@ -466,6 +466,22 @@ class TaskInput(Contract):
         return self
 
 
+class CaseDemoDraft(Contract):
+    name: str
+    goal: str
+    input_refs: list[str]
+    max_cost_cny: float
+    max_revisions: int
+    deadline_seconds: int
+    quality: Quality
+
+
+class CaseDemoSample(Contract):
+    available: bool
+    verified_task_id: str | None
+    request: CaseDemoDraft | None
+
+
 class MetricsWindow(Contract):
     start: str
     end: str

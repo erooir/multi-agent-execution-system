@@ -31,6 +31,9 @@ test("场景目录并行载入，工具说明延迟时仍可打开用例任务",
       catalogRequests++;
       return route.fulfill({ json: [profile] });
     }
+    if (url.pathname === "/api/v2/casework/G03/demo-sample") {
+      return route.fulfill({ json: { available: false, verified_task_id: null, request: null } });
+    }
     if (url.pathname === "/api/v2/capabilities") {
       toolRequests++;
       await toolsReady;
@@ -49,6 +52,8 @@ test("场景目录并行载入，工具说明延迟时仍可打开用例任务",
     await expect.poll(() => toolRequests).toBe(1);
     await card.getByRole("button", { name: "创建用例任务" }).click();
     const form = page.getByRole("dialog", { name: "提交用例任务" });
+    await expect(form.getByText("本项目还没有可复用的已验证演示样本。")).toBeVisible();
+    await form.getByRole("button", { name: "自定义项目资料" }).click();
     await expect(form.getByLabel("分析用例")).toHaveValue(profile.id);
     await expect(form.getByLabel("任务类型").locator('option[value="case_analysis"]')).toBeEnabled();
     await form.getByRole("button", { name: "关闭对话框" }).click();

@@ -35,6 +35,7 @@ import TaskSummary from "./TaskSummary";
 import AgentCollaboration from "./AgentCollaboration";
 type Props = {
   projectId: string;
+  offline: boolean;
   tasks: Item[];
   assets: Item[];
   agents: Item[];
@@ -50,6 +51,7 @@ type Props = {
 };
 export default function TasksPage({
   projectId,
+  offline,
   tasks,
   assets,
   agents,
@@ -319,6 +321,7 @@ export default function TasksPage({
       {create && (
         <TaskForm
           projectId={projectId}
+          offline={offline}
           assets={assets}
           workflows={workflows}
           mutate={mutate}

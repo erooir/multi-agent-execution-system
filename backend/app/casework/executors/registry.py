@@ -38,6 +38,7 @@ from .geospatial import (
     PanelExecutor,
     RouteExecutor,
 )
+from .panel_audit import PanelObservationExecutor
 from .prepare import SourcePreparationExecutor
 from .profile_batch import case_signatures
 from .review import IndependentReviewExecutor
@@ -64,7 +65,7 @@ ANALYZERS = {
     "T09": BatteryExecutor,
     "T10": CitationImpactExecutor,
     "G01": HotspotExecutor,
-    "G02": PanelExecutor,
+    "G02": PanelObservationExecutor,
     "G03": IceSeriesExecutor,
     "G04": FloodExecutor,
     "G05": BuildingExecutor,
@@ -138,11 +139,14 @@ def _implementation(stage, code):
     sources = {}
     from .. import narrative_checks
 
-    for source in {
+    files = {
         inspect.getsourcefile(cls),
         inspect.getsourcefile(ExecutorContext),
         narrative_checks.__file__,
-    }:
+    }
+    if cls is PanelObservationExecutor:
+        files.add(inspect.getsourcefile(PanelExecutor))
+    for source in files:
         path = Path(source).resolve()
         sources[path.name] = path.read_text(encoding="utf-8").replace("\r\n", "\n")
     return digest(

@@ -14,6 +14,8 @@ from functools import lru_cache
 from pathlib import Path
 from threading import Lock
 
+from pydantic import ValidationError
+
 from .contracts import (
     CASE_DOCUMENT_MEDIA_TYPES,
     AgentInput,
@@ -982,6 +984,58 @@ def _freeze_agents(tx, refs, project_id):
     return list(result.values())
 
 
+def case_demo_sample(project_id, case_id, user, repository=None):
+    """Only reuse the inputs and instructions of an accepted, verifiable project sample."""
+    repository = repository or repo
+    project_access(project_id, user, repository=repository)
+    for task_id in repository.successful_case_sample_ids(project_id, case_id):
+        task = repository.get("tasks", task_id)
+        if not task or task["status"] != "succeeded" or task.get("deleted_at") or task.get("task_case_id"):
+            continue
+        try:
+            request = TaskInput.model_validate(task["request"])
+        except ValidationError:
+            continue
+        refs = request.input_refs
+        inputs = (task.get("snapshot") or {}).get("inputs") or []
+        frozen = {a["id"]: a for a in inputs if isinstance(a, dict) and a.get("id")}
+        usage = (task.get("result") or {}).get("usage") or {}
+        if (
+            request.task_type != "case_analysis"
+            or request.use_project_knowledge
+            or not (task.get("quality_verdict") or {}).get("passed")
+            or not usage.get("request_count", 0)
+            or not refs
+            or len(frozen) != len(inputs)
+            or set(refs) != frozen.keys()
+        ):
+            continue
+        current = repository.project_records_by_id("data_assets", project_id, refs)
+        if len(current) != len(frozen) or any(
+            a.get("classification") != "public" or a.get("task_case_id") or is_file_index(a)
+            for a in current.values()
+        ):
+            continue
+        try:
+            for key in refs:
+                verify_frozen_asset(frozen[key], current[key])
+        except (DomainError, OSError):
+            continue
+        draft = request.model_dump(
+            include={
+                "name",
+                "goal",
+                "input_refs",
+                "max_cost_cny",
+                "max_revisions",
+                "deadline_seconds",
+                "quality",
+            }
+        )
+        return {"available": True, "verified_task_id": task_id, "request": draft}
+    return {"available": False, "verified_task_id": None, "request": None}
+
+
 def compatible_agent(tx, definition, body, inputs, version=None, boundary=None, depth=0):
     if not definition or definition.get("status") != "published" or depth > 4:
         return False
@@ -1082,6 +1136,23 @@ def create_task(body, user, repository=None, *, preflight=False, task_case_id=No
             fail("unsupported_input", "该文件需要用例协作组解析，请使用用例分析入口", 422)
         if any(a["modality"] not in capability["modalities"] for a in inputs):
             fail("unsupported_input", "所选资料类型不符合任务能力，请更换任务类型或资料", 422)
+        reference_issues = []
+        if reference_batch is not None:
+            from ..casework.reference_batches import source_checks
+
+            profile = {"case_id": body["case_id"], "reference_batch": reference_batch}
+            reference_issues = [
+                check["message"]
+                for check in source_checks(profile, inputs, body["project_id"])
+                if not check["passed"]
+            ]
+            if reference_issues and body["mode"] == "cloud":
+                fail(
+                    "reference_inputs_unavailable",
+                    " ".join(reference_issues)
+                    + " 请从场景卡片使用演示样本，或在自定义任务中选择相符的验收范围和资料。",
+                    422,
+                )
         if body["mode"] == "cloud" and body["max_cost_cny"] <= 0:
             fail("invalid_budget", "云任务必须指定正数费用上限")
         if body["mode"] == "cloud" and os.environ.get("HANGZHI_OFFLINE", "false").lower() == "true":
@@ -1182,14 +1253,7 @@ def create_task(body, user, repository=None, *, preflight=False, task_case_id=No
             verify_team(workflow, agents, body["project_id"], body["case_id"])
         if preflight:
             warnings = ["网络连通不代表密钥或模型调用已验证"] if body["mode"] == "cloud" else []
-            if case_contract and case_contract["scope"] == "reference":
-                from ..casework.reference_batches import source_checks
-
-                warnings.extend(
-                    c["message"]
-                    for c in source_checks(case_contract, inputs, body["project_id"])
-                    if not c["passed"]
-                )
+            warnings.extend(reference_issues)
             return {
                 "ready": True,
                 "selected_agents": [

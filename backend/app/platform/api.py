@@ -302,6 +302,15 @@ def case_catalog(project_id: str, user: dict = read):
         return _project_case_catalog(project_id)
 
 
+@router.get("/casework/{case_id}/demo-sample", response_model=c.CaseDemoSample)
+def case_demo_sample(case_id: str, project_id: str, user: dict = read) -> dict:
+    from ..casework.team import catalog
+
+    if case_id not in catalog():
+        s.fail("unsupported_case", "用例不存在", 404)
+    return s.case_demo_sample(project_id, case_id, user, repo)
+
+
 def _project_case_catalog(project_id):
     from ..casework.executors.registry import validate_binding
     from ..casework.roles import contract

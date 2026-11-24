@@ -1,11 +1,12 @@
 import { HelpNote } from "./ui";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, post, put, idPath } from "./api";
 import { modeName, parseObject, splitList, taskTypes } from "./domain";
 import type { Item, Mutation } from "./types";
 import type { components } from "./generated/api";
 import { Field, FormModal, Modal } from "./ui";
 import { businessKey, businessLabels, caseBusiness } from "./agentBusiness";
+import { CaseDemoSample, type CaseChoice, type CustomCaseScope, type SampleRequest } from "./CaseDemoSample";
 import ToolParameters from "./ToolParameters";
 import WorkflowBuilder from "./WorkflowBuilder";
 import { workflowIssues } from "./workflowEditorModel";
@@ -539,7 +540,54 @@ export function AgentForm({
     </FormModal>
   );
 }
-export function TaskForm({
+type TaskFormProps = Common & {
+  assets: Item[];
+  workflows: Item[];
+  schedule?: boolean;
+  afterCreate?: (item: Item) => void;
+  initial?: Item;
+  caseProfiles?: Item[];
+  taskCapabilities?: Item[];
+  demoCase?: CaseChoice;
+  offline?: boolean;
+};
+
+export function TaskForm(props: TaskFormProps) {
+  const [choice, setChoice] = useState<CaseChoice | undefined>(props.demoCase);
+  const [editor, setEditor] = useState<{ initial?: Item; sourceTask?: string; revision: number }>({
+    initial: props.initial, revision: 0,
+  });
+  const applySample = useCallback((sourceTask: string, sample: SampleRequest) => {
+    if (!choice) return;
+    const initial = {
+      task_type: "case_analysis", case_id: choice.id, case_scope: "sample", mode: "cloud",
+      name: sample.name, goal: sample.goal, input_refs: sample.input_refs,
+      deadline_seconds: sample.deadline_seconds, max_cost_cny: sample.max_cost_cny,
+      max_revisions: sample.max_revisions, quality: sample.quality,
+      allow_partial: false, use_project_knowledge: false,
+    };
+    setEditor((previous) => ({ initial, sourceTask, revision: previous.revision + 1 }));
+    setChoice(undefined);
+  }, [choice]);
+  function customize(item: CaseChoice, scope: CustomCaseScope) {
+    const initial = {
+      task_type: "case_analysis", case_id: item.id, case_scope: scope, name: item.title,
+      goal: "根据授权资料完成" + item.title + "，列出证据与信息缺口。",
+      deadline_seconds: 1800, allow_partial: false,
+    };
+    setEditor((previous) => ({ initial, revision: previous.revision + 1 }));
+    setChoice(undefined);
+  }
+  if (choice) {
+    return <CaseDemoSample key={props.projectId + "/" + choice.id} projectId={props.projectId}
+      choice={choice} offline={!!props.offline} onSample={applySample}
+      onCustom={(scope) => customize(choice, scope)} onClose={props.onClose} />;
+  }
+  return <TaskEditor key={editor.revision} {...props} initial={editor.initial} sourceTask={editor.sourceTask}
+    onChooseCase={props.schedule ? undefined : setChoice} onCustomCase={customize} />;
+}
+
+function TaskEditor({
   projectId,
   assets,
   workflows,
@@ -550,14 +598,14 @@ export function TaskForm({
   initial,
   caseProfiles,
   taskCapabilities,
-}: Common & {
-  assets: Item[];
-  workflows: Item[];
-  schedule?: boolean;
-  afterCreate?: (item: Item) => void;
-  initial?: Item;
-  caseProfiles?: Item[];
-  taskCapabilities?: Item[];
+  offline,
+  sourceTask,
+  onChooseCase,
+  onCustomCase,
+}: TaskFormProps & {
+  sourceTask?: string;
+  onChooseCase?: (item: CaseChoice) => void;
+  onCustomCase: (item: CaseChoice, scope: CustomCaseScope) => void;
 }) {
   const [form, setForm] = useState<Item>({
     name: "",
@@ -614,11 +662,17 @@ export function TaskForm({
     return () => controller.abort();
   }, [projectId, taskCapabilities]);
   const capability = catalog.find((c) => c.id === form.task_type);
+  const caseChoice = (id: string): CaseChoice => ({
+    id, title: profiles.find((profile) => profile.id === id)?.title || id,
+  });
+  const [explicitScope, setExplicitScope] = useState<CustomCaseScope | undefined>(
+    initial?.case_scope === "project" || initial?.case_scope === "reference" ? initial.case_scope : undefined,
+  );
   const caseAssets =
     form.task_type === "case_analysis"
       ? assets.filter(
           (asset) =>
-            !asset.task_case_id &&
+            asset.project_id === projectId && !asset.task_case_id &&
             !asset.is_file_index &&
             asset.status === "active" &&
             new Date(asset.expires_at).getTime() > Date.now(),
@@ -739,6 +793,12 @@ export function TaskForm({
           能力目录读取失败：{catalogError}
         </p>
       )}
+      {sourceTask && form.task_type === "case_analysis" && form.case_id && (
+        <p>已载入本项目的演示样本。 <a target="_blank" rel="noopener noreferrer"
+          href={"/manage?" + new URLSearchParams({ view: "tasks", project: projectId, task: sourceTask })}>
+          查看来源任务
+        </a></p>
+      )}
       <div className="form-grid">
         <Field label="任务名称">
           <input
@@ -756,13 +816,16 @@ export function TaskForm({
               const mode = selected?.modes.includes(form.mode)
                 ? form.mode
                 : selected?.modes[0] || "local";
+              const leavingCase = form.task_type === "case_analysis";
+              if (leavingCase) setQuality({ min_records: 1, min_length: 1, required_fields: "" });
               setForm({
                 ...form,
+                ...(leavingCase && { case_id: "", case_scope: "reference", input_refs: [], name: "", goal: "" }),
                 task_type: e.target.value,
                 workflow_id: "",
                 mode,
                 use_project_knowledge:
-                  mode === "cloud" && form.use_project_knowledge,
+                  !leavingCase && mode === "cloud" && form.use_project_knowledge,
                 max_cost_cny: mode === "cloud" ? form.max_cost_cny || 1 : 0,
               });
             }}
@@ -792,9 +855,12 @@ export function TaskForm({
           <select
             required
             value={form.case_id || ""}
-            onChange={(e) =>
-              setForm({ ...form, case_id: e.target.value, workflow_id: "" })
-            }
+            onChange={(e) => {
+              const id = e.target.value;
+              if (id && onChooseCase && explicitScope) onCustomCase(caseChoice(id), explicitScope);
+              else if (id && onChooseCase) onChooseCase(caseChoice(id));
+              else setForm({ ...form, case_id: id, workflow_id: "", input_refs: [], ...(sourceTask && { name: "", goal: "" }) });
+            }}
           >
             <option value="">选择用例</option>
             {profiles.map((p) => (
@@ -810,10 +876,17 @@ export function TaskForm({
         <Field label="验收范围">
           <select
             value={form.case_scope || "reference"}
-            onChange={(e) => update("case_scope", e.target.value)}
+            onChange={(e) => {
+              const scope = e.target.value;
+              if (sourceTask && (scope === "project" || scope === "reference")) onCustomCase(caseChoice(form.case_id), scope);
+              else {
+                setExplicitScope(scope === "project" || scope === "reference" ? scope : undefined);
+                update("case_scope", scope);
+              }
+            }}
           >
             <option value="reference">参考用例的指定批次</option>
-            <option value="project">使用工作空间资料开展实际分析</option>
+            <option value="project">自定义项目资料（实际分析）</option>
             <option value="sample">缩小样本验证（不代表完整用例验收）</option>
           </select>
         </Field>
@@ -913,7 +986,7 @@ export function TaskForm({
               <option
                 key={mode}
                 value={mode}
-                disabled={!capability?.modes.includes(mode)}
+                disabled={!capability?.modes.includes(mode) || (offline && mode === "cloud")}
               >
                 {modeName(mode)}
               </option>

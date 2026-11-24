@@ -1509,6 +1509,54 @@
         }
       }
     },
+    "/api/v2/casework/{case_id}/demo-sample": {
+      "get": {
+        "summary": "Case Demo Sample",
+        "operationId": "case_demo_sample_api_v2_casework__case_id__demo_sample_get",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseDemoSample"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/casework/install": {
       "post": {
         "summary": "Install Cases",
@@ -4953,6 +5001,89 @@
           "mcp_servers"
         ],
         "title": "CapabilityCatalog"
+      },
+      "CaseDemoDraft": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "goal": {
+            "type": "string",
+            "title": "Goal"
+          },
+          "input_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Input Refs"
+          },
+          "max_cost_cny": {
+            "type": "number",
+            "title": "Max Cost Cny"
+          },
+          "max_revisions": {
+            "type": "integer",
+            "title": "Max Revisions"
+          },
+          "deadline_seconds": {
+            "type": "integer",
+            "title": "Deadline Seconds"
+          },
+          "quality": {
+            "$ref": "#/components/schemas/Quality"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "goal",
+          "input_refs",
+          "max_cost_cny",
+          "max_revisions",
+          "deadline_seconds",
+          "quality"
+        ],
+        "title": "CaseDemoDraft"
+      },
+      "CaseDemoSample": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "verified_task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified Task Id"
+          },
+          "request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CaseDemoDraft"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "available",
+          "verified_task_id",
+          "request"
+        ],
+        "title": "CaseDemoSample"
       },
       "ConfirmInterview": {
         "properties": {

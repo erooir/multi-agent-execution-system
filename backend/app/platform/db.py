@@ -229,6 +229,28 @@ class Repository:
         )
         return self.connection.execute(query).all()
 
+    def successful_case_sample_ids(self, project_id, case_id):
+        """Find candidate runs without loading unrelated task snapshots."""
+        if self.connection is None:
+            with self.engine.connect() as conn:
+                return Repository(engine=self.engine, connection=conn).successful_case_sample_ids(
+                    project_id, case_id
+                )
+        table = tables["tasks"]
+        payload = table.c.payload
+        query = (
+            select(table.c.id)
+            .where(
+                table.c.project_id == project_id,
+                table.c.status == "succeeded",
+                json_scalar(self.engine, payload, "request", "case_id") == case_id,
+                json_scalar(self.engine, payload, "request", "case_scope") == "sample",
+                json_scalar(self.engine, payload, "request", "mode") == "cloud",
+            )
+            .order_by(json_scalar(self.engine, payload, "finished_at").desc(), table.c.id)
+        )
+        return list(self.connection.execute(query).scalars())
+
     def operational_tasks(self, project_ids):
         """Read only scheduling/timing columns; do not materialize source snapshots."""
         if not project_ids:

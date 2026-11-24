@@ -418,6 +418,7 @@ class CaseDomainToolSession(NodeDomainToolSession):
 
 
 class DomainExecutor:
+    tool_session = CaseDomainToolSession
     executor_id = ""
     version = 1
     decision_model = AnalyzeDecision
@@ -543,7 +544,7 @@ async def run_domain_executor(executor: DomainExecutor, context: ExecutorContext
             raise TaskFailure("capability_version_changed", "冻结执行器或工具版本已变化") from None
         execution.before_model_request()
 
-    session = CaseDomainToolSession(context, binding, executor.project, executor.main_description(context))
+    session = executor.tool_session(context, binding, executor.project, executor.main_description(context))
     try:
         try:
             await session.initialize()
