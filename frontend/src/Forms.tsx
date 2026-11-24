@@ -887,7 +887,7 @@ function TaskEditor({
           >
             <option value="reference">参考用例的指定批次</option>
             <option value="project">自定义项目资料（实际分析）</option>
-            <option value="sample">缩小样本验证（不代表完整用例验收）</option>
+            <option value="sample">缩小样本验证</option>
           </select>
         </Field>
       )}
