@@ -8,8 +8,12 @@ from .geo_common import day, number, stamp
 
 
 def statistical_family(code):
-    """These three case profiles share the same monthly count product and source requirements."""
-    return "B05" if code in {"B13", "B14"} else code
+    """Group profiles that share the same input contract for independent checks."""
+    if code in {"B13", "B14"}:
+        return "B05"
+    if code in {"B12", "T15", "G11", "G12", "G13", "G14", "G16"}:
+        return "image_annotations"
+    return code
 
 
 def _annual(records):
@@ -340,6 +344,57 @@ def _observation_keys(code, records):
     return requests[:3]
 
 
+def _annotation_keys(inputs, records):
+    """Audit explicit identifiers within one row type. Several annotations may belong to one frame."""
+    from ..platform.analysis_tools import _records
+
+    identifiers = (
+        "annotation_id", "observation_id", "feature_id", "zone_id",
+        "frame_id", "panel_id", "scene_id", "image_id",
+    )
+    by_source = {}
+    for record in records:
+        by_source.setdefault(record["source_id"], []).append(record)
+    planned = []
+    for asset in inputs:
+        sid = asset["id"]
+        if sid not in by_source or (asset.get("bytes") or 0) > 10_000_000:
+            continue
+        # Reuse the registered tool's record/version and payload limits before suggesting a call.
+        sources = {sid: {**asset, "prepared_records": by_source[sid]}}
+        try:
+            rows = [r["fields"] for r in _records(sources.__getitem__, sid) if r["fields"].get("kind") != "policy"]
+        except ValueError:
+            continue
+        discriminator = next(
+            (key for key in ("kind", "type", "role") if any(key in row for row in rows)), None
+        )
+        groups = {}
+        for row in rows:
+            kind = row.get(discriminator) if discriminator else None
+            if discriminator and (
+                not isinstance(kind, str) or not 0 < len(kind) <= 100 or kind != kind.strip() or kind == "policy"
+            ):
+                continue
+            groups.setdefault(kind, []).append(row)
+        for kind, group in groups.items():
+            for field in identifiers:
+                values = [row.get(field) for row in group]
+                if not all(
+                    v is None or type(v) is int or isinstance(v, str) and len(v) <= 200 for v in values
+                ):
+                    continue
+                if any(type(v) is int or isinstance(v, str) and v.strip() for v in values):
+                    args = {"source_id": sid, "key_fields": [field]}
+                    if discriminator:
+                        args["where"] = {discriminator: kind}
+                    planned.append(("table.audit_keys", args))
+                    break
+            if len(planned) == 3:
+                return planned
+    return planned
+
+
 def requests(code, inputs, records, candidate=None):
     """Only material explicitly present in the frozen case can select a cross-check."""
     code = statistical_family(code)
@@ -348,6 +403,8 @@ def requests(code, inputs, records, candidate=None):
         return []
     planner = {"B05": _monthly, "T04": _projects, "G03": _annual, "G06": _grids, "G09": _routes}.get(code)
     try:
+        if code == "image_annotations":
+            return _annotation_keys(inputs, records)
         if code in {"G01", "G07"}:
             return _observation_keys(code, records)
         return planner(records) if planner else []

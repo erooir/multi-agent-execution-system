@@ -256,12 +256,24 @@ class CaseDomainToolSession(NodeDomainToolSession):
         )
         self.statistical_cross_checks = None
         family = statistical_family(context.code)
-        if context.stage == "analyze" and family in {"B05", "G01", "G03", "G07", "T04"}:
+        planned_only = {
+            "B05": (roles.TOTAL, roles.KEYS),
+            "G01": (roles.KEYS,),
+            "G03": (),
+            "G07": (roles.KEYS,),
+            "T04": (roles.TOTAL,),
+            "image_annotations": (roles.KEYS,),
+        }
+        if context.stage == "analyze" and family in planned_only:
             # Plan from the frozen prepare checkpoint before exposing tool schemas.
             # These are supported call arguments. Results still require a governed tool call.
-            options = statistical_requests(
-                context.code, context.execution.inputs, context.prepared["records"]
-            )
+            sources = context.execution.inputs
+            records = context.prepared["records"]
+            if family == "image_annotations":
+                sources = [source for source in sources if source.get("classification") == "public"]
+                public_ids = {source["id"] for source in sources}
+                records = [row for row in records if row["source_id"] in public_ids]
+            options = statistical_requests(context.code, sources, records)
             names = {spec["id"]: name for name, spec in self.tools.items()}
             self.statistical_cross_checks = [
                 {"tool": names[tool_id], "arguments": arguments}
@@ -269,13 +281,7 @@ class CaseDomainToolSession(NodeDomainToolSession):
                 if tool_id in names and len(json.dumps(arguments, ensure_ascii=False).encode()) <= 4096
             ]
             applicable_names = {item["tool"] for item in self.statistical_cross_checks}
-            planned_only = {
-                "B05": (roles.TOTAL, roles.KEYS),
-                "G01": (roles.KEYS,),
-                "G07": (roles.KEYS,),
-                "T04": (roles.TOTAL,),
-            }
-            for tool_id in planned_only.get(family, ()):
+            for tool_id in planned_only[family]:
                 if tool_id in names and names[tool_id] not in applicable_names:
                     del self.tools[names[tool_id]]
         self.tools[self.main_name] = {
@@ -360,6 +366,8 @@ class CaseDomainToolSession(NodeDomainToolSession):
                 "统计复算使用上述冻结资料支持的工具名称和原样参数。省略未列的可选字段。"
                 "没有匹配的复算参数时，依据主工具产物作答，不猜测字段或来源。"
             )
+            if statistical_family(self.context.code) == "image_annotations":
+                published["cross_check_guidance"] += "同一图幅或图像可有多条注记，重复标识只描述分组，不能单凭重复判定数据错误或去重。"
         return published
 
     def on_domain_result(self, operation, arguments, result, record, reader):
@@ -581,6 +589,11 @@ async def run_domain_executor(executor: DomainExecutor, context: ExecutorContext
                 "case_inputs": context.profile["profile"]["inputs"],
                 "required_outputs": context.profile["profile"]["outputs"],
                 "sources": source_catalog(context),
+                **(
+                    {"statistical_cross_checks": session.statistical_cross_checks}
+                    if context.stage == "analyze" and statistical_family(context.code) == "image_annotations"
+                    else {}
+                ),
                 "previous_outputs": executor.previous(context),
                 "repair": (
                     {

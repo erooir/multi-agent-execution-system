@@ -364,14 +364,28 @@ def test_case_key_audit_uses_located_ocr_rows_from_the_prepared_checkpoint():
     assert result["missing_key_count"] == 0
 
 
-async def test_model_selects_supplementary_tool_and_result_reaches_review(db, tmp_path, monkeypatch):
+@pytest.mark.parametrize("code", ["B03", "G13"])
+async def test_model_selects_supplementary_tool_and_result_reaches_review(db, tmp_path, monkeypatch, code):
     p = project(db)
     install(p["id"], ADMIN, db)
-    last, refs = _inputs(db, p, "B03", tmp_path, monkeypatch)
+    last, refs = _inputs(db, p, code, tmp_path, monkeypatch)
     rounds = []
 
     def choose(stage, main, tool_messages):
         if stage == "analyze" and _artifact(tool_messages[-1]["content"]):
+            if code == "G13":
+                raw = tool_messages[-1]["content"]
+                try:
+                    projection = json.loads(raw)
+                except json.JSONDecodeError:
+                    projection = ast.literal_eval(raw)
+                option = projection["data"]["statistical_cross_checks"][0]
+                assert option["arguments"] == {
+                    "source_id": refs[0], "key_fields": ["frame_id"], "where": {"kind": "driver_zone"},
+                }
+                prompt = next(msg["content"] for msg in rounds[-1]["messages"] if msg["role"] == "user")
+                assert json.loads(prompt)["statistical_cross_checks"] == projection["data"]["statistical_cross_checks"]
+                return option["tool"], option["arguments"]
             return "audit_keys", {"source_id": refs[0], "key_fields": ["image_id"]}
         return None
 
@@ -382,7 +396,7 @@ async def test_model_selects_supplementary_tool_and_result_reaches_review(db, tm
             p,
             last,
             task_type="case_analysis",
-            case_id="B03",
+            case_id=code,
             case_scope="sample",
             input_refs=refs,
             mode="cloud",

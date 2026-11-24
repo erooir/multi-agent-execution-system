@@ -44,6 +44,45 @@ def checks(case, src, candidate=None):
     return candidate, output
 
 
+@pytest.mark.parametrize("case", ["G11", "G12", "G13", "G14", "G16", "B12", "T15"])
+def test_annotation_audits_use_frozen_identifiers_scoped_to_each_row_type(case):
+    rows = [
+        {"kind": "policy", "dates": ["2024-01-01"]},
+        {"kind": "zone", "frame_id": "frame-a", "zone": "green"},
+        {"kind": "zone", "frame_id": "frame-a", "zone": "blue"},
+        {"kind": "image", "image_id": "image-a", "feature": "canopy"},
+        {"kind": "ocr", "text": "sample"},
+    ]
+    src = source(rows)
+    parsed, _ = extract([src], lambda _: None)
+    plans = role_analysis.requests(case, [src], parsed)
+    assert plans == [
+        ("table.audit_keys", {"source_id": src["id"], "key_fields": ["frame_id"], "where": {"kind": "zone"}}),
+        ("table.audit_keys", {"source_id": src["id"], "key_fields": ["image_id"], "where": {"kind": "image"}}),
+    ]
+    _, results = checks(case, src, candidate={"products": {}})
+    _, out, compared = results[0]
+    assert out["total_rows"] == 2 and out["conflict_groups"] == 1
+    assert compared == []  # Different annotations on the same frame are valid.
+    assert results[1][1]["total_rows"] == 1
+    _, args = plans[0]
+    operation = next(o for o in TOOLS if o.id == "table.audit_keys")
+    with pytest.raises(ValueError, match="does not exist"):
+        operation.execute(lambda _: {**src, "prepared_records": parsed}, operation.schema.model_validate({
+            **args, "key_fields": ["frame_id", "zone", "feature"],
+        }))
+
+
+def test_annotation_keys_require_a_readable_source_and_real_bounded_identifier():
+    src = source([{"kind": "zone", "frame_id": ["not a scalar"]}, {"kind": "zone", "label": "blue"}])
+    parsed, _ = extract([src], lambda _: None)
+    assert not role_analysis.requests("G13", [src], parsed)
+    parsed[0]["fields"]["frame_id"] = "frame-a"
+    assert role_analysis.requests("G13", [src], parsed)
+    parsed[0]["source_version"] = "other"
+    assert not role_analysis.requests("G13", [src], parsed)
+
+
 def test_hotspot_key_audit_reads_actual_observations_without_inventing_a_kind():
     rows = samples("G01")
     src = source(rows)
