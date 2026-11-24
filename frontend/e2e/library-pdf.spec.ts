@@ -1,15 +1,13 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
-test("知识库 PDF 深链登录后打开原件，主要资料和全部资料可切换", async ({
-  context,
-  page,
-}) => {
+async function mockLibrary(page: Page) {
   const user = { id: "reader", username: "reader", role: "reviewer" };
   const project = {
     id: "fixture-project",
     name: "合成资料项目",
     members: [user.id],
   };
+  const otherProject = { ...project, id: "other-project", name: "另一个合成项目" };
   const pdf = await page.pdf();
   const original = "/api/v2/data-assets/fixture-pdf/original";
   const preview = original + "?disposition=inline";
@@ -33,7 +31,7 @@ test("知识库 PDF 深链登录后打开原件，主要资料和全部资料可
     is_file_index: true,
   };
   let signedIn = false;
-  await context.route("**/api/**", async (route) => {
+  await page.context().route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/api/auth/login") {
       signedIn = true;
@@ -42,16 +40,15 @@ test("知识库 PDF 深链登录后打开原件，主要资料和全部资料可
     if (!signedIn)
       return route.fulfill({ status: 401, json: { detail: "请登录" } });
     if (url.pathname === "/api/auth/me") return route.fulfill({ json: user });
-    if (
-      url.pathname === "/api/v2/bootstrap" &&
-      url.searchParams.get("project_id") === project.id
-    ) {
+    const projectId = url.searchParams.get("project_id") ?? project.id;
+    const activeProject = [project, otherProject].find((item) => item.id === projectId);
+    if (url.pathname === "/api/v2/bootstrap" && activeProject) {
       return route.fulfill({
         json: {
           user,
-          projects: [project],
-          current_project_id: project.id,
-          data_assets: [asset, supplement],
+          projects: [project, otherProject],
+          current_project_id: activeProject.id,
+          data_assets: activeProject.id === project.id ? [asset, supplement] : [],
           tasks: [],
           agents: [],
           workflows: [],
@@ -77,14 +74,37 @@ test("知识库 PDF 深链登录后打开原件，主要资料和全部资料可
     }
     return route.fulfill({ status: 404, json: {} });
   });
+  return { user, project, otherProject, asset, supplement, original, preview };
+}
 
+async function signIn(page: Page, username: string) {
+  await page.getByLabel("用户名").fill(username);
+  await page.getByLabel("密码").fill("synthetic-password");
+  await page.getByRole("button", { name: "登录", exact: true }).click();
+}
+
+async function expectWorkdeskOverview(page: Page) {
+  const main = page.getByRole("main");
+  await expect(main.getByRole("heading", { name: "工作台", exact: true })).toBeVisible();
+  const topbar = page.getByRole("banner");
+  await expect(topbar.getByRole("button", { name: "工作台", exact: true })).toHaveClass(/is-active/);
+}
+
+test("直接打开管理入口登录后进入工作台总览", async ({ page }) => {
+  const { user, project } = await mockLibrary(page);
+  await page.goto("/manage");
+  await signIn(page, user.username);
+  await expectWorkdeskOverview(page);
+  await expect(page.getByRole("button", { name: new RegExp(project.name) })).toHaveAttribute("aria-current", "true");
+});
+
+test("知识库 PDF 深链登录后打开原件，可切换资料范围，刷新回到当前项目工作台", async ({ page }) => {
+  const { user, project, otherProject, asset, supplement, original, preview } = await mockLibrary(page);
   await page.goto(
     `/manage?view=library&tab=data&project=${project.id}&asset=${asset.id}`,
   );
-  await page.getByLabel("用户名").fill(user.username);
-  await page.getByLabel("密码").fill("synthetic-password");
   const inlineResponse = page.waitForResponse((r) => r.url().endsWith(preview));
-  await page.getByRole("button", { name: "登录", exact: true }).click();
+  await signIn(page, user.username);
   const detail = page.getByRole("dialog", { name: asset.name, exact: true });
   await expect(detail.locator("iframe")).toHaveAttribute("src", preview);
   expect((await inlineResponse).ok()).toBeTruthy();
@@ -107,4 +127,27 @@ test("知识库 PDF 深链登录后打开原件，主要资料和全部资料可
   await expect(index.getByRole("link", { name: "打开 PDF" })).toHaveCount(0);
   await scope.selectOption("primary");
   await expect(index).toHaveCount(0);
+
+  const nav = page.getByRole("navigation", { name: "主导航" });
+  const topbar = page.getByRole("banner");
+  await nav.getByRole("button", { name: "智能体·技能·连接器" }).click();
+  await expect(topbar.getByRole("button", { name: "智能体", exact: true })).toBeVisible();
+  const currentProject = page.getByRole("button", { name: new RegExp(otherProject.name) });
+  const projectLoaded = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === "/api/v2/bootstrap"
+      && url.searchParams.get("project_id") === otherProject.id && response.ok();
+  });
+  await currentProject.click();
+  await projectLoaded;
+  await expect(currentProject).toHaveAttribute("aria-current", "true");
+
+  await page.reload();
+  await expectWorkdeskOverview(page);
+  await expect(currentProject).toHaveAttribute("aria-current", "true");
+  await expect(detail).toHaveCount(0);
+  const params = new URL(page.url()).searchParams;
+  expect(params.get("view") ?? "workdesk").toBe("workdesk");
+  expect(params.get("tab") ?? "overview").toBe("overview");
+  expect(params.has("asset")).toBe(false);
 });

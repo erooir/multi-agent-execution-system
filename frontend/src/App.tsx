@@ -124,6 +124,14 @@ const roles: Record<string, string> = {
   operator: "项目操作员",
   reviewer: "只读观察员",
 };
+function managementPage(view: string | null): Page {
+  if (view === "agents") return "hub";
+  if (view === "workflows" || view === "overview") return "workdesk";
+  return view === "intake" || nav.some((item) => item.id === view)
+    ? (view as Page)
+    : "workdesk";
+}
+
 export default function App() {
   const [location, setLocation] = useState(window.location.pathname);
   useEffect(() => {
@@ -152,14 +160,9 @@ function ManagementApp() {
       (Bootstrap & { current_project_id: string | null }) | null
     >(null),
     [projectId, setProjectId] = useState(""),
-    [page, setPage] = useState<Page>(() => {
-      const view = new URLSearchParams(window.location.search).get("view");
-      if (view === "agents") return "hub";
-      if (view === "workflows") return "workdesk";
-      return view === "intake" || (view !== "overview" && nav.some((item) => item.id === view))
-        ? (view as Page)
-        : "workdesk";
-    }),
+    [page, setPage] = useState<Page>(() =>
+      managementPage(new URLSearchParams(window.location.search).get("view"))
+    ),
     [workdeskTab, setWorkdeskTab] = useState<WorkdeskTab>(() => {
       const params = new URLSearchParams(window.location.search);
       if (params.get("view") === "workflows") return "learning";
@@ -386,6 +389,12 @@ function ManagementApp() {
   function selectProject(id: string) {
     if (selectedProject.current === id) return;
     selectedProject.current = id;
+    const url = new URL(window.location.href);
+    url.searchParams.set("project", id);
+    for (const key of ["asset", "task", "task_case", "connector"]) {
+      url.searchParams.delete(key);
+    }
+    window.history.replaceState(window.history.state, "", url);
     setCaseTab("catalog");
     setAgentTool(null);
     setProjectId(id);
@@ -420,8 +429,7 @@ function ManagementApp() {
           setAuthError("");
           setData(null);
           setProjectId("");
-          const view = params.get("view");
-          setPage(nav.some((n) => n.id === view) ? (view as Page) : "overview");
+          setPage(managementPage(params.get("view")));
         }}
       />
     );
