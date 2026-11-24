@@ -105,7 +105,7 @@ test("流程调整可追溯原轮与复用节点，工具标签取自实际节�
   );
 });
 
-test("只有真实领域工具循环方法和模型同时存在才标识云端领域 Agent", () => {
+test("只有真实领域工具循环方法和模型同时存在才标识领域 Agent 的模型调用", () => {
   const output = {
     method: "domain_tool_agent",
     model: "real-model",

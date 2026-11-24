@@ -22,7 +22,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { api, ApiError, post, remove } from "./api";
-import { time, statusNames } from "./domain";
+import { modeName, time, statusNames } from "./domain";
 import { Confirm, Empty, ErrorLine } from "./ui";
 import { QuestionProducts } from "./QuestionProducts";
 import MonthlyResultChart from "./MonthlyResultChart";
@@ -459,8 +459,8 @@ function CreateTask({
           <label>
             处理方式
             <select value={mode} onChange={(e) => setMode(e.target.value)}>
-              <option value="cloud">云模型与本地工具</option>
-              <option value="local">仅本地能力</option>
+              <option value="cloud">{modeName("cloud")}</option>
+              <option value="local">{modeName("local")}</option>
             </select>
           </label>
           <label>
@@ -566,7 +566,10 @@ function TaskDetail({
       <section className="taskcase-card taskcase-overview">
         <div className="taskcase-row">
           <State status={task.status} />
-          <small>创建于 {time(task.created_at)}</small>
+          <small>
+            {task.mode && `${modeName(task.mode)} · `}
+            创建于 {time(task.created_at)}
+          </small>
         </div>
         <h2 className="taskcase-goal">{heading}</h2>
         {heading !== task.goal && <p className="taskcase-goal">{task.goal}</p>}

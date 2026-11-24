@@ -296,7 +296,7 @@ export default function ResourceManagement({
             )}
             <DetailCard title="耗时分布" icon={Clock}>
               {g && <LatencyRows title="模型请求" data={g.latency} />}
-              <LatencyRows title="本地任务" data={current.local.elapsed} />
+              <LatencyRows title="本地演练" data={current.local.elapsed} />
             </DetailCard>
             <section className="resource-card resource-deployment">
               <div className="resource-deployment-head">
@@ -319,7 +319,7 @@ export default function ResourceManagement({
                     ["同机模型请求并发上限", current.policy.model_slots],
                     ["单次上下文窗口", current.policy.context_tokens],
                     ["单次输出硬上限", current.policy.output_tokens],
-                    ["本地模式任务数", current.local.tasks],
+                    ["本地演练任务数", current.local.tasks],
                   ] as const
                 ).map(([label, value]) => (
                   <div key={label}>

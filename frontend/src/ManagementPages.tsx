@@ -13,7 +13,7 @@ import {
 import { api, idPath, post, put } from "./api";
 import CandidateEvidence from "./CandidateEvidence";
 import TaskAgentCandidates from "./TaskAgentCandidates";
-import { money, parseObject, splitList, taskTypes, time } from "./domain";
+import { modeName, money, parseObject, splitList, taskTypes, time } from "./domain";
 import type { Bootstrap, Item, Mutation, Notify, User } from "./types";
 import {
   Badge,
@@ -784,7 +784,7 @@ export function OperationsPage({
                           {c.available ? "已提供" : "尚未支持"}
                         </Badge>
                       </td>
-                      <td>{c.modes?.join(" / ") || "—"}</td>
+                      <td>{c.modes?.map(modeName).join(" / ") || "—"}</td>
                       <td>
                         <code>{c.tool_id}</code>
                         <small>{c.description}</small>

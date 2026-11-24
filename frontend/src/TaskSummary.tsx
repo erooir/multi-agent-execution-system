@@ -40,7 +40,7 @@ export default function TaskSummary({
             {request.case_id && ` · ${request.case_id} ${profile?.title || ""}`}
           </dd>
           <dt>执行模式</dt>
-          <dd>{modeName(request.mode)}</dd>
+          <dd>{modeName(request.mode || task.mode)}</dd>
           {request.task_type === "case_analysis" && (
             <>
               <dt>验收范围</dt>

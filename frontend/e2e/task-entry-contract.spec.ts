@@ -155,6 +155,16 @@ test("旧手工和计划仅提供支持的类型，普通任务仍走原接口�
     .getByRole("button", { name: "新建任务", exact: true })
     .click();
   const dialog = page.getByRole("dialog");
+  const mode = dialog.getByRole("combobox", { name: "执行模式" });
+  await expect(
+    mode.getByRole("option", { name: "本地演练", exact: true }),
+  ).toHaveAttribute("value", "local");
+  await expect(
+    mode.getByRole("option", { name: "模型调用", exact: true }),
+  ).toHaveJSProperty("disabled", true);
+  await expect(
+    mode.getByRole("option", { name: "配置演练 · 非推理结果", exact: true }),
+  ).toHaveAttribute("value", "rehearsal");
   await expect(dialog.getByLabel("任务类型")).toHaveValue(
     "structured_transform",
   );
@@ -180,7 +190,10 @@ test("旧手工和计划仅提供支持的类型，普通任务仍走原接口�
   expect(mutations[1].body).toMatchObject({
     project_id: projectId,
     task_type: "structured_transform",
+    mode: "local",
   });
+  await expect(page.locator(".task-strip")).toContainText("本地演练");
+  await expect(page.locator(".task-summary")).toContainText("本地演练");
   expect(mutations[1].body).not.toHaveProperty("input_refs");
 
   await page.getByRole("button", { name: "返回任务列表", exact: true }).click();
@@ -225,6 +238,8 @@ test("自主任务详情转入同项目工作台，不复制到旧提交接口�
     page.getByRole("button", { name: "复制为新任务", exact: true }),
   ).toHaveCount(0);
   await expect(page.getByText("自主任务分析", { exact: true })).toBeVisible();
+  await expect(page.locator(".task-strip")).toContainText("模型调用");
+  await expect(page.locator(".task-summary")).toContainText("模型调用");
   const link = page.getByRole("link", { name: "前往任务工作台新建" });
   await expect(link).toHaveAttribute("href", entry);
   await link.click();

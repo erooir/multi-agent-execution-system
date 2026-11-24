@@ -30,6 +30,7 @@ import {
 import { api, ApiError, post } from "./api";
 import { projectLabel } from "./projects";
 import {
+  modeName,
   money,
   projectItems,
   statusNames,
@@ -1032,7 +1033,7 @@ function Overview({
                     <strong>{t.name || t.request?.name || t.id}</strong>
                   </div>
                   {t.request?.mode === "rehearsal" && (
-                    <Badge status="rehearsal">演练</Badge>
+                    <Badge status="rehearsal">{modeName("rehearsal")}</Badge>
                   )}
                   <Badge status={t.status} />
                 </div>

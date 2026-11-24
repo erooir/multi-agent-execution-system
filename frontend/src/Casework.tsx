@@ -4,6 +4,7 @@ import { api, post } from "./api";
 import type { Item, Mutation } from "./types";
 import { SectionTitle, Empty } from "./ui";
 import { TaskForm } from "./Forms";
+import { verifiedCaseSamples } from "./caseSamples";
 import SemanticEvidence from "./SemanticEvidence";
 import { CaseRoleComparison, caseRoleAgent, RoleFacts } from "./CaseRoles";
 import "./case-catalog.css";
@@ -88,7 +89,7 @@ export default function Casework({
     [compareId, setCompareId] = useState("B06"),
     [family, setFamily] = useState("all"),
     [query, setQuery] = useState(""),
-    [profile, setProfile] = useState<Item | null>(null),
+    [draft, setDraft] = useState<Item | null>(null),
     [tab, setTab] = useState<CaseTab>(initialTab),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -167,14 +168,31 @@ export default function Casework({
       setBusy(false);
     }
   }
-  async function openCase(item: Item) {
+  const samples = verifiedCaseSamples(projectId, tasks, assets);
+  async function openCase(item: Item, sample?: Item) {
     if (!item.project_tools_current) {
       setOpeningCase(item.id);
       const ready = await provision(true, item.id);
       setOpeningCase(null);
       if (!ready) return;
     }
-    setProfile(item);
+    const request = sample?.request;
+    setDraft({
+      task_type: "case_analysis",
+      case_id: item.id,
+      name: request?.name ?? item.title,
+      goal: request?.goal ?? ("根据授权资料完成" + item.title + "，列出证据与信息缺口。"),
+      allow_partial: false,
+      deadline_seconds: request?.deadline_seconds ?? 1800,
+      max_revisions: request?.max_revisions ?? 1,
+      ...(request && {
+        mode: "cloud",
+        case_scope: "sample",
+        input_refs: [...request.input_refs],
+        max_cost_cny: request.max_cost_cny,
+        quality: request.quality,
+      }),
+    });
   }
   return (
     <>
@@ -363,6 +381,15 @@ export default function Casework({
                     </span>
                   </div>
                   <div className="cc-cta">
+                    {canEdit && !offline && samples.has(p.id) && (
+                      <button
+                        className="cc-ghost"
+                        disabled={!p.installed || busy}
+                        onClick={() => openCase(p, samples.get(p.id))}
+                      >
+                        使用已验证样本
+                      </button>
+                    )}
                     {canEdit && (
                       <button
                         className="cc-primary"
@@ -425,7 +452,7 @@ export default function Casework({
           onTask={onTask}
         />
       ) : null}
-      {profile && (
+      {draft && (
         <TaskForm
           caseProfiles={catalog}
           taskCapabilities={capabilities}
@@ -433,18 +460,10 @@ export default function Casework({
           assets={assets}
           workflows={workflows}
           mutate={mutate}
-          onClose={() => setProfile(null)}
-          initial={{
-            task_type: "case_analysis",
-            case_id: profile.id,
-            name: profile.title,
-            goal: "根据授权资料完成" + profile.title + "，列出证据与信息缺口。",
-            allow_partial: true,
-            deadline_seconds: 1800,
-            max_revisions: 1,
-          }}
+          onClose={() => setDraft(null)}
+          initial={draft}
           afterCreate={(t) => {
-            setProfile(null);
+            setDraft(null);
             onTask(t.id);
           }}
         />

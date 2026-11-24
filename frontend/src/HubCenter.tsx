@@ -841,7 +841,7 @@ export default function HubCenter({
                 </strong>
               </div>
               <div>
-                <span>已发布 · 本地 / 云端双模式</span>
+                <span>已发布 · 本地演练 / 模型调用</span>
                 <strong>
                   {
                     published.filter(
@@ -890,8 +890,8 @@ export default function HubCenter({
               >
                 <option value="all">全部执行方式</option>
                 <option value="fixed">固定流程执行</option>
-                <option value="tool_agent">云端工具循环（含双模式）</option>
-                <option value="dual">本地 / 云端双模式用例</option>
+                <option value="tool_agent">模型调用 · 工具循环（含双模式）</option>
+                <option value="dual">本地演练 / 模型调用双模式用例</option>
               </select>
               <select
                 aria-label="用例岗位分工"

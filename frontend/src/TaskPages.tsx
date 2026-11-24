@@ -528,7 +528,7 @@ function TaskDetail({
       />
       <div className="task-strip">
         <Badge status={task.status} />
-        <span>{modeName(task.request?.mode)}</span>
+        <span>{modeName(task.request?.mode || task.mode)}</span>
         <span>
           {task.request?.service_class === "interactive"
             ? "交互任务"

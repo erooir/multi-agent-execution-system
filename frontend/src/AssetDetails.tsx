@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ArrowUpRight, Bot } from "lucide-react";
 import type { Item } from "./types";
-import { taskTypes, time } from "./domain";
+import { modeName, taskTypes, time } from "./domain";
 import { Badge, Empty, Field, JsonView } from "./ui";
 import { ParameterSummary } from "./ToolParameters";
 import { changedVersionFields, versionFields } from "./workflowEditorModel";
@@ -101,7 +101,7 @@ export function AgentDetails({
           <span>当前定义的执行方式</span>
           <strong>
             {dualMode
-              ? "本地固定工具 + 云端领域工具循环"
+              ? "本地演练 / 模型调用"
               : agent.execution_strategy === "tool_agent"
                 ? "自主选择授权工具"
                 : "固定流程执行"}
@@ -110,12 +110,12 @@ export function AgentDetails({
             {dualMode
               ? offline
                 ? "同一资产按任务模式切换 · 离线部署云模型停用"
-                : "同一资产按任务模式切换 · 云端经统一网关计费"
+                : "同一资产按任务模式切换 · 模型调用经统一网关计费"
               : agent.model_policy === "local"
-                ? "本地确定性处理"
+                ? modeName("local")
                 : offline
                   ? "离线部署 · 云模型停用"
-                  : "统一网关 · 计入累计预算"}
+                  : "模型调用 · 统一网关计入累计预算"}
           </small>
         </section>
         <section>
@@ -300,9 +300,9 @@ function VersionValue({ field, value }: { field: string; value: any }) {
     return (
       <pre className="version-value">{JSON.stringify(value, null, 2)}</pre>
     );
+  if (field === "model_policy")
+    return <span className="version-text">{modeName(value)}</span>;
   const names: Record<string, string> = {
-    local: "本地工具",
-    cloud: "统一网关模型",
     general: "通用",
     specialized: "任务专用",
     atomic: "元智能体",

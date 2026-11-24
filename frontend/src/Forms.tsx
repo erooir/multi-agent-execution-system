@@ -1,7 +1,7 @@
 import { HelpNote } from "./ui";
 import { useEffect, useRef, useState } from "react";
 import { api, post, put, idPath } from "./api";
-import { parseObject, splitList, taskTypes } from "./domain";
+import { modeName, parseObject, splitList, taskTypes } from "./domain";
 import type { Item, Mutation } from "./types";
 import type { components } from "./generated/api";
 import { Field, FormModal, Modal } from "./ui";
@@ -176,7 +176,7 @@ export function AgentForm({
           label="运行方式"
           hint={
             dualMode
-              ? "同一用例资产在本地模式使用固定 role_tools，在云端模式使用领域 Agno 工具循环。"
+              ? "本地演练使用固定 role_tools，模型调用使用领域 Agno 工具循环。"
               : "工具型适用于云端文本分析和资料摘要，自主选择已授权工具。"
           }
         >
@@ -222,7 +222,7 @@ export function AgentForm({
             <option value="fixed">固定流程执行</option>
             <option value="tool_agent" disabled={!extensions.tools.length}>
               {dualMode
-                ? "双模式用例 · 本地固定工具 / 云端领域 Agent"
+                ? "双模式用例 · 本地演练 / 模型调用"
                 : "自主工具型智能体"}
             </option>
           </select>
@@ -240,8 +240,8 @@ export function AgentForm({
             value={form.model_policy}
             onChange={(e) => update("model_policy", e.target.value)}
           >
-            <option value="local">本地确定性工具</option>
-            <option value="cloud">统一网关模型</option>
+            <option value="local">{modeName("local")}</option>
+            <option value="cloud">{modeName("cloud")}</option>
           </select>
         </Field>
         <Field label="用途分类">
@@ -909,24 +909,15 @@ export function TaskForm({
               })
             }
           >
-            <option
-              value="local"
-              disabled={!capability?.modes.includes("local")}
-            >
-              本地执行 · 不调用云模型
-            </option>
-            <option
-              value="cloud"
-              disabled={!capability?.modes.includes("cloud")}
-            >
-              云端模型 · 计入累计预算
-            </option>
-            <option
-              value="rehearsal"
-              disabled={!capability?.modes.includes("rehearsal")}
-            >
-              配置演练 · 非推理结果
-            </option>
+            {["local", "cloud", "rehearsal"].map((mode) => (
+              <option
+                key={mode}
+                value={mode}
+                disabled={!capability?.modes.includes(mode)}
+              >
+                {modeName(mode)}
+              </option>
+            ))}
           </select>
         </Field>
         <Field label="复用流程">
@@ -1107,6 +1098,9 @@ export function TaskForm({
         {preview && (
           <div role="status">
             <strong>预检查通过</strong>
+            {preview.warnings?.map((message) => (
+              <p key={message} className="warning">{message}</p>
+            ))}
             <div className="tags">
               {preview.selected_agents?.map((agent) => (
                 <span key={String(agent.agent_id)}>

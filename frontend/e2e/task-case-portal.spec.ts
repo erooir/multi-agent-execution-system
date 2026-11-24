@@ -129,6 +129,7 @@ async function install(
       posted.push({ path: pathname, data });
       task = initial({
         goal: data.goal,
+        mode: data.mode,
         public_egress_authorized: data.public_egress_authorized,
         ...(options.noData
           ? { status: "ready", requirements: [], missing: [] }
@@ -614,6 +615,15 @@ test("异步资料需求分析完成后由服务自动续跑，浏览器只轮�
 test("无需参考数据的任务授权后直接执行，不要求上传空资料", async ({ page }) => {
   const contract = await install(page, { noData: true });
   await page.goto("/");
+  await page.getByText("执行设置", { exact: true }).click();
+  const mode = page.getByRole("combobox", { name: "处理方式" });
+  await expect(mode).toHaveValue("cloud");
+  await mode.selectOption({ label: "本地演练" });
+  await expect(mode).toHaveValue("local");
+  await expect(
+    page.getByRole("checkbox", { name: /允许平台通过统一网关/ }),
+  ).toHaveCount(0);
+  await mode.selectOption({ label: "模型调用" });
   await page
     .getByLabel("任务目标", { exact: true })
     .fill("用通俗语言解释中位数和平均数的区别");
@@ -629,6 +639,12 @@ test("无需参考数据的任务授权后直接执行，不要求上传空资�
     "/api/v2/task-cases/case-synthetic/start",
   ]);
   expect(contract.posted[0].data).not.toHaveProperty("case_id");
+  expect(contract.posted[0].data).toMatchObject({
+    mode: "cloud",
+    max_cost_cny: 2,
+    public_egress_authorized: true,
+  });
+  await expect(page.locator(".taskcase-overview")).toContainText("模型调用");
   expect(contract.posted[0].data).not.toHaveProperty("workflow_id");
   expect(contract.posted[0].data).not.toHaveProperty("agent_id");
 });

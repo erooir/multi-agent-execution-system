@@ -39,7 +39,7 @@ export function NodeExecutionFacts({ node }: { node?: Item }) {
       <dt>节点执行方式</dt>
       <dd>
         {isDomainToolAgentNode(node)
-          ? "云端领域 Agent · domain_tool_agent"
+          ? "模型调用 · 领域 Agent · domain_tool_agent"
           : output.method || "未记录"}
       </dd>
       <dt>实际执行器</dt>

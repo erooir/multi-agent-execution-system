@@ -61,12 +61,12 @@ export function RoleFacts({
         {dualMode && (
           <>
             <dt>双模式执行</dt>
-            <dd>同一资产：本地固定 role_tools；云端领域 Agno 工具循环。</dd>
-            <dt>本地执行器</dt>
+            <dd>本地演练使用固定 role_tools，模型调用使用领域 Agno 工具循环。</dd>
+            <dt>本地演练执行器</dt>
             <dd>
               <code>{local.id}</code> · v{local.version}
             </dd>
-            <dt>云端领域执行器</dt>
+            <dt>模型调用执行器</dt>
             <dd>
               <code>{cloud.id}</code> · v{cloud.version}
             </dd>

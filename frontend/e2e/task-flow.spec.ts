@@ -52,7 +52,7 @@ test("真实浏览器：上游接入、失败保留、任务完成、双视角�
   await expect(
     dialog
       .getByRole("combobox", { name: "执行模式", exact: true })
-      .getByRole("option", { name: "云端模型 · 计入累计预算" }),
+      .getByRole("option", { name: "模型调用", exact: true }),
   ).toHaveJSProperty("disabled", true);
   await dialog.getByLabel("任务时效类型").selectOption("interactive");
   await dialog

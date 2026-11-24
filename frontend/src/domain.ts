@@ -1,14 +1,10 @@
 import type { Item } from "./types.ts";
-export const modeName = (mode: string) =>
-  (
-    ({
-      local: "本地工具",
-      cloud: "网关模型",
-      rehearsal: "演练 · 非推理",
-    }) as Record<string, string>
-  )[mode] ||
-  mode ||
-  "—";
+const modeLabels: Record<string, string> = {
+  local: "本地演练",
+  cloud: "模型调用",
+  rehearsal: "配置演练 · 非推理结果",
+};
+export const modeName = (mode: string) => modeLabels[mode] || mode || "—";
 export const taskTypes: Record<string, string> = {
   autonomous_analysis: "自主任务分析",
   case_analysis: "用例任务",

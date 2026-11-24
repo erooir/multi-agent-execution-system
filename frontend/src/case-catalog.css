@@ -303,6 +303,7 @@
   z-index: 1;
   margin-top: auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding-top: 10px;
