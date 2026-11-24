@@ -180,6 +180,57 @@ def test_concurrent_write_is_http_conflict():
     assert response.json()["detail"]["code"] == "concurrent_write"
 
 
+def test_case_artifact_findings_require_visible_sources_and_no_hard_failure(db):
+    p = project(db)
+    source = asset(db, p)
+    task = service.create_task(task_body(p, source), ADMIN, db)
+    content = {
+        "case_id": "T11",
+        "scope": "sample",
+        "title": "合成民航测试",
+        "products": {
+            "milestones": [
+                {
+                    "project": "合成民航项目",
+                    "status": "new_event",
+                    "event_type": "milestone",
+                    "event_date": "2004-02-05",
+                    "report_dates": ["2004-02-08"],
+                    "evidence_ids": ["e1"],
+                }
+            ],
+        },
+        "review": [{"name": "milestone_dates", "passed": True, "hard": True}],
+        "evidence": [{"id": "e1", "source_id": source["id"], "source_version": "1", "location": {"row": 1}}],
+        "gaps": [],
+    }
+    artifact = db.put(
+        "artifacts",
+        {
+            "project_id": p["id"],
+            "task_id": task["id"],
+            "source_refs": [source["id"]],
+            "type": "case_report",
+            "content": content,
+        },
+    )
+    path = f"/api/v2/artifacts/{artifact['id']}"
+    with TestClient(application()) as client:
+        ready = client.get(path)
+        assert ready.status_code == 200
+        note = " ".join(ready.json()["brief_findings"])
+        assert "2004-02-05" in note and "e1" in note
+        assert "brief_findings" not in db.get("artifacts", artifact["id"])
+        hard_failure = {**content, "review": [{"name": "milestone_dates", "passed": False, "hard": True}]}
+        saved = db.put("artifacts", {**artifact, "content": hard_failure})
+        assert not client.get(path).json().get("brief_findings")
+        db.put("artifacts", {**saved, "content": content})
+        service.revoke_asset(source["id"], ADMIN, db)
+        for resource in (path, path + "/case-package"):
+            blocked = client.get(resource)
+            assert blocked.status_code == 409 and "2004-02-05" not in blocked.text
+
+
 async def test_withdrawn_sources_hidden_on_all_collection_paths(db):
     p = project(db)
     a = asset(db, p, [{"private_marker": "WITHDRAWN_SENTINEL"}])

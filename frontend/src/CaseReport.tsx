@@ -168,10 +168,12 @@ function Product({ value }: { value: any }) {
 
 export default function CaseReport({
   content,
+  findings = [],
   calls = [],
   onCall,
 }: {
   content: Item;
+  findings?: string[];
   calls?: Item[];
   onCall?: (id: string) => void;
 }) {
@@ -204,6 +206,14 @@ export default function CaseReport({
             ))}
           </ul>
         </div>
+      )}
+      {findings.length > 0 && (
+        <section aria-label="主要发现">
+          <h4>主要发现</h4>
+          <ul>
+            {findings.map((note, i) => <li key={i}>{note}</li>)}
+          </ul>
+        </section>
       )}
       {Object.entries(content.products || {}).map(([k, v], i) => (
         <details key={k} open={i === 0}>

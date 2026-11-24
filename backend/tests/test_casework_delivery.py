@@ -61,7 +61,9 @@ def test_report_reuses_actual_located_values_and_indexes_every_generated_file():
             "report_window": {"published_date": {"value": "2000-03-02", "evidence_ids": ["e2"]}},
         }
     )
-    with unpack(bundle(r, {"task_id": "t1", "status": "succeeded", "secret": "do-not-persist"})) as z:
+    metadata = {"task_id": "t1", "status": "succeeded", "secret": "do-not-persist"}
+    source_names = {"sample-a": "社区观察记录", "unreferenced": "其他来源不应出现在简报中"}
+    with unpack(bundle(r, metadata, source_names=source_names)) as z:
         manifest = json.loads(z.read("manifest.json"))
         for f in manifest["files"]:
             data = z.read(f["name"])
@@ -70,10 +72,65 @@ def test_report_reuses_actual_located_values_and_indexes_every_generated_file():
         assert payload["products"] == r["products"] and payload["evidence"] == r["evidence"]
         assert "secret" not in payload["task"] and payload["task"]["task_id"] == "t1"
         text = word(z)
+        assert "社区观察记录" in text and source_names["unreferenced"] not in text
+        assert "source_names" not in payload["task"] and payload["evidence"][0]["source_id"] == "sample-a"
         assert "本期数量为13，上期为17，差额为-4" in text and "〔e1〕" in text and "2000-03-02" in text
         assert "13起" not in text
         evidence = list(csv.DictReader(io.StringIO(z.read("evidence.csv").decode("utf-8-sig"))))
         assert json.loads(evidence[1]["location"]) == {"row": 7}
+
+
+def test_milestone_brief_includes_the_last_event_with_its_distinct_publication_dates_and_evidence():
+    milestones = [
+        {
+            "project": "合成民航项目",
+            "event_type": "milestone",
+            "event_date": f"2001-03-0{i}",
+            "status": "new_event",
+            "report_dates": [f"2001-04-0{i}", f"2001-05-0{i}"],
+            "evidence_ids": [f"E{i}"],
+        }
+        for i in range(1, 4)
+    ]
+    r = report("T11", {"milestones": milestones})
+    r["evidence"] = [
+        {"id": f"E{i}", "source_id": "civil-timeline", "source_version": "v3", "location": {"row": i}}
+        for i in range(1, 4)
+    ]
+    with unpack(bundle(r)) as z:
+        doc = Document(io.BytesIO(z.read("brief.docx")))
+        rows = [" ".join(cell.text for cell in row.cells) for table in doc.tables for row in table.rows]
+        for row in milestones:
+            fields = [row["event_date"], *row["report_dates"], *row["evidence_ids"]]
+            assert any(all(field in line for field in fields) for line in rows)
+        text = word(z)
+        assert "civil-timeline" in text and "v3" in text
+        assert json.loads(z.read("report.json"))["products"]["milestones"] == milestones
+
+
+def test_meeting_brief_preserves_timed_speech_and_transcript_only_material():
+    cue = {
+        "topic": "开放时间",
+        "speaker": "馆长",
+        "turn_type": "answer",
+        "text": "The library opens on Monday.",
+        "translation_zh": "图书馆周一开放。",
+        "start_ms": 2410,
+        "end_ms": 6930,
+        "evidence_ids": ["e1"],
+    }
+    additions = [
+        {"speaker": "记录员", "text": "借阅规则将于下周送审。", "evidence_ids": ["e2"]},
+        {"speaker": "记录员", "text": "周三发放首批借书证。", "evidence_ids": ["e2"]},
+        {"speaker": "记录员", "text": "儿童阅览区将在六月单独开放。", "evidence_ids": ["e2"]},
+    ]
+    products = {"timed_index": [cue], "transcript_only": additions}
+    with unpack(bundle(report("B04", products))) as z:
+        text = word(z)
+        assert all(value in text for value in (cue["text"], cue["translation_zh"], "2410", "6930"))
+        assert all(row["text"] in text for row in additions)
+        assert "sample-a" in text and "sample-b" in text
+        assert json.loads(z.read("report.json"))["products"] == products
 
 
 def test_chart_brief_preserves_figure_coverage_values_time_kinds_and_source_rows():
@@ -402,7 +459,7 @@ def test_hard_review_failure_preserves_diagnostics_without_promoting_candidate_t
     )
     with unpack(bundle(r, {"status": "failed"})) as z:
         text = word(z)
-        assert "强制核验" in text and "数值与原件不符" in text and "本期数量为900" not in text
+        assert "强制核验" in text and "数值与原件不符" in text and "900" not in text
         assert json.loads(z.read("report.json"))["products"] == r["products"]
 
 
@@ -419,7 +476,18 @@ def test_export_preserves_acceptance_scope_and_located_machine_reading():
         assert result["scope"] == "sample" and result["reading_aids"] == r["reading_aids"]
         assert result["reading_notes"] == r["reading_notes"] and result["reference_batch"] is None
         rendered = word(archive)
-        assert "缩小样本验证" in rendered and "合成阅读线索" in rendered and "数值原文未核实" in rendered
+        assert "合成阅读线索" in rendered and "数值原文未核实" in rendered
+
+
+@pytest.mark.parametrize(("code", "extra"), [("B01", "bulletin.docx"), ("T01", "reading-card.docx")])
+def test_sample_scope_boilerplate_is_removed_from_all_word_exports(code, extra):
+    r = {**report(code), "scope": "sample"}
+    with unpack(bundle(r)) as archive:
+        for name in ("brief.docx", extra):
+            text = word(archive, name)
+            assert "样本" in text
+            assert "验收范围：缩小样本验证" not in text and "不代表完整参考用例验收" not in text
+        assert json.loads(archive.read("report.json"))["scope"] == "sample"
 
 
 def test_bulletin_distinguishes_field_observations_hearsay_assessments_and_absent_entries():
@@ -509,7 +577,6 @@ def test_paper_card_separates_actual_measurement_model_limits_and_successful_tra
                 "模型结果　模型估计九个颗粒",
                 "适用限制　未提取",
                 "另一段否定词未保留",
-                "缩小样本验证",
                 "S2/e1·第3页",
                 "以原文为准",
             )

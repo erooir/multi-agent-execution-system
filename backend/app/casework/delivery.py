@@ -13,7 +13,9 @@ from .delivery_files import csv_table, derived_files, encoded_json
 from .delivery_trend import monthly_figures
 
 
-def bundle(report: dict, metadata: dict | None = None) -> bytes:
+def bundle(
+    report: dict, metadata: dict | None = None, *, source_names: dict[str, str] | None = None
+) -> bytes:
     """Export case_report.content; no filesystem, network, model, or DB side effects.
 
     The caller is responsible for the authenticated artifact and live source checks.
@@ -73,7 +75,7 @@ def bundle(report: dict, metadata: dict | None = None) -> bytes:
         figures, skipped = monthly_figures(content["products"], content["evidence"])
         extras.extend(figures)
         omitted.extend(skipped)
-    brief = document_bytes(content, selected)
+    brief = document_bytes(content, selected, source_names=source_names)
     sources = csv_table(
         [
             {

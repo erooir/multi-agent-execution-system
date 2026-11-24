@@ -984,7 +984,28 @@ def artifact_record(artifact_id, user):
 
 @router.get("/artifacts/{artifact_id}")
 def artifact(artifact_id: str, user: dict = read):
-    return artifact_record(artifact_id, user)
+    record = artifact_record(artifact_id, user)
+    report = record.get("content")
+    if record["type"] != "case_report" or record.get("content_withheld") or not isinstance(report, dict):
+        return record
+    review = report.get("review")
+    if (
+        not review
+        or not isinstance(report.get("products"), dict)
+        or any(
+            not isinstance(check, dict) or check.get("hard") and not check.get("passed") for check in review
+        )
+    ):
+        return record
+    from ..casework.delivery_brief import clean, findings
+
+    try:
+        notes = [clean(note, 700) for note in findings(report)]
+    except (KeyError, TypeError, ValueError, AttributeError, IndexError):
+        # Older report shapes are still readable even when they have no supported brief projection.
+        s.log.warning("Could not present brief findings for artifact %s", artifact_id)
+        return record
+    return {**record, "brief_findings": notes}
 
 
 @router.get("/artifacts/{artifact_id}/download")
@@ -1009,9 +1030,12 @@ def case_package(artifact_id: str, user: dict = read):
     if record["type"] != "case_report" or not record.get("content"):
         s.fail("unsupported_output", "当前产物不是可交付的用例报告", 422)
     task = s.required("tasks", record["task_id"], user)
+    frozen_inputs = (task.get("snapshot") or {}).get("inputs") or []
+    source_names = {a["id"]: a["name"] for a in frozen_inputs if a.get("id") and a.get("name")}
     payload = bundle(
         record["content"],
         {"task_id": task["id"], "name": task["name"], "status": task["status"], "revision": task["revision"]},
+        source_names=source_names,
     )
     artifact_record(artifact_id, user)
     return Response(

@@ -96,6 +96,7 @@ test("用例任务：真实提交、三节点审核、来源证据与智能体�
   expect(finding.tool_call_id).toBeTruthy();
   await page.getByRole("button", { name: /^结果与产物/ }).click();
   await page.getByRole("button", { name: "查看内容", exact: true }).click();
+  await expect(page.getByRole("region", { name: "主要发现" })).toContainText("2004");
   await page
     .locator("summary")
     .filter({ hasText: "注册工具的实际观测" })

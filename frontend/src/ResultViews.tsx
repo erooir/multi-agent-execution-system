@@ -145,7 +145,7 @@ export function ArtifactContent({
         >
           下载报告、数据表和图层
         </a>
-        <CaseReport content={content} calls={calls} onCall={onCall} />
+        <CaseReport content={content} findings={artifact.brief_findings} calls={calls} onCall={onCall} />
       </>
     );
   const columns = rows ? tableColumns(rows) : [];

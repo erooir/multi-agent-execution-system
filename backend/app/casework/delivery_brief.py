@@ -1,6 +1,7 @@
 """A readable, bounded Chinese brief over the actual audited observations."""
 
 import io
+import json
 import re
 from itertools import islice, zip_longest
 
@@ -11,6 +12,8 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 from PIL import Image, ImageDraw, ImageFont
+
+from .delivery_rows import product_sections
 
 LABELS = {
     "extent": "海冰范围",
@@ -209,6 +212,111 @@ LABELS = {
     "reported": "转述",
     "assessed": "材料评估",
     "observed": "材料观察",
+    "report_dates": "报道日期",
+    "event_time": "事件发生时间",
+    "formed_at": "记录形成时间",
+    "published_at": "公布时间",
+    "declassified_at": "解密时间",
+    "baseline": "基线事件",
+    "event_count": "事件数",
+    "channel": "发布渠道",
+    "recipient": "接收方",
+    "time_precision": "时间精度",
+    "frame": "图幅",
+    "frame_id": "图幅编号",
+    "image_id": "图像编号",
+    "width": "图宽",
+    "height": "图高",
+    "sensor": "传感器",
+    "annotations": "图像注记",
+    "bbox": "标注范围",
+    "bbox_xywh": "标注范围",
+    "coordinate_space": "坐标单位",
+    "feature": "特征",
+    "location_in_image": "图内位置",
+    "items": "记录",
+    "commitment": "事项",
+    "definitions": "定义",
+    "definition": "指标定义",
+    "cutoff": "统计截至",
+    "series": "分期数据",
+    "comparable": "口径可比",
+    "observed_at": "观测时间",
+    "available_at": "资料可用时间",
+    "observations_count": "观察数",
+    "value_text": "记录值",
+    "numeric_value": "可计量数值",
+    "analyte": "检测项",
+    "status_counts": "状态统计",
+    "event_at": "事件时间",
+    "comparable_value": "可比值",
+    "qualifier": "限定符",
+    "sample_id": "样本编号",
+    "medium": "介质",
+    "detection_limit": "检出限",
+    "validation": "质控",
+    "script": "对照逐字稿",
+    "alignment": "文本对齐",
+    "similarity": "相似度",
+    "media_id": "媒体编号",
+    "parameter": "参数",
+    "data_as_of": "统计时点",
+    "recommendation": "建议编号",
+    "lake_id": "湖泊编号",
+    "area": "面积",
+    "change_pct": "变化率（%）",
+    "research_question": "研究问题",
+    "literature_card": "研究资料",
+    "measurements": "实测结果",
+    "model_results": "模型结果",
+    "supplied_value": "资料记载",
+    "bibliography": "文献信息",
+    "authors": "作者",
+    "institution": "机构",
+    "report": "报告",
+    "claims": "来源陈述",
+    "ocr_lines": "识读文字",
+    "reference_fields": "档案索引",
+    "reference_records": "参考条目",
+    "class": "类别",
+    "field": "字段",
+    "groups": "分组",
+    "extent_unit": "范围单位",
+    "coverage_complete": "覆盖完整",
+    "panel": "图幅",
+    "computed": "按明细加总",
+    "agrees": "是否一致",
+    "missing_months": "缺失月份",
+    "archival_name": "馆藏名称",
+    "label": "标注名称",
+    "stage": "阶段",
+    "road_id": "道路编号",
+    "observed_length_m": "观测长度（米）",
+    "potential_exposure_m": "潜在暴露长度（米）",
+    "observation_dates": "观测日期",
+    "flood_m2": "积水面积（平方米）",
+    "trace_m2": "痕迹面积（平方米）",
+    "unobserved_m2": "未观测面积（平方米）",
+    "block": "分区",
+    "building_id": "建筑编号",
+    "grid_id": "网格",
+    "sample_count": "样本数",
+    "cycle": "循环次数",
+    "cell": "电池样本",
+    "capacity": "容量",
+    "capacity_unit": "容量单位",
+    "resistance": "内阻",
+    "resistance_unit": "内阻单位",
+    "temperature": "温度",
+    "load": "负载",
+    "conditions": "试验条件",
+    "population": "适用样本",
+    "total_cost": "总成本",
+    "contribution": "贡献额",
+    "currency": "币种",
+    "theme": "主题",
+    "driver": "变化因素",
+    "recommendation_status": "建议状态",
 }
 STATUSES = {
     "observed": "有观测",
@@ -232,6 +340,16 @@ STATUSES = {
     "abstain": "证据不足",
     "supported_candidate": "有来源支持的候选",
     "source_record": "来源记录",
+    "type_certificate": "型号合格证",
+    "first_delivery": "首次交付",
+    "milestone": "里程碑",
+    "baseline": "基线",
+    "new_event": "新增事件",
+    "repeat_report": "重复报道",
+    "first_flight": "首次飞行",
+    "aligned": "已对齐",
+    "question": "提问",
+    "answer": "回答",
 }
 INVALID_XML = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]")
 HEAVY = {
@@ -471,7 +589,7 @@ def findings(report):
     products = report["products"]
     code = report["case_id"]
     notes = []
-    if code == "B01":
+    if code in {"B01", "B11", "B15"}:
         for r in products.get("observations") or []:
             notes.append(
                 f"{show(r.get('region'))}在本报告范围内，本期数量为{show(r.get('count'))}，上期为{show(r.get('previous'))}，差额为{show(r.get('change'))}。"
@@ -481,7 +599,7 @@ def findings(report):
         for k in ("published_date", "observed_until", "timezone"):
             if isinstance(window.get(k), dict):
                 notes.append(f"{LABELS[k]}：{show(window[k].get('value'))}。" + cite(refs(window[k])))
-    elif code == "B05":
+    elif code in {"B05", "B13", "B14"}:
         for r in products.get("reconciliation") or []:
             calc = r.get("computed")
             reported = r.get("reported")
@@ -500,8 +618,81 @@ def findings(report):
         ]
         if months:
             notes.append(f"{show(months, 100)}的覆盖未确认为完整自然月，不直接进行整月趋势比较。")
-    elif code in {"B08", "B10", "T08"}:
+    elif code in {"B08", "B10", "B17", "T08"}:
         notes.extend(matrix_findings(products.get("matrix") or []))
+    elif code in {"T02", "T11", "T13", "T14"}:
+        events = products.get("milestones") or []
+        for row in events[:6]:
+            dates = row.get("report_dates") or []
+            event = f"{show(row.get('project'), 60)}的{show(row.get('event_type'), 45)}"
+            timing = f"事件日期为{show(row.get('event_date'), 48)}"
+            if dates:
+                timing += f"，报道日期为{show(dates, 130)}"
+            status = f"，在本次对照中列为{show(row['status'], 48)}" if row.get("status") else ""
+            notes.append(f"{event}，{timing}{status}。" + cite(refs(row)))
+        if len(events) > 6:
+            notes.append(f"共核对{len(events)}个事件。完整日期与出处见 report.json 的 products.milestones。")
+    elif code == "B07":
+        for row in (products.get("comparison") or [])[:5]:
+            series = row.get("series") or []
+            if not series:
+                continue
+            label = f"{show(row.get('region'), 60)}的{show(row.get('indicator'), 60)}"
+            parts = [
+                f"截至{show(point.get('cutoff'), 48)}记录{show(point.get('value'))}{show(point.get('unit') or '')}"
+                + cite(refs(point))
+                for point in series[:4]
+            ]
+            note = f"{label}，" + "，".join(parts) + "。"
+            if row.get("comparable") is True and row.get("change") is not None:
+                note += f"按可比口径计算，变动为{show(row['change'])}{show(series[-1].get('unit') or '')}。"
+            elif row.get("reasons"):
+                note += f"比较受限，{show(row['reasons'], 140)}。"
+            notes.append(note)
+    elif code in {"B04", "T07"}:
+        for row in (products.get("timed_index") or [])[:5]:
+            text = row.get("translation_zh") or row.get("text")
+            if text:
+                note = f"{show(row.get('speaker') or '未署名发言人', 55)}"
+                if row.get("turn_type"):
+                    note += f"（{show(row['turn_type'], 35)}）"
+                if row.get("topic"):
+                    note += f"谈及“{show(row['topic'], 60)}”"
+                if row.get("start_ms") is not None and row.get("end_ms") is not None:
+                    note += f"，回听区间 {show(row['start_ms'])}–{show(row['end_ms'])} 毫秒"
+                note += f"：“{show(text, 175)}”"
+                if row.get("alignment"):
+                    note += f"。与逐字稿对照：{show(row['alignment'], 48)}"
+                notes.append(note + cite(refs(row)))
+    elif code in {"B09", "B16", "T17"}:
+        for row in (products.get("timeline") or [])[:6]:
+            parts = [
+                f"{label}{show(row[key], 45)}"
+                for key, label in (
+                    ("event_time", "事件发生于"),
+                    ("formed_at", "记录形成于"),
+                    ("published_at", "公布于"),
+                )
+                if row.get(key)
+            ]
+            if row.get("event") and parts:
+                notes.append(f"{show(row['event'], 140)}，" + "，".join(parts) + "。" + cite(refs(row)))
+    elif code == "T01":
+        card = products.get("literature_card") or {}
+        sections = {}
+        for field, label in (
+            ("question", "研究问题"),
+            ("comparison", "对照条件"),
+            ("measurements", "实测结果"),
+            ("model_results", "模型结果"),
+            ("limitations", "适用限制"),
+        ):
+            sections[field] = [
+                f"{label}　{show(row.get('supplied_value') or row.get('text'), 220)}" + cite(refs(row))
+                for row in card.get(field) or []
+                if isinstance(row, dict) and (row.get("supplied_value") or row.get("text"))
+            ]
+        notes.extend(representative_rows(sections, 7))
     elif code == "T04":
         notes.extend(portfolio_findings(products))
     elif code == "T05":
@@ -605,14 +796,71 @@ def findings(report):
     elif code == "G07":
         q = products.get("quality")
         if q:
+            window = q.get("interval") or []
+            period = f"{show(window[0])}至{show(window[1])}" if len(window) == 2 else "指定窗口内"
             notes.append(
-                f"指定窗口内共有{show(q.get('record_count'))}条实验室结果，分属{show(q.get('unique_samples'))}个样品、{show(q.get('unique_sites'))}个站点。记录条数不能替代站点数。"
+                f"{period}共有{show(q.get('record_count'))}条实验室结果，分属{show(q.get('unique_samples'))}个样品、{show(q.get('unique_sites'))}个站点。记录条数不能替代站点数。"
             )
             missed = q.get("missing_coordinate_refs", [])
             notes.append(
                 f"{len(missed)}条结果未能定位到坐标；未检出项不作为浓度零值，未采样区域不据此判定安全。"
                 + cite(missed)
             )
+        for row in (products.get("results") or [])[:5]:
+            value = row.get("value_text") or row.get("numeric_value")
+            if value is not None:
+                notes.append(
+                    f"{show(row.get('date'), 40)}，站点{show(row.get('site_id'), 50)}的{show(row.get('analyte'), 60)}"
+                    f"记录为{show(value)} {show(row.get('unit') or '')}（{show(row.get('status'), 45)}）。"
+                    + cite(refs(row))
+                )
+    elif code == "G15":
+        for lake in (products.get("timeline") or [])[:5]:
+            dated = [
+                row for row in lake.get("observations", []) if row.get("date") and row.get("area") is not None
+            ]
+            if len(dated) < 2:
+                continue
+            first, last = dated[0], dated[-1]
+            points = [
+                f"{show(row['date'])}记录面积{show(row['area'])} {show(row.get('unit') or '')}"
+                + cite(refs(row))
+                for row in (first, last)
+            ]
+            note = f"湖泊 {show(lake.get('lake_id'), 65)}，" + "，".join(points) + "。"
+            if lake.get("change_pct") is not None and first.get("unit") and first["unit"] == last.get("unit"):
+                note += f"报告核对的首末期变化率为{show(lake['change_pct'])}%。"
+            notes.append(note)
+    elif code in {"G02", "G11", "G12", "G13", "G14", "G16"}:
+        panels = products.get("panels") or []
+        summary = products.get("summary") or {}
+        if panels and summary.get("basis"):
+            count = summary.get("observations")
+            total = f"，共{count}条观察注记" if type(count) is int else ""
+            notes.append(f"已整理{len(panels)}幅图像{total}。{show(summary['basis'], 220)}")
+        categories = summary.get("drivers" if code == "G13" else "levels") or {}
+        if code in {"G13", "G16"} and isinstance(categories, dict):
+            for category, count in islice(categories.items(), 5):
+                ids = [
+                    eid
+                    for panel in panels
+                    for row in panel.get("annotations") or []
+                    if row.get("kind") == "zone" and row.get("value") == category
+                    for eid in refs(row)
+                ]
+                notes.append(f"分区统计中，{show(category, 65)}类别共{show(count)}条。" + cite(ids))
+        for panel in panels[:5]:
+            details = []
+            for row in (panel.get("annotations") or [])[:3]:
+                observation = row.get("observation") or row.get("value") or row.get("feature")
+                if observation:
+                    details.append(show(observation, 95) + cite(refs(row)))
+            if details:
+                notes.append(
+                    f"{show(panel.get('date'))}的图幅 {show(panel.get('image_id'), 75)}，"
+                    + "；".join(details)
+                    + "。"
+                )
     elif code == "G09":
         for r in (products.get("od_comparison") or [])[:6]:
             paths = r.get("candidates") or []
@@ -625,6 +873,20 @@ def findings(report):
             else:
                 s += cite(refs(r))
             notes.append(s)
+    if not notes and code != "T10":
+        evidence = {e["id"] for e in report.get("evidence") or []}
+        groups = {}
+        for product, rows, _ in product_sections(products, evidence, row_limit=4):
+            lines = []
+            for context, subjects, fields, ids in rows:
+                prefix = _detail_subject(context, subjects)
+                visible = [_detail_field(k, v, 100) for k, v in fields[:6]]
+                if prefix:
+                    visible.insert(0, prefix)
+                if visible:
+                    lines.append(f"{LABELS.get(product, product)}　" + "，".join(visible) + cite(ids) + "。")
+            groups[product] = lines
+        notes.extend(representative_rows(groups, 6))
     if not notes:
         for key, value in products.items():
             if (
@@ -659,7 +921,7 @@ def scope_text(report):
     if scope == "project":
         return "根据此次问题和项目内实际可用的资料核查。"
     if scope == "sample":
-        return "缩小样本验证，不代表完整参考用例验收。"
+        return "样本资料"
     if scope != "reference":
         return "历史产物未标注范围，不能作为完整参考批次证明。"
     batch = report.get("reference_batch") or {}
@@ -668,7 +930,7 @@ def scope_text(report):
     return f"指定参考批次，已登记清单版本 {show(batch.get('version'), 44)}，仍须结合实际审核结果。"
 
 
-def document_bytes(report, metadata):
+def document_bytes(report, metadata, *, source_names=None):
     doc = Document()
     sec = doc.sections[0]
     sec.page_width = Cm(21)
@@ -684,28 +946,32 @@ def document_bytes(report, metadata):
         style.font.italic = False
         style.element.get_or_add_rPr().rFonts.set(qn("w:eastAsia"), "Microsoft YaHei")
         pf = style.paragraph_format
-        pf.line_spacing = 1.32
-        pf.space_after = Pt(6)
+        pf.line_spacing = 1.25
+        pf.space_after = Pt(5)
         for border in list(style.element.iter(qn("w:pBdr"))):
             border.getparent().remove(border)
     title = metadata.get("name") if report.get("scope") in {"sample", "project"} else None
     doc.core_properties.title = clean(title or report["title"], 90) + "研究简报"
     doc.core_properties.author = "航智平台"
-    doc.add_paragraph(doc.core_properties.title, "Title")
-    doc.add_paragraph("验收范围：" + scope_text(report))
+    doc.add_paragraph(clean(title or report["title"], 90), "Title")
+    if report.get("scope") != "sample":
+        doc.add_paragraph("验收范围：" + scope_text(report))
     status = show(metadata.get("status") or "未提供任务终态")
-    doc.add_paragraph(f"用例 {clean(report['case_id'], 20)}　任务状态：{status}", "Subtitle")
-    if metadata.get("name"):
-        doc.add_paragraph("任务：" + clean(metadata["name"], 140))
     checks = report["review"]
     gaps = report["gaps"]
     failed = [r for r in checks if not r.get("passed")]
+    subtitle = f"研究简报　用例 {clean(report['case_id'], 20)}　任务状态：{status}"
+    if not failed and not gaps:
+        subtitle += f"　自动审核 {len(checks)} 项通过"
+    if report.get("scope") == "sample" and "样本" not in doc.core_properties.title:
+        subtitle += "　样本资料"
+    doc.add_paragraph(subtitle, "Subtitle")
+    if metadata.get("name") and metadata["name"] != (title or report["title"]):
+        doc.add_paragraph("任务：" + clean(metadata["name"], 140))
     if any(r.get("hard") for r in failed):
         doc.add_paragraph("独立审核发现硬性不一致。本简报记录待核候选及问题，不能作为已核实结论。")
     elif failed or gaps:
         doc.add_paragraph("现有材料仅支持部分结果。下文保留来源可定位的发现，未确认事项单列。")
-    else:
-        doc.add_paragraph("以下结果依据此次任务冻结的资料及版本生成，已通过本次报告所列自动检查。")
     doc.add_heading("主要发现", 1)
     hard_failure = any(r.get("hard") for r in failed)
     found = (
@@ -717,14 +983,18 @@ def document_bytes(report, metadata):
         doc.add_paragraph(clean(text, 700))
     if not hard_failure:
         _product_preview(doc, report)
-    doc.add_heading("证据与适用范围", 1)
+    evidence = report["evidence"]
+    heading = "证据与适用范围"
+    if evidence and len(evidence) <= 6:
+        heading += f"　{len(evidence)} 项证据"
+    elif evidence:
+        heading += f"　摘列 6 项，共 {len(evidence)} 项"
+    doc.add_heading(heading, 1)
     if gaps:
         for gap in gaps[:8]:
             doc.add_paragraph(clean(gap, 240))
         if len(gaps) > 8:
             doc.add_paragraph(f"共{len(gaps)}项缺口，完整清单见report.json。")
-    else:
-        doc.add_paragraph("本次分析未记录额外材料缺口。结论限于交付资料、统计时间窗及输入规则。")
     translations = _translations(report["products"])
     if translations:
         doc.add_paragraph(
@@ -749,42 +1019,50 @@ def document_bytes(report, metadata):
             )
         for reason in notes[:8]:
             doc.add_paragraph("未采用译文：" + clean(reason, 160))
-    evidence = report["evidence"]
     if evidence:
         rows = []
+        sources = {}
+        locations = {}
         cited = {
             i for ids in re.findall(r"〔([^〕]+)〕", " ".join(found)) for i in re.split(r"[, ]+", ids) if i
         }
         for e in sorted(evidence, key=lambda x: x["id"] not in cited)[:6]:
             loc = e["location"]
             place = "；".join(f"{LABELS.get(k, k)} {show(v, 34)}" for k, v in loc.items())
-            rows.append(
-                [
-                    e["id"],
-                    f"{clean(e['source_id'], 30)}\n版本 {clean(e['source_version'], 22)}",
-                    place + (("\n" + clean(e["quote"], 52)) if e.get("quote") else ""),
-                ]
-            )
-        _table(doc, ["证据编号", "资料与版本", "来源位置或原文摘录"], rows, [2.6, 5.1, 8.7])
-        doc.add_paragraph(
-            f"正文摘列{len(rows)}项证据。全部{len(evidence)}项的完整编号、版本、位置和摘录见evidence.csv。"
-        )
+            key = (e["source_id"], e["source_version"])
+            short_source = sources.setdefault(key, f"S{len(sources) + 1}")
+            rows.append([e["id"], f"{short_source}　{place}", _evidence_excerpt(e.get("quote"))])
+            locations.setdefault(key, []).append(f"〔{e['id']}〕{place}")
+        has_excerpts = any(row[2] for row in rows)
+        for (source_id, version), label in sources.items():
+            name = clean((source_names or {}).get(source_id) or source_id, 90)
+            line = doc.add_paragraph(f"{label}　{name}　版本 {clean(version, 22)}")
+            if has_excerpts:
+                line.paragraph_format.keep_with_next = True
+            else:
+                line.add_run("\n" + "　".join(locations[source_id, version]))
+        if has_excerpts:
+            _table(doc, ["证据编号", "来源位置", "原文或字段摘录"], rows, [2.5, 4.6, 9.3])
     elif not gaps:
         doc.add_paragraph("报告没有可核对的来源记录。")
-    doc.add_heading("自动审核", 2)
-    doc.add_paragraph(
-        f"本次记录{len(checks)}项检查，其中{len(checks) - len(failed)}项通过。"
-        + (
-            "未通过事项："
-            + "；".join(clean(c.get("message", c.get("name", "")), 90) for c in failed[:4])
-            + "。"
-            if failed
-            else ""
+    if failed or gaps:
+        doc.add_heading("自动审核", 2)
+        doc.add_paragraph(
+            f"本次记录{len(checks)}项检查，其中{len(checks) - len(failed)}项通过。"
+            + (
+                "未通过事项："
+                + "；".join(clean(c.get("message", c.get("name", "")), 90) for c in failed[:4])
+                + "。"
+                if failed
+                else ""
+            )
         )
-    )
-    doc.add_paragraph(
-        "完整产品、检查明细和附件对应关系见report.json与manifest.json。表格和空间图层可直接复算。"
-    )
+    # Word adds a normal-height terminal paragraph after a final table when paginating.
+    # Supply a small paragraph explicitly so a full table cannot create an empty final page.
+    if doc.element.body[-2].tag == qn("w:tbl"):
+        tail = doc.add_paragraph().paragraph_format
+        tail.line_spacing = Pt(1)
+        tail.space_before = tail.space_after = Pt(0)
     foot = sec.footer.paragraphs[0]
     foot.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     foot.add_run(f"航智平台  {clean(report['case_id'], 20)}  |  ")
@@ -794,6 +1072,39 @@ def document_bytes(report, metadata):
     out = io.BytesIO()
     doc.save(out)
     return out.getvalue()
+
+
+def _evidence_excerpt(quote):
+    if not quote:
+        return ""
+    if isinstance(quote, str) and quote.lstrip().startswith("{"):
+        try:
+            record = json.loads(quote)
+        except (TypeError, ValueError, RecursionError):
+            return "结构化摘录见 evidence.csv"
+        if isinstance(record, dict):
+            for key in ("quote", "text", "statement", "observation", "commitment", "event", "title"):
+                if isinstance(record.get(key), str) and record[key].strip():
+                    return clean(record[key], 110)
+            keys = (
+                "event_type",
+                "event_date",
+                "published_date",
+                "indicator",
+                "region",
+                "month",
+                "count",
+                "previous",
+                "value",
+                "unit",
+                "sample_id",
+                "analyte",
+            )
+            return (
+                "，".join(_detail_field(k, record[k], 45) for k in keys if record.get(k) is not None)
+                or "结构化记录见所列位置"
+            )
+    return clean(quote, 110)
 
 
 def _translations(obj):
@@ -817,40 +1128,118 @@ def _translations(obj):
     return out
 
 
+def _detail_subject(context, subjects):
+    group_names = {
+        "points": "测量点",
+        "observations": "观测记录",
+        "items": "",
+        "groups": "",
+        "records": "",
+        "series": "",
+    }
+    path = dict.fromkeys(show(v, 45) if k else group_names.get(v, LABELS.get(v, v)) for k, v in context)
+    return " · ".join(text for text in [*path, *(show(v, 65) for k, v in subjects)] if text)
+
+
+def _detail_field(key, value, limit=180):
+    if isinstance(value, list):
+        text = "、".join(show(v, 50) for v in value[:8]) + ("…" if len(value) > 8 else "")
+    else:
+        text = show(value, limit)
+    return f"{LABELS.get(key, key)}　{text}"
+
+
+def _annual_excerpt(products, evidence, limit=8):
+    series = [
+        row
+        for row in products["annual_series"]
+        if isinstance(row, dict) and refs(row) and all(eid in evidence for eid in refs(row))
+    ]
+    if len(series) <= limit:
+        return series
+    stats = products.get("anomaly") or {}
+    highlight = {stats.get("target_year"), *(stats.get("baseline_years") or [])}
+    indices = {0, len(series) - 1}
+    indices.update(i for i, row in enumerate(series) if row.get("year") in highlight)
+    for step in range(1, limit):
+        if len(indices) >= limit:
+            break
+        indices.add(round(step * (len(series) - 1) / limit))
+    return [series[i] for i in sorted(indices)[:limit]]
+
+
 def _product_preview(doc, report):
     products = report["products"]
-    if report["case_id"] == "G03" and _ice_figure(doc, products):
-        return
-    for key, value in products.items():
-        if not isinstance(value, list) or not value or not isinstance(value[0], dict):
+    if report["case_id"] == "G03":
+        _ice_figure(doc, products)
+    evidence = {e["id"]: e for e in report["evidence"]}
+    for product, records, truncated in product_sections(products, evidence):
+        if product == "anomaly" and report["case_id"] == "G03":
+            # Baseline, difference, percentage, rank and units are already explained
+            # in the findings. The raw implementation formula is in report.json.
             continue
-        if key in {"panels", "changes"} or key.startswith("source_notes"):
+        if report["case_id"] == "G03" and product == "annual_series":
+            unit = (products.get("anomaly") or {}).get("unit")
+            rows = []
+            for row in _annual_excerpt(products, evidence):
+                rows.append(
+                    [show(row.get("year")), show(row.get("extent")), show(row.get("status")), cite(refs(row))]
+                )
+            header = "9月平均范围" + (f"（{show(unit, 26)}）" if unit else "")
+            doc.add_heading("年度范围明细", 2)
+            _table(doc, ["年份", header, "观测状态", "证据"], rows, [2.6, 5.2, 4.1, 4.5])
+            count = len(products["annual_series"])
+            if count > len(rows):
+                doc.add_paragraph(
+                    f"完整序列共{count}条年度记录，本表摘列其中{len(rows)}条。逐年数值见 report.json 的 products.annual_series。"
+                )
             continue
-        cols = []
-        for row in value[:3]:
-            for k, v in row.items():
-                if (
-                    k not in cols
-                    and k not in HEAVY
-                    and v is not None
-                    and not isinstance(v, (list, dict))
-                    and len(str(v)) <= 250
-                ):
-                    cols.append(k)
-        cols = cols[:4]
-        if not cols:
+        if report["case_id"] == "T05" and product == "comparison":
+            rows = []
+            for _, subjects, entries, ids in records:
+                row = dict(subjects + entries)
+                role = row.get("时间属性") or row.get("kind")
+                context = [show(v, 55) for v in (row.get("scenario"), role, row.get("metric_role")) if v]
+                rows.append(
+                    [
+                        f"图{show(row.get('figure'))}　{show(row.get('图题') or '', 80)}",
+                        show(row.get("year")),
+                        " · ".join(context),
+                        f"{show(row.get('value'))} {show(row.get('unit') or '')}".strip(),
+                        cite(ids),
+                    ]
+                )
+            doc.add_heading("图表数值对照", 2)
+            _table(doc, ["图表", "年份", "情景与口径", "标注值", "证据"], rows, [4.2, 1.9, 5.0, 2.8, 2.5])
+            if truncated:
+                doc.add_paragraph(f"本表摘列{len(rows)}条。完整标注值见 report.json 的 products.comparison。")
             continue
-        count = min(len(value), 5)
-        doc.add_heading(LABELS.get(key, clean(key, 55)) + "摘录", 2)
-        _table(
-            doc,
-            [LABELS.get(c, clean(c, 28)) for c in cols],
-            [[show(r.get(c), 60) for c in cols] for r in value[:count]],
-            [16.4 / len(cols)] * len(cols),
-        )
-        if len(value) > count:
-            doc.add_paragraph(f"此处列出前{count}行，完整{len(value)}行见表格附件。")
-        break
+        title = LABELS.get(product, product)
+        doc.add_heading(clean(title, 55) + "明细", 2)
+        rows = []
+        for index, (context, subjects, entries, ids) in enumerate(records, 1):
+            # Name nested records by their parent entity or named group rather than a JSON array index.
+            subject = _detail_subject(context, subjects) or f"记录 {index}"
+            details = []
+            for key, value in entries:
+                field = _detail_field(key, value)
+                if details and len(field) < 18 and len(details[-1]) + len(field) < 37:
+                    details[-1] += "　 /　" + field
+                else:
+                    details.append(field)
+            links = []
+            for eid in dict.fromkeys(ids):
+                loc = evidence[eid]["location"]
+                locator = " ".join(f"{LABELS.get(k, k)} {show(v, 25)}" for k, v in loc.items())
+                links.append(f"{eid}　{locator}".rstrip())
+                if len(links) == 4:
+                    if len(set(ids)) > len(links):
+                        links.append("其余见证据索引")
+                    break
+            rows.append([subject, "\n".join(details) or "见条目", "\n".join(links)])
+        _table(doc, ["条目", "核对结果", "证据与位置"], rows, [3.1, 10.0, 3.3], cell_limit=450)
+        if truncated:
+            doc.add_paragraph(f"本节摘列{len(rows)}条。完整明细见 report.json 的 products.{product}。")
 
 
 def _ice_figure(doc, products):
@@ -905,7 +1294,7 @@ def _ice_figure(doc, products):
     return True
 
 
-def _table(doc, headers, rows, widths):
+def _table(doc, headers, rows, widths, *, cell_limit=160):
     t = doc.add_table(rows=0, cols=len(headers))
     t.autofit = False
     t.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -934,9 +1323,9 @@ def _table(doc, headers, rows, widths):
             p = c.paragraphs[0]
             if n == 0:
                 p.paragraph_format.keep_with_next = True
-            p.paragraph_format.space_after = Pt(3)
-            p.paragraph_format.space_before = Pt(3)
-            run = p.add_run(clean(value, 160))
+            p.paragraph_format.space_after = Pt(2)
+            p.paragraph_format.space_before = Pt(2)
+            run = p.add_run(clean(value, cell_limit))
             run.font.size = Pt(9.5)
             run.bold = n == 0
             if n == 0:
