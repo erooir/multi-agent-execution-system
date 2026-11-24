@@ -14,7 +14,11 @@ from .delivery_trend import monthly_figures
 
 
 def bundle(
-    report: dict, metadata: dict | None = None, *, source_names: dict[str, str] | None = None
+    report: dict,
+    metadata: dict | None = None,
+    *,
+    source_names: dict[str, str] | None = None,
+    edition_files=None,
 ) -> bytes:
     """Export case_report.content; no filesystem, network, model, or DB side effects.
 
@@ -60,6 +64,8 @@ def bundle(
         reference_batch=report.get("reference_batch"),
         tool_findings=report.get("tool_findings", []),
     )
+    if report.get("edition"):
+        content.update(edition=report["edition"], attachments=report.get("attachments", []))
     selected = {
         k: v
         for k, v in metadata.items()
@@ -71,11 +77,15 @@ def bundle(
     if len(full) > 32_000_000:
         raise ValueError("报告超过32MB导出上限，请按项目任务范围拆分")
     extras, omitted = derived_files(content["products"])
-    if content["case_id"] == "B05" and not any(c.get("hard") and not c["passed"] for c in content["review"]):
+    if (
+        not content.get("edition")
+        and content["case_id"] == "B05"
+        and not any(c.get("hard") and not c["passed"] for c in content["review"])
+    ):
         figures, skipped = monthly_figures(content["products"], content["evidence"])
         extras.extend(figures)
         omitted.extend(skipped)
-    brief = document_bytes(content, selected, source_names=source_names)
+    brief = document_bytes(content, selected, source_names=source_names, edition_files=edition_files)
     sources = csv_table(
         [
             {
@@ -93,6 +103,10 @@ def bundle(
         "B01": "bulletin.docx：一页中文监测快报，保留报号、统计窗口、分区数量、观察与转述限定。\n",
         "T01": "reading-card.docx：一页中文论文阅读卡，区分实测与模型，标出页码、适用限制和译摘。\n",
     }.get(content["case_id"], "")
+    if content.get("edition"):
+        card_name, card_label = None, ""
+        for name, data in (edition_files or {}).items():
+            extras.append(("研究附件/" + name, data, "/attachments", "case_attachment"))
     readme = (
         "航智用例研究成果\n\nbrief.docx：中文研究简报，摘录主要发现、证据与材料缺口。\n"
         + card_label

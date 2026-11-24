@@ -587,6 +587,10 @@ def portfolio_findings(products):
 
 def findings(report):
     products = report["products"]
+    if report.get("edition"):
+        return [
+            row["heading"] + "　" + row["text"] + cite(row["evidence_ids"]) for row in products["专题分析"]
+        ]
     code = report["case_id"]
     notes = []
     if code in {"B01", "B11", "B15"}:
@@ -930,7 +934,7 @@ def scope_text(report):
     return f"指定参考批次，已登记清单版本 {show(batch.get('version'), 44)}，仍须结合实际审核结果。"
 
 
-def document_bytes(report, metadata, *, source_names=None):
+def document_bytes(report, metadata, *, source_names=None, edition_files=None):
     doc = Document()
     sec = doc.sections[0]
     sec.page_width = Cm(21)
@@ -950,6 +954,12 @@ def document_bytes(report, metadata, *, source_names=None):
         pf.space_after = Pt(5)
         for border in list(style.element.iter(qn("w:pBdr"))):
             border.getparent().remove(border)
+    if report.get("edition"):
+        normal = doc.styles["Normal"].paragraph_format
+        normal.line_spacing = 1.18
+        normal.space_after = Pt(4)
+        for name in ("Heading 1", "Heading 2"):
+            doc.styles[name].paragraph_format.space_before = Pt(10)
     title = metadata.get("name") if report.get("scope") in {"sample", "project"} else None
     doc.core_properties.title = clean(title or report["title"], 90) + "研究简报"
     doc.core_properties.author = "航智平台"
@@ -980,12 +990,24 @@ def document_bytes(report, metadata, *, source_names=None):
         else findings(report)
     )
     for text in found:
-        doc.add_paragraph(clean(text, 700))
-    if not hard_failure:
+        if report.get("edition") and not hard_failure and "　" in text:
+            label, body = text.split("　", 1)
+            p = doc.add_paragraph()
+            p.add_run(clean(label, 80) + "　").bold = True
+            p.add_run(clean(body, 700))
+        else:
+            doc.add_paragraph(clean(text, 700))
+    if not hard_failure and report.get("edition"):
+        from .edition_files import write_details
+
+        write_details(doc, report, edition_files or {})
+    elif not hard_failure:
         _product_preview(doc, report)
     evidence = report["evidence"]
     heading = "证据与适用范围"
-    if evidence and len(evidence) <= 6:
+    if report.get("edition"):
+        heading = "来源原件与证据编号"
+    elif evidence and len(evidence) <= 6:
         heading += f"　{len(evidence)} 项证据"
     elif evidence:
         heading += f"　摘列 6 项，共 {len(evidence)} 项"
@@ -995,7 +1017,7 @@ def document_bytes(report, metadata, *, source_names=None):
             doc.add_paragraph(clean(gap, 240))
         if len(gaps) > 8:
             doc.add_paragraph(f"共{len(gaps)}项缺口，完整清单见report.json。")
-    translations = _translations(report["products"])
+    translations = [] if report.get("edition") else _translations(report["products"])
     if translations:
         doc.add_paragraph(
             "译文仅用于辅助理解。以下保留输入或产品给出的译文说明；未标明来源的译文不能作为权威翻译。"
@@ -1019,7 +1041,20 @@ def document_bytes(report, metadata, *, source_names=None):
             )
         for reason in notes[:8]:
             doc.add_paragraph("未采用译文：" + clean(reason, 160))
-    if evidence:
+    if report.get("edition") and evidence:
+        source_ids = {}
+        for e in evidence:
+            source_ids.setdefault(
+                (e["source_id"], e["source_version"], e["location"].get("文件")), []
+            ).append(e["id"])
+        for (source_id, version, filename), ids in source_ids.items():
+            name = clean((source_names or {}).get(source_id) or filename or source_id, 100)
+            line = doc.add_paragraph()
+            line.paragraph_format.space_after = Pt(2)
+            line.add_run(f"{name}　版本 {clean(version, 16)}　{cite(ids)}").font.size = Pt(9.5)
+        if len(evidence) > 14:
+            doc.add_paragraph(f"完整 {len(evidence)} 项证据及逐条位置见 evidence.csv。")
+    elif evidence:
         rows = []
         sources = {}
         locations = {}

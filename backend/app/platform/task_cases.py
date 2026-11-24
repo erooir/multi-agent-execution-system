@@ -23,6 +23,7 @@ from openpyxl.utils.exceptions import InvalidFileException
 from pypdf.errors import PdfReadError
 
 from ..casework import intake_plan, team
+from . import edition_intake
 from . import service as s
 from .contracts import AgentInput
 from .db import TERMINAL
@@ -55,7 +56,14 @@ def required(tx, case_id, user, *, write=False, include_deleted=False):
 
 def _available(tx, record):
     result = []
-    for asset in tx.list("data_assets", record["project_id"]):
+    candidates = (
+        [tx.get("data_assets", ref) for ref in record["input_refs"]]
+        if record.get("edition_case_id")
+        else tx.list("data_assets", record["project_id"])
+    )
+    for asset in candidates:
+        if not asset or asset.get("project_id") != record["project_id"]:
+            continue
         if asset.get("task_case_id") and asset["task_case_id"] != record["id"]:
             continue
         try:
@@ -89,7 +97,7 @@ def _case_match(goal):
 
 
 def _requirements(record, assets):
-    code = _case_match(record["goal"])
+    code = None if record.get("uses_project_edition") else _case_match(record["goal"])
     forced = record["data_requirement"]
     data_needed = forced == "required" or (
         forced == "auto"
@@ -107,7 +115,7 @@ def _requirements(record, assets):
         code = None
     if not data_needed:
         return [], code
-    profile = team.catalog().get(code, {})
+    profile = team.catalog().get(code, {}) if code else {}
     titles = profile.get("inputs", ["支持任务目标的参考资料"])
     refs = set(record.get("input_refs", []))
     submitted = [a for a in assets if a["id"] in refs]
@@ -294,7 +302,7 @@ def create(body, user, repository):
     _principal(user)
     with repository.transaction() as tx:
         s.project_access(body["project_id"], user, repository=tx)
-        tx.get("projects", body["project_id"], for_update=True)
+        project = tx.get("projects", body["project_id"], for_update=True)
         cid = s.digest([body["project_id"], user["id"], body["idempotency_key"]])[:48]
         old = tx.get("task_cases", cid)
         if old:
@@ -322,11 +330,29 @@ def create(body, user, repository):
             "missing": [],
             "ingest_tokens": [],
         }
-        row["requirements"], row["matched_case_id"] = _requirements(row, _available(tx, row))
+        edition = project.get("scenario_edition")
+        row["uses_project_edition"] = bool(edition)
+        case = (
+            edition_intake.match(project, row["title"] + "\n" + row["goal"])
+            if edition and row["data_requirement"] != "none"
+            else None
+        )
+        if case:
+            if row["mode"] != "cloud":
+                s.fail("case_model_required", "当前目录的用例需要选择模型调用。", 422)
+            row["edition_case_id"] = row["matched_case_id"] = case["id"]
+            row["input_refs"] = edition_intake.sources(
+                tx, row["project_id"], case, declared=row["source_ids"], owner_case=cid
+            )
+            row["requirements"] = edition_intake.requirement(case, row["input_refs"])
+        else:
+            row["requirements"], row["matched_case_id"] = _requirements(row, _available(tx, row))
         refresh_missing(tx, row)
         row = tx.put("task_cases", row)
         s.audit(tx, row["project_id"], "task_case.created", cid, user)
         if row["mode"] == "cloud" and row["public_egress_authorized"]:
+            if case:
+                return start(cid, user, tx)
             from .task_requirements import begin
 
             row = begin(tx, row, user)
@@ -371,6 +397,8 @@ def submit(case_id, body, user, repository, *, replace_sources=False):
                 s.fail("idempotency_conflict", "资料确认标识已用于不同内容", 409)
             return view(tx, row, user)
         _editable(tx, row)
+        if row.get("edition_case_id") and set(body["input_refs"]) - set(row["input_refs"]):
+            s.fail("case_source_scope", "该用例只接受项目登记的配套原件。", 422)
         if set(body["requirement_ids"]) - {r["id"] for r in row["requirements"]}:
             s.fail("unknown_requirement", "资料引用了不存在的需求", 422)
         for asset_id in body["input_refs"]:
@@ -399,7 +427,10 @@ def submit(case_id, body, user, repository, *, replace_sources=False):
         row["input_refs"] = list(dict.fromkeys([*row["input_refs"], *body["input_refs"]]))
         if body["public_egress_authorized"] is not None:
             row["public_egress_authorized"] = body["public_egress_authorized"]
-        if row.get("requirements_analysis"):
+        if row.get("edition_case_id"):
+            case = edition_intake.current(tx, tx.get("projects", row["project_id"]), row)
+            row["requirements"] = edition_intake.requirement(case, row["input_refs"])
+        elif row.get("requirements_analysis"):
             from .task_requirements import refresh
 
             for key in body["requirement_ids"]:
@@ -613,7 +644,11 @@ def start(case_id, user, repository):
             return view(tx, row, user)
         if row["mode"] == "cloud" and not row["public_egress_authorized"]:
             s.fail("data_egress_blocked", "请明确授权将任务说明与所选公开资料交给云模型", 403)
-        if row["mode"] == "cloud" and not row.get("requirements_analysis"):
+        edition_code = row.get("edition_case_id")
+        project = tx.get("projects", row["project_id"])
+        if project.get("scenario_edition") and row.get("matched_case_id") and not edition_code:
+            s.fail("case_archived", "项目目录已更新，请用当前用例新建任务。", 409)
+        if row["mode"] == "cloud" and not edition_code and not row.get("requirements_analysis"):
             from .task_requirements import begin
 
             return view(tx, begin(tx, row, user), user)
@@ -622,7 +657,12 @@ def start(case_id, user, repository):
         worker = _principal(user)
         code = row.get("matched_case_id")
         flow_id = None
-        if code:
+        if edition_code:
+            from ..casework import editions
+
+            edition_intake.current(tx, project, row)
+            flow_id = editions.workflow_id(row["project_id"], edition_code)
+        elif code:
             team.install(row["project_id"], worker, tx, case_id=code, upgrade=True)
         else:
             if row["mode"] != "cloud":
@@ -649,7 +689,7 @@ def start(case_id, user, repository):
             "max_cost_cny": remaining,
             "max_revisions": 2,
             "deadline_seconds": 1800,
-            "allow_partial": True,
+            "allow_partial": not bool(edition_code),
             "service_class": "interactive",
             "idempotency_key": f"taskcase:{case_id}:{row['revision']}",
         }

@@ -914,6 +914,8 @@ def verify_frozen_asset(frozen, current):
     )
     if any(frozen.get(key) != current.get(key) for key in keys):
         fail("input_changed", "来源版本、权限或完整性与冻结快照不一致", 409)
+    if frozen.get("original_file") and frozen["original_file"] != current.get("original_file"):
+        fail("input_changed", "原件登记与冻结来源版本不一致", 409)
     if digest(frozen.get("content")) != digest(current.get("content")):
         fail("input_changed", "登记来源内容与冻结快照不一致", 409)
     if frozen.get("content_ref"):
@@ -1107,8 +1109,13 @@ def create_task(body, user, repository=None, *, preflight=False, task_case_id=No
             if body["mode"] == "cloud" and asset["classification"] != "public":
                 fail("data_egress_blocked", "云任务仅能处理已明确授权外发的公开资料", 403)
             inputs.append(asset)
+        edition_case = None
+        if body["task_type"] == "case_analysis":
+            from ..casework import editions
+
+            edition_case = editions.entry(tx.get("projects", body["project_id"]), body["case_id"])
         reference_batch = None
-        if body["task_type"] == "case_analysis" and body["case_scope"] == "reference":
+        if body["task_type"] == "case_analysis" and not edition_case and body["case_scope"] == "reference":
             from ..casework.reference_batches import freeze
 
             reference_batch = freeze(body["project_id"], body["case_id"])
@@ -1176,7 +1183,11 @@ def create_task(body, user, repository=None, *, preflight=False, task_case_id=No
         if body["task_type"] == "case_analysis":
             from ..casework.team import assigned_workflow, frozen_profile
 
-            case_contract = frozen_profile(body["case_id"])
+            case_contract = (
+                editions.freeze(edition_case, inputs, body)
+                if edition_case
+                else frozen_profile(body["case_id"])
+            )
             case_contract["scope"] = body["case_scope"]
             if body["case_scope"] in {"sample", "project"}:
                 case_contract["report_title"] = body["name"]
@@ -1187,7 +1198,8 @@ def create_task(body, user, repository=None, *, preflight=False, task_case_id=No
                 case_contract["translation_requested"] = True
             if reference_batch is not None:
                 case_contract["reference_batch"] = reference_batch
-            flow_id = assigned_workflow(body["project_id"], body["case_id"])
+            resolve_flow = editions.workflow_id if edition_case else assigned_workflow
+            flow_id = resolve_flow(body["project_id"], body["case_id"])
             if body.get("workflow_id") and body["workflow_id"] != flow_id:
                 fail("case_team_required", "必须使用与用例匹配的项目协作组", 422)
             template = tx.get("workflows", flow_id)
@@ -1250,7 +1262,8 @@ def create_task(body, user, repository=None, *, preflight=False, task_case_id=No
         if case_contract:
             from ..casework.team import verify_team
 
-            verify_team(workflow, agents, body["project_id"], body["case_id"])
+            verifier = editions.verify_team if edition_case else verify_team
+            verifier(workflow, agents, body["project_id"], body["case_id"])
         if preflight:
             warnings = ["网络连通不代表密钥或模型调用已验证"] if body["mode"] == "cloud" else []
             warnings.extend(reference_issues)

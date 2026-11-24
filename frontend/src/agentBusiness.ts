@@ -19,7 +19,7 @@ export function caseBusiness(agent: Item): { key: Business; caseId?: string } | 
   if (stage === "prepare" || stage === "review") return { key: "general" };
 
   // Older case specialists have the scope in their parameters only.
-  const caseId = agent.role_contract?.case_id ?? agent.parameters?.case_scope;
+  const caseId = agent.edition_case_id ?? agent.role_contract?.case_id ?? agent.parameters?.case_scope;
   if (typeof caseId === "string" && /^[BTG]\d{2}$/.test(caseId)) {
     return { key: caseFamilies[caseId[0]], caseId };
   }

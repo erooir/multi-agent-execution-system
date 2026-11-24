@@ -1,13 +1,17 @@
 """Personal question inbox. Only the service can convert an intake into an executable task."""
 
 import os
+from datetime import UTC, datetime
 
 from ..casework import intake_plan, team
-from . import public_evidence, question_answers
+from . import edition_intake, public_evidence, question_answers
 from . import service as s
 from .db import TERMINAL
 
 FAILURES = {
+    "case_source_scope": "本项目内该用例的配套公开原件不齐或版本已变化。",
+    "case_archived": "所指用例已不在当前项目目录中。",
+    "ambiguous_case": "问题同时指向多个用例，请选择一个编号或标题。",
     "budget_exhausted": "此次无法完成对资料的进一步解读，当前没有可核验的答案。",
     "model_not_configured": "当前无法完成所需的资料解读。",
     "offline_policy": "当前环境无法使用这项资料解读能力。",
@@ -47,8 +51,14 @@ def submit(body, user, repository):
             qid, old = _existing(tx, body, user)
             if old:
                 return _view(tx, old, user)
-            assets = [a for a in tx.list("data_assets", body.project_id) if not a.get("task_case_id")]
-            plan = intake_plan.plan_question(body.question, body.project_id, assets)
+            project = tx.get("projects", body.project_id)
+            plan = (
+                _edition_plan(tx, project, body.question)
+                if project.get("scenario_edition")
+                else intake_plan.plan_question(
+                    body.question, body.project_id, _project_assets(tx, body.project_id)
+                )
+            )
             record = {
                 "id": qid,
                 "project_id": body.project_id,
@@ -82,7 +92,12 @@ def submit(body, user, repository):
                     )
                 else:
                     code = plan["case_id"]
-                    team.install(body.project_id, worker, tx, case_id=code, upgrade=True)
+                    edition = plan.get("edition", False)
+                    if edition:
+                        if os.environ.get("HANGZHI_QUESTION_PUBLIC_EGRESS", "false").lower() != "true":
+                            s.fail("data_egress_blocked", "系统未开启公开资料自动云端解读。", 403)
+                    else:
+                        team.install(body.project_id, worker, tx, case_id=code, upgrade=True)
                     task = s.create_task(
                         {
                             "project_id": body.project_id,
@@ -96,7 +111,8 @@ def submit(body, user, repository):
                             "service_class": "interactive",
                             "deadline_seconds": 600,
                             "max_revisions": 2,
-                            "allow_partial": True,
+                            "allow_partial": not edition,
+                            **({"mode": "cloud", "max_cost_cny": 0.8} if edition else {}),
                         },
                         worker,
                         tx,
@@ -140,6 +156,100 @@ def submit(body, user, repository):
             return _view(tx, old, user)
 
 
+def _project_assets(tx, project_id):
+    return [a for a in tx.list("data_assets", project_id) if not a.get("task_case_id")]
+
+
+def _edition_plan(tx, project, question):
+    case = edition_intake.match(project, question)
+    if case:
+        return {
+            "status": "ready",
+            "edition": True,
+            "case_id": case["id"],
+            "case_scope": "project",
+            "input_refs": edition_intake.sources(tx, project["id"], case),
+        }
+    # Open questions retain the normal public-text path. The old case ranker cannot
+    # select a superseded contract in a project that published its own directory.
+    from .runtime import _asset_bytes
+
+    def result(status, reason, *, items=()):
+        return {
+            "status": status,
+            "reason": reason,
+            "input_refs": [item["id"] for item in items],
+            "gaps": [] if status == "semantic" else [reason],
+        }
+
+    q = intake_plan._normal(question).strip()[:8000]
+    now = datetime.now(UTC)
+    eligible = [a for a in _project_assets(tx, project["id"]) if intake_plan._eligible(a, project["id"], now)]
+    if len(eligible) > 500:
+        eligible = [
+            a for a in eligible if intake_plan._explicit_name(q, {"name": intake_plan._normal(a["name"])})
+        ]
+        if not eligible or len(eligible) > 500:
+            return result("ambiguous", "请指明要查询的资料名称或当前用例编号。")
+    remaining = [intake_plan.MAX_SCAN_BYTES]
+    views = [intake_plan._source_view(a, _asset_bytes, remaining) for a in eligible]
+    return intake_plan._semantic(q, views, result)
+
+
+def _edition_answer(tx, task, sources, *, summary):
+    from ..casework.document_common import bounded_excerpt
+
+    for artifact in tx.list("artifacts", task["project_id"], task_id=task["id"]):
+        report = artifact.get("content")
+        if (
+            artifact.get("type") != "case_report"
+            or artifact.get("quality_status") != "passed"
+            or not isinstance(report, dict)
+            or not report.get("edition")
+            or artifact.get("checksum") != s.digest(report)
+        ):
+            continue
+        evidence = {
+            e["id"]: e
+            for e in report.get("evidence", [])
+            if e.get("source_id") in sources
+            and e.get("source_version") == sources[e["source_id"]]["source_version"]
+        }
+        findings = [
+            f
+            for f in report.get("products", {}).get("专题分析", [])
+            if f.get("text") and f.get("evidence_ids") and set(f["evidence_ids"]) <= evidence.keys()
+        ]
+        if not findings:
+            break
+        if summary:
+            return {"incomplete": False}
+        citations = []
+        for key in dict.fromkeys(ref for f in findings for ref in f["evidence_ids"]):
+            e = evidence[key]
+            quote = str(e.get("quote") or "")
+            citations.append(
+                {
+                    "source": sources[e["source_id"]]["name"],
+                    "source_id": e["source_id"],
+                    "location": (e.get("location") or {}).get("原件位置", ""),
+                    "excerpt": bounded_excerpt(quote, 450),
+                    "quote_truncated": len(quote) > 450,
+                }
+            )
+        paragraphs = [f"{f.get('heading', '')}　{f['text']}".strip() for f in findings]
+        limits = [v for v in report["products"].get("资料适用范围", []) if isinstance(v, str) and v]
+        if limits:
+            paragraphs.append("资料适用范围　" + " ".join(limits))
+        return {
+            "answer": "\n".join(paragraphs),
+            "citations": citations,
+            "missing": report.get("gaps", []),
+            "incomplete": False,
+        }
+    return {"missing": ["当前没有通过审核的新版用例结论。"], "incomplete": True}
+
+
 def _view(tx, question, user, *, summary=False):
     s.project_access(question["project_id"], user, repository=tx)
     visible = {k: question[k] for k in ("id", "question", "status", "created_at", "updated_at")}
@@ -176,9 +286,14 @@ def _view(tx, question, user, *, summary=False):
             **visible,
             "missing": [FAILURES.get(task.get("reason_code"), "此次分析没有形成可核验的答案。")],
         }
-    if scope_issue := _scope_issue(tx, task, question["question"]):
+    edition = task["snapshot"].get("case_profile", {}).get("edition")
+    if not edition and (scope_issue := _scope_issue(tx, task, question["question"])):
         return {**visible, "status": "partial", "missing": [scope_issue], "outcome": "scope_mismatch"}
-    delivery = question_answers.deliver(tx, task, sources, question["question"], summary=summary)
+    delivery = (
+        _edition_answer(tx, task, sources, summary=summary)
+        if edition
+        else question_answers.deliver(tx, task, sources, question["question"], summary=summary)
+    )
     incomplete = delivery.pop("incomplete", not bool(delivery.get("answer")))
     if incomplete and visible["status"] == "succeeded":
         visible.update(status="partial", outcome="incomplete_answer")

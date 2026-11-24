@@ -496,7 +496,14 @@ def _execution_issues(execution: Execution) -> list[dict]:
 
 
 async def _model(
-    execution: Execution, prompt: str, *, system: str, purpose: str, output_schema=None, images=None
+    execution: Execution,
+    prompt: str,
+    *,
+    system: str,
+    purpose: str,
+    output_schema=None,
+    images=None,
+    max_tokens=None,
 ) -> dict:
     execution.check()
     if os.environ.get("HANGZHI_OFFLINE", "false").lower() == "true":
@@ -534,6 +541,7 @@ async def _model(
             evidence=execution.inputs,
             output_schema=output_schema,
             images=images,
+            **({"max_tokens": max_tokens} if max_tokens is not None else {}),
         )
     execution.check()
     execution.update(
@@ -1151,7 +1159,11 @@ async def _run_atomic(
     }:
         if agent.get("model_policy") != "cloud" or not model_allowed:
             raise TaskFailure("model_denied", "冻结智能体配置禁止云端模型")
-        if task_type == "case_analysis":
+        if task_type == "case_analysis" and execution.task["snapshot"]["case_profile"].get("edition"):
+            from ..casework import edition_runtime
+
+            output = await edition_runtime.run(execution, plan["id"], previous, revision)
+        elif task_type == "case_analysis":
             from ..casework.executors.base import ExecutorContext
             from ..casework.executors.registry import execute_cloud
 
@@ -1350,7 +1362,17 @@ def _case_plan_for_revision(execution, revision):
 
 async def _execute_graph(execution: Execution, revision: int, reuse_revision: int | None = None):
     if execution.request["task_type"] == "case_analysis":
-        execution.case_plan = _case_plan_for_revision(execution, revision)
+        if execution.task["snapshot"]["case_profile"].get("edition"):
+            execution.case_plan = next(
+                (
+                    r
+                    for r in reversed(execution.task.get("repair_history", []))
+                    if r["revision"] == revision and r.get("entry_kind") == "technical_recovery"
+                ),
+                None,
+            )
+        else:
+            execution.case_plan = _case_plan_for_revision(execution, revision)
     outputs = {}
 
     def prepare(plan):
@@ -1734,7 +1756,14 @@ async def _preflight(step_input: StepInput) -> StepOutput:
         from ..casework.team import frozen_profile
 
         profile = execution.task["snapshot"]["case_profile"]
-        if frozen_profile(profile["case_id"])["signature"] != profile["signature"]:
+        from ..casework.editions import implementation
+
+        expected = (
+            implementation(profile["case_id"])
+            if profile.get("edition")
+            else frozen_profile(profile["case_id"])["signature"]
+        )
+        if expected != profile["signature"]:
             raise TaskFailure("case_profile_changed", "用例执行或修复策略版本已变化，请重新受理")
     if not execution.inputs and execution.request["task_type"] != "autonomous_analysis":
         raise TaskFailure("insufficient_data", "任务没有可用输入")
@@ -2153,7 +2182,9 @@ async def _evaluate(step_input: StepInput) -> StepOutput:
             from .task_case_runtime import record_review
 
             record_review(execution)
-        if execution.request["task_type"] == "case_analysis":
+        if execution.request["task_type"] == "case_analysis" and not execution.task["snapshot"][
+            "case_profile"
+        ].get("edition"):
             _record_repair_outcome(execution)
             if execution.quality["passed"] or not _plan_case_revision(execution):
                 break

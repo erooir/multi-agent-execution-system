@@ -552,6 +552,12 @@ type TaskFormProps = Common & {
   offline?: boolean;
 };
 
+export function editionDraft(item: Item) {
+  return { ...item.case_request, case_id: item.id, task_type: "case_analysis", case_scope: "project",
+    mode: "cloud", max_cost_cny: 2, deadline_seconds: 3600, max_revisions: 2,
+    allow_partial: false, use_project_knowledge: false, workflow_id: item.workflow_id };
+}
+
 export function TaskForm(props: TaskFormProps) {
   const [choice, setChoice] = useState<CaseChoice | undefined>(props.demoCase);
   const [editor, setEditor] = useState<{ initial?: Item; sourceTask?: string; revision: number }>({
@@ -628,6 +634,7 @@ function TaskEditor({
   const [catalogError, setCatalogError] = useState("");
   const [fetchedProfiles, setProfiles] = useState<Item[]>([]);
   const profiles = caseProfiles ?? fetchedProfiles;
+  const edition = form.task_type === "case_analysis" && profiles.find((p) => p.id === form.case_id && p.edition);
   useEffect(() => {
     if (caseProfiles !== undefined || form.task_type !== "case_analysis") return;
     const c = new AbortController();
@@ -857,7 +864,9 @@ function TaskEditor({
             value={form.case_id || ""}
             onChange={(e) => {
               const id = e.target.value;
-              if (id && onChooseCase && explicitScope) onCustomCase(caseChoice(id), explicitScope);
+              const next = profiles.find((p) => p.id === id);
+              if (next?.edition) setForm({ ...form, ...editionDraft(next) });
+              else if (id && onChooseCase && explicitScope) onCustomCase(caseChoice(id), explicitScope);
               else if (id && onChooseCase) onChooseCase(caseChoice(id));
               else setForm({ ...form, case_id: id, workflow_id: "", input_refs: [], ...(sourceTask && { name: "", goal: "" }) });
             }}
@@ -885,9 +894,9 @@ function TaskEditor({
               }
             }}
           >
-            <option value="reference">参考用例的指定批次</option>
-            <option value="project">自定义项目资料</option>
-            <option value="sample">缩小样本验证</option>
+            {!edition && <option value="reference">参考用例的指定批次</option>}
+            <option value="project">{edition ? "本版案例公开原件" : "自定义项目资料"}</option>
+            {!edition && <option value="sample">缩小样本验证</option>}
           </select>
         </Field>
       )}
@@ -901,7 +910,10 @@ function TaskEditor({
           placeholder="具体描述期望产物和处理范围"
         />
       </Field>
-      {form.task_type === "case_analysis" ? (
+      {edition ? (
+        <fieldset><legend>本次输入原件</legend><ul>{edition.inputs.map((f: string) => <li key={f}>{f}</li>)}</ul>
+          <p>{edition.scope_note}</p></fieldset>
+      ) : form.task_type === "case_analysis" ? (
         <fieldset>
           <legend>选择输入资料</legend>
           <p className="muted">
@@ -982,7 +994,7 @@ function TaskEditor({
               })
             }
           >
-            {["local", "cloud", "rehearsal"].map((mode) => (
+            {(edition ? ["cloud"] : ["local", "cloud", "rehearsal"]).map((mode) => (
               <option
                 key={mode}
                 value={mode}

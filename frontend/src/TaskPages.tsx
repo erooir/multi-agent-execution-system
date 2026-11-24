@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   CalendarClock,
@@ -26,7 +26,7 @@ import {
   SectionTitle,
   Tabs,
 } from "./ui";
-import { TaskForm } from "./Forms";
+import { TaskForm, editionDraft } from "./Forms";
 import Graph from "./Graph";
 import { modeName } from "./domain";
 import { ArtifactContent, QualityView } from "./ResultViews";
@@ -337,6 +337,79 @@ export default function TasksPage({
     </>
   );
 }
+function CopyTaskButton({ task, onCopy, notify }: {
+  task: Item;
+  onCopy: (request: Item) => void;
+  notify: Notify;
+}) {
+  const [choices, setChoices] = useState<Item[] | null>(null);
+  const [selection, setSelection] = useState("");
+  const [loading, setLoading] = useState(false);
+  const pending = useRef<AbortController | null>(null);
+  useEffect(() => () => pending.current?.abort(), []);
+
+  async function copy() {
+    const request = task.request;
+    if (request.task_type === "case_analysis") {
+      const controller = new AbortController();
+      pending.current = controller;
+      setLoading(true);
+      try {
+        const catalog = await api<Item[]>(
+          "/v2/casework/catalog?project_id=" + encodeURIComponent(task.project_id),
+          { signal: controller.signal },
+        );
+        if (controller.signal.aborted) return;
+        const published = catalog.filter((row) => row.edition);
+        if (published.length) {
+          const current = published.find((row) => row.id === request.case_id);
+          const original = new Set(request.input_refs || []);
+          const inputs: string[] = current?.case_request?.input_refs || [];
+          const stillCurrent = current?.installed &&
+            current.edition === task.snapshot?.case_profile?.edition &&
+            inputs.length === original.size && inputs.every((id) => original.has(id));
+          if (!stillCurrent) {
+            setChoices(published);
+            setSelection("");
+            return;
+          }
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) notify((error as Error).message, true);
+        return;
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    }
+    onCopy({ ...request, name: `${task.name || request.name}（重试）` });
+  }
+  const selected = choices?.find((row) => row.id === selection && row.installed);
+  return <>
+    <button disabled={loading} onClick={copy}>{loading ? "正在核对案例版本…" : "复制为新任务"}</button>
+    {choices && (
+      <Modal title="选择新版案例" onClose={() => setChoices(null)}>
+        <div className="modal-body">
+          <p>此历史任务的案例或输入资料已归档。请选择当前项目的案例以载入对应目标和原件。</p>
+          <label>新版案例
+            <select value={selection} onChange={(e) => setSelection(e.target.value)}>
+              <option value="">请选择案例</option>
+              {choices.map((row) => <option key={row.id} value={row.id} disabled={!row.installed}>
+                {row.id} · {row.title}
+              </option>)}
+            </select>
+          </label>
+        </div>
+        <div className="modal-footer">
+          <button onClick={() => setChoices(null)}>取消</button>
+          <button className="primary" disabled={!selected} onClick={() => selected && onCopy(editionDraft(selected))}>
+            使用此案例新建
+          </button>
+        </div>
+      </Modal>
+    )}
+  </>;
+}
+
 function TaskDetail({
   id,
   agents,
@@ -498,16 +571,7 @@ function TaskDetail({
                   前往任务工作台新建
                 </a>
               ) : (
-                <button
-                  onClick={() =>
-                    onCopy({
-                      ...task.request,
-                      name: `${task.name || task.request.name}（重试）`,
-                    })
-                  }
-                >
-                  复制为新任务
-                </button>
+                <CopyTaskButton task={task} onCopy={onCopy} notify={notify} />
               )}
               {!terminal.has(task.status) && (
                 <button

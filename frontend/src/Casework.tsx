@@ -3,7 +3,7 @@ import { Activity, ArrowRight, Layers3, Search, Users } from "lucide-react";
 import { api, post } from "./api";
 import type { Item, Mutation } from "./types";
 import { SectionTitle, Empty } from "./ui";
-import { TaskForm } from "./Forms";
+import { TaskForm, editionDraft } from "./Forms";
 import { verifiedCaseSamples } from "./caseSamples";
 import type { CaseChoice } from "./CaseDemoSample";
 import SemanticEvidence from "./SemanticEvidence";
@@ -12,11 +12,12 @@ import "./case-catalog.css";
 
 export type CaseTab = "catalog" | "roles" | "semantic";
 
-const families: Record<string, string> = {
+const legacyFamilies: Record<string, string> = {
   B: "事件与历史",
   T: "科技研究",
   G: "地理与时序",
 };
+const editionFamilies: Record<string, string> = { B: "战场情报", T: "科技情报", G: "地理情报" };
 
 export function useCaseCatalog(projectId: string, userId?: string) {
   const [revision, setRevision] = useState(0);
@@ -84,6 +85,8 @@ export default function Casework({
 }) {
   const catalog = directory.rows ?? [];
   const catalogLoaded = directory.rows !== undefined;
+  const publishedEdition = Boolean(catalog[0]?.edition);
+  const families = publishedEdition ? editionFamilies : legacyFamilies;
   const [tools, setTools] = useState<Item[]>([]),
     [toolsRequested, setToolsRequested] = useState(initialTab === "roles"),
     [toolError, setToolError] = useState(""),
@@ -187,7 +190,7 @@ export default function Casework({
         description="按业务问题选择分析流程。资料、专业计算和独立审核都有版本及运行记录。发布会将用例岗位与流程绑定到本项目，不会下载外部内容。"
         actions={
           canEdit &&
-          (!installed || needsUpgrade) && (
+          !publishedEdition && (!installed || needsUpgrade) && (
             <button
               disabled={busy || !catalog.length}
               onClick={() => provision(needsUpgrade)}
@@ -200,7 +203,7 @@ export default function Casework({
           )
         }
       />
-      {needsUpgrade && (
+      {needsUpgrade && !publishedEdition && (
         <p className="warning">
           打开用例时会尝试更新旧版内置流程，历史版本和任务记录会保留。
         </p>
@@ -270,10 +273,10 @@ export default function Casework({
                 </strong>
               </div>
               <div>
-                <span>岗位工具授权</span>
+                <span>{publishedEdition ? "随包原件" : "岗位工具授权"}</span>
                 <strong>
-                  {catalogLoaded ? grantTotal : "…"}
-                  <em>项</em>
+                  {catalogLoaded ? publishedEdition ? catalog.reduce((n, p) => n + p.inputs.length, 0) : grantTotal : "…"}
+                  <em>{publishedEdition ? "份" : "项"}</em>
                 </strong>
               </div>
             </div>
@@ -354,11 +357,11 @@ export default function Casework({
                   <div className="cc-facts">
                     <span className="cc-fact">
                       <i />
-                      {grants} 项工具
+                      {p.edition ? `${p.inputs.length} 份原件` : `${grants} 项工具`}
                     </span>
                     <span className="cc-fact">
                       <i />
-                      {shared > 1 ? `${shared} 例共用` : "专用算法"}
+                      {p.edition ? "模型调用" : shared > 1 ? `${shared} 例共用` : "专用算法"}
                     </span>
                     <span className="cc-fact">
                       <i />
@@ -366,7 +369,7 @@ export default function Casework({
                     </span>
                   </div>
                   <div className="cc-cta">
-                    {canEdit && !offline && samples.has(p.id) && (
+                    {canEdit && !p.edition && !offline && samples.has(p.id) && (
                       <button
                         className="cc-ghost"
                         disabled={!p.installed || busy}
@@ -446,7 +449,8 @@ export default function Casework({
           workflows={workflows}
           mutate={mutate}
           onClose={() => setDraft(null)}
-          demoCase={draft}
+          demoCase={publishedEdition ? undefined : draft}
+          initial={publishedEdition ? editionDraft(catalog.find((p) => p.id === draft.id)!) : undefined}
           offline={offline}
           afterCreate={(t) => {
             setDraft(null);

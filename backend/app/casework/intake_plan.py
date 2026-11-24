@@ -245,10 +245,15 @@ def _source_view(asset, reader, remaining):
     targets = set()
     if isinstance(rows, list):
         for row in rows[:20]:
-            if (
-                isinstance(row, dict)
-                and row.get("kind") in {"document_binding", "field_dictionary"}
-                and isinstance(row.get("target_source_id"), str)
+            if not isinstance(row, dict):
+                continue
+            kind = row.get("kind")
+            # Raster contracts share pixel geometry. Their declared grid type
+            # distinguishes a land-cover grid from an observed water grid.
+            if kind in ("cover_grid", "water_grid"):
+                fields.add(kind)
+            if kind in ("document_binding", "field_dictionary") and isinstance(
+                row.get("target_source_id"), str
             ):
                 targets.add(row["target_source_id"])
     return {

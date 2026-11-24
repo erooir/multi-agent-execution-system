@@ -306,17 +306,23 @@ def case_catalog(project_id: str, user: dict = read):
 def case_demo_sample(case_id: str, project_id: str, user: dict = read) -> dict:
     from ..casework.team import catalog
 
+    if s.project_access(project_id, user).get("scenario_edition"):
+        return {"available": False, "verified_task_id": None, "request": None}
     if case_id not in catalog():
         s.fail("unsupported_case", "用例不存在", 404)
     return s.case_demo_sample(project_id, case_id, user, repo)
 
 
 def _project_case_catalog(project_id):
+    from ..casework.editions import directory
     from ..casework.executors.registry import validate_binding
     from ..casework.roles import contract
     from ..casework.team import STAGES, assigned_workflow, catalog, role_id
     from .tool_registry import catalog as tool_catalog
 
+    published = directory(repo.get("projects", project_id))
+    if published is not None:
+        return published
     profiles = catalog()
     workflow_ids = {code: assigned_workflow(project_id, code) for code in profiles}
     flows = repo.project_records_by_id("workflows", project_id, workflow_ids.values())
@@ -386,6 +392,8 @@ def _project_case_catalog(project_id):
 def install_cases(project_id: str, user: dict = edit):
     from ..casework.team import install
 
+    if s.project_access(project_id, user, True).get("scenario_edition"):
+        return {"created": [], "updated": []}
     return install(project_id, user, repo)
 
 
@@ -393,6 +401,11 @@ def install_cases(project_id: str, user: dict = edit):
 def upgrade_case_tools(project_id: str, case_id: str | None = None, user: dict = edit):
     from ..casework.team import catalog, install
 
+    project = s.project_access(project_id, user, True)
+    if project.get("scenario_edition"):
+        if case_id and case_id not in project["scenario_edition"]["cases"]:
+            s.fail("case_not_found", "用例已归档", 404)
+        return {"created": [], "updated": []}
     if case_id is not None and case_id not in catalog():
         s.fail("case_not_found", "未找到指定用例", 404)
     return install(project_id, user, repo, upgrade=True, case_id=case_id)
@@ -1032,10 +1045,13 @@ def case_package(artifact_id: str, user: dict = read):
     task = s.required("tasks", record["task_id"], user)
     frozen_inputs = (task.get("snapshot") or {}).get("inputs") or []
     source_names = {a["id"]: a["name"] for a in frozen_inputs if a.get("id") and a.get("name")}
+    from ..casework.edition_files import read_attachments
+
     payload = bundle(
         record["content"],
         {"task_id": task["id"], "name": task["name"], "status": task["status"], "revision": task["revision"]},
         source_names=source_names,
+        edition_files=read_attachments(record["content"], task) if record["content"].get("edition") else None,
     )
     artifact_record(artifact_id, user)
     return Response(

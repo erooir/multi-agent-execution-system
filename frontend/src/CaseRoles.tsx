@@ -170,7 +170,7 @@ export function CaseRoleComparison({
             setRight("T06");
           }}
         >
-          版本条款 · B06 / T06
+          {first.edition ? "供给与民航 · B06 / T06" : "版本条款 · B06 / T06"}
         </button>
         <button
           onClick={() => {

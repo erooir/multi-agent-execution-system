@@ -215,8 +215,12 @@ export default function CaseReport({
           </ul>
         </section>
       )}
-      {Object.entries(content.products || {}).map(([k, v], i) => (
-        <details key={k} open={i === 0}>
+      {content.attachments?.length > 0 && (
+        <details><summary>随包图表与文件 · {content.attachments.length}</summary>
+          <ul>{content.attachments.map((f: Item) => <li key={f.name}>{f.name}</li>)}</ul></details>
+      )}
+      {Object.entries(content.products || {}).filter(([k]) => !content.edition || k !== "专题分析").map(([k, v], i) => (
+        <details key={k} open={i === 0 && !content.edition}>
           <summary>{labels[k] || k}</summary>
           <Product value={v} />
         </details>
