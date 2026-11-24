@@ -236,6 +236,7 @@ class EvidenceMatrixExecutor(DocumentAnalysisExecutor):
         roles = {
             "B08": "investigation与judicial，并区分调查陈述和司法认定",
             "B10": "brief与investigation，并区分简报记述和后续调查版本",
+            "B17": "资料实际声明的来源角色，分别核对项目记录、年度报告和独立调查的统计范围，区分年度与累计数字",
             "T08": "project、audit与study，并区分项目方、审计和研究依据",
         }[context.code]
         return (

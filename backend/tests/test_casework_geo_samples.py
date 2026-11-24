@@ -305,6 +305,10 @@ def assert_expected(code, candidate):
             assert 8 in cited_record_rows(candidate, p[key]["features"][0]["properties"])
     elif code in {"G11", "G12", "G13", "G14", "G16"}:
         assert len(p["panels"]) >= 1 and p["summary"]["frames"] >= 1
+        if code in {"G13", "G16"}:
+            group = "drivers" if code == "G13" else "levels"
+            assert p["summary"][group] == {"zone-1": 1}
+            assert p["summary"]["observations"] == 2
     elif code == "G15":
         assert len(p["timeline"]) == 1 and p["timeline"][0]["change_pct"] == 40.0
 
@@ -392,7 +396,10 @@ def test_complete_supplied_geo_contracts(code):
         p["od_comparison"][0]["candidates"][0]["edge_ids"] = ["direct"]
     elif code == "G10":
         p["priority"][0]["max_union_exposed_m2"] = 99999
-    elif code in {"G11", "G12", "G13", "G14", "G16"}:
+    elif code in {"G13", "G16"}:
+        group = "drivers" if code == "G13" else "levels"
+        p["summary"][group]["structured observation"] = 1
+    elif code in {"G11", "G12", "G14"}:
         p["summary"]["frames"] += 1
     elif code == "G15":
         p["timeline"][0]["change_pct"] += 100

@@ -224,12 +224,13 @@ def audit_products(code, products, records):
                 ),
                 "区域差值须可复算，两个原始数量须能在同地区记录找到",
             )
-        elif code == "B05":
+        elif primary == "monthly":
             monthly = products["monthly"]
             observed = {
                 (
                     r["source_id"],
                     str(r["source_version"]),
+                    string(r, "scope", "coverage"),
                     string(r, "month", "月份"),
                     number(value(r, "deaths", "killed", "死亡")),
                     number(value(r, "injured", "受伤")),
@@ -239,7 +240,14 @@ def audit_products(code, products, records):
             check(
                 "monthly_observations",
                 all(
-                    (row["source_id"], row["source_version"], row["month"], row["deaths"], row["injured"])
+                    (
+                        row["source_id"],
+                        row["source_version"],
+                        row["scope"] or "",
+                        row["month"],
+                        row["deaths"],
+                        row["injured"],
+                    )
                     in observed
                     for row in monthly
                 ),
@@ -253,6 +261,28 @@ def audit_products(code, products, records):
                 ),
                 "月度行人数之和错误",
             )
+            reported_by_scope = {
+                (c["source_id"], c["version"], c["scope"]): c["reported"]
+                for c in products["reconciliation"]
+            }
+            for record in records:
+                role = string(record, "kind", "role").casefold()
+                if string(record, "month", "月份") or role not in {"reported_total", "total"}:
+                    continue
+                scope = (
+                    record["source_id"],
+                    str(record["source_version"]),
+                    string(record, "scope", "coverage"),
+                )
+                amounts = [
+                    number(value(record, "deaths", "killed", "死亡")),
+                    number(value(record, "injured", "受伤")),
+                ]
+                check(
+                    "reported_monthly_total",
+                    amounts in reported_by_scope.get(scope, []),
+                    "列报总计须来自对应来源版本与范围的总计行",
+                )
             for c in products["reconciliation"]:
                 subset = [
                     r

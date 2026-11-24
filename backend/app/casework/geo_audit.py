@@ -401,6 +401,31 @@ def audit_products(case_id, products, records):
                 and all(x.get("image_id") for x in panels),
                 "至少一个面板且至少一条标注，数量与计数须与面板明细守恒，且每个面板有图幅编号",
             )
+            if case_id in {"G13", "G16"}:
+                expected = Counter()
+                for record in records:
+                    fields = record["fields"]
+                    kind = str(fields.get("kind") or fields.get("type") or "")
+                    has_frame = any(
+                        fields.get(key) is not None and str(fields[key]).strip()
+                        for key in ("frame_id", "panel_id", "scene_id")
+                    )
+                    if has_frame and ("zone" in kind or "region" in kind):
+                        label = next(
+                            (
+                                str(fields[key])
+                                for key in ("zone", "zone_type", "class")
+                                if fields.get(key) is not None and str(fields[key]).strip()
+                            ),
+                            kind,
+                        )
+                        expected[label] += 1
+                metric = "drivers" if case_id == "G13" else "levels"
+                check(
+                    "zone_categories",
+                    bool(expected) and p["summary"].get(metric) == dict(expected),
+                    "分区分类计数须与来源中的分区记录一致，仅描述观测的记录不计入分类。",
+                )
         elif case_id == "G15":
             consistent = bool(p["timeline"])
             for lake in p["timeline"]:

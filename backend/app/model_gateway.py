@@ -573,6 +573,7 @@ class MeteredTransport(httpx.AsyncBaseTransport):
         self.ledger, self.purpose, self.run_id = ledger, purpose, run_id
         self.upstream = upstream
         self.required_first_tool: str | None = None
+        self.required_tool_completed: Callable[[], bool] | None = None
         self.auto_tool_rounds: int | None = None
         self.model_id = upstream.model if upstream else MODEL_ID
         self.inner = inner or httpx.AsyncHTTPTransport(
@@ -676,7 +677,22 @@ class MeteredTransport(httpx.AsyncBaseTransport):
                 raise PermissionError("冻结主工具不在本次授权工具中")
             if self.required_first_tool and not self.request_ids:
                 payload["tool_choice"] = {"type": "function", "function": {"name": self.required_first_tool}}
-            elif self.auto_tool_rounds is not None and len(self.request_ids) >= self.auto_tool_rounds:
+            elif self.required_first_tool and self.required_tool_completed and self.required_tool_completed():
+                # A case stage has one authoritative execution. Later rounds may
+                # inspect its frozen result with auxiliary tools, never rerun it.
+                auxiliary = [
+                    tool for tool in payload["tools"] if tool["function"]["name"] != self.required_first_tool
+                ]
+                if auxiliary:
+                    payload["tools"] = auxiliary
+                else:
+                    del payload["tools"]
+                    payload["tool_choice"] = "none"
+            if (
+                self.request_ids
+                and self.auto_tool_rounds is not None
+                and len(self.request_ids) >= self.auto_tool_rounds
+            ):
                 payload["tool_choice"] = "none"
             body = json.dumps(payload, ensure_ascii=False).encode()
             headers = httpx.Headers(request.headers)
@@ -1097,6 +1113,7 @@ class ModelGateway:
         max_tokens=None,
         images=None,
         required_first_tool: str | None = None,
+        required_tool_completed: Callable[[], bool] | None = None,
         auto_tool_rounds: int | None = None,
     ):
         """带真实 tools= 的受控模型执行；所有请求仍经由计量传输与预算账本。"""
@@ -1118,6 +1135,7 @@ class ModelGateway:
             self.ledger, "agent_run", run_id, **({"upstream": upstream} if upstream else {})
         )
         transport.required_first_tool = required_first_tool
+        transport.required_tool_completed = required_tool_completed
         # Agno refuses tools beyond tool_call_limit but can keep asking the model
         # for more calls. Enforce the round budget on the wire, then allow one
         # schema-constrained final response. This also applies to generic agents.

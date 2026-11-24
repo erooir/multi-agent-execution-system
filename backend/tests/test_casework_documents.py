@@ -409,6 +409,8 @@ def test_retraction_only_affects_dependent_claims():
     [
         ("B01", lambda p: p["observations"][0].update(count=999, change=964)),
         ("B05", lambda p: p["monthly"][0].update(deaths=12, total=16)),
+        ("B13", lambda p: p["reconciliation"][0].update(reported=[[26, 58]], agrees=False)),
+        ("B14", lambda p: p["reconciliation"][0].update(computed=[27, 50])),
         ("B07", lambda p: p["comparison"][0].update(change=77)),
         ("B04", lambda p: p["timed_index"][0].update(start_ms=170)),
         ("T06", lambda p: p["clause_map"][0]["before"].update(evidence_ids=[])),

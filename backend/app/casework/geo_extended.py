@@ -116,10 +116,6 @@ def scene_features(ctx):
 def deforestation_alerts(ctx):
     """G13: 毁林预警驱动分区核查（消费上游预警记录）。"""
     panels, changes, unreadable = _features_and_zones(ctx, zone_kind="driver_zone")
-    by_driver = Counter()
-    for p in panels.values():
-        for a in p["annotations"]:
-            by_driver[a["value"]] += 1
     res = _panel_result(
         ctx,
         panels,
@@ -127,8 +123,19 @@ def deforestation_alerts(ctx):
         unreadable,
         "预警不等于确认毁林；驱动分类不等于现场定性，时间窗口径差异按来源保留。",
     )
-    res["summary"]["drivers"] = dict(by_driver)
+    res["summary"]["drivers"] = _zone_counts(panels)
     return res
+
+
+def _zone_counts(panels):
+    return dict(
+        Counter(
+            annotation["value"]
+            for panel in panels.values()
+            for annotation in panel["annotations"]
+            if annotation["kind"] == "zone"
+        )
+    )
 
 
 def night_lights(ctx):
@@ -146,10 +153,6 @@ def night_lights(ctx):
 def coral_heat_stress(ctx):
     """G16: 珊瑚白化热压力预警核查（消费上游 HotSpot/DHW 分区记录）。"""
     panels, changes, unreadable = _features_and_zones(ctx, zone_kind="bleach_zone")
-    levels = Counter()
-    for p in panels.values():
-        for a in p["annotations"]:
-            levels[a["value"]] += 1
     res = _panel_result(
         ctx,
         panels,
@@ -157,7 +160,7 @@ def coral_heat_stress(ctx):
         unreadable,
         "预警等级按产品定义核对（Level 1/2），现场白化与死亡为不同证据类别。",
     )
-    res["summary"]["levels"] = dict(levels)
+    res["summary"]["levels"] = _zone_counts(panels)
     return res
 
 

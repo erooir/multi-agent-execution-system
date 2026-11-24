@@ -92,7 +92,8 @@ def test_soil_sample_key_audit_does_not_invent_sample_kind():
     assert len(results) == 1 and results[0][1]["total_rows"] == 2
 
 
-def test_monthly_comparison_requires_source_scope_unit_roles_and_exact_value_field():
+@pytest.mark.parametrize("code", ["B05", "B13", "B14"])
+def test_monthly_comparison_requires_source_scope_unit_roles_and_exact_value_field(code):
     common = {"unit": "人", "scope": "测试地区"}
     rows = [
         dict(
@@ -115,16 +116,16 @@ def test_monthly_comparison_requires_source_scope_unit_roles_and_exact_value_fie
         ),
         dict(common, kind="total", deaths=5, injured=9),
     ]
-    candidate, results = checks("B05", source(rows))
+    candidate, results = checks(code, source(rows))
     assert len(results) == 2 and all(
         tool == "stats.reconcile_total" and tested[0]["passed"] for tool, _, tested in results
     )
     tamper = deepcopy(candidate)
     tamper["products"]["reconciliation"][0]["computed"][0] = 22
-    assert not role_analysis.compare("B05", results[0][0], results[0][1], tamper)[0]["passed"]
+    assert not role_analysis.compare(code, results[0][0], results[0][1], tamper)[0]["passed"]
     for row in rows:
         row.pop("unit")
-    assert not checks("B05", source(rows))[1]
+    assert not checks(code, source(rows))[1]
 
 
 @pytest.mark.parametrize("bad_month", [None, "", "2024-01"])

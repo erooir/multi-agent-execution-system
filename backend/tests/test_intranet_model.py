@@ -210,6 +210,12 @@ def model_endpoint(monkeypatch, tmp_path):
             message = {"role": "assistant", "content": '{"result":84}'}
             finish = "stop"
             if payload.get("tools") and payload["messages"][-1]["role"] != "tool":
+                choice = payload.get("tool_choice")
+                name = (
+                    choice["function"]["name"]
+                    if isinstance(choice, dict)
+                    else payload["tools"][0]["function"]["name"]
+                )
                 message.update(
                     content=None,
                     tool_calls=[
@@ -217,7 +223,7 @@ def model_endpoint(monkeypatch, tmp_path):
                             "id": "safe-multiply-1",
                             "type": "function",
                             "function": {
-                                "name": payload["tools"][0]["function"]["name"],
+                                "name": name,
                                 "arguments": '{"a":12,"b":7}',
                             },
                         }
@@ -468,9 +474,11 @@ async def test_required_main_tool_then_bounded_final_json(model_endpoint):
         result: int
 
     client, seen = model_endpoint
+    executions = []
 
     def multiply(a: int, b: int) -> int:
         """Multiply integers."""
+        executions.append((a, b))
         return a * b
 
     result = await client.run_agent(
@@ -479,14 +487,73 @@ async def test_required_main_tool_then_bounded_final_json(model_endpoint):
         {"multiply": multiply},
         output_schema=Result,
         required_first_tool="multiply",
+        required_tool_completed=lambda: bool(executions),
         auto_tool_rounds=1,
     )
     assert json.loads(result["text"]) == {"result": 84}
     assert seen[0][2]["tool_choice"] == {"type": "function", "function": {"name": "multiply"}}
     assert "response_format" not in seen[0][2]
     assert seen[1][2]["tool_choice"] == "none"
+    assert "tools" not in seen[1][2]
+    assert executions == [(12, 7)]
     assert seen[1][2]["response_format"]["type"] == "json_schema"
     assert seen[1][2]["response_format"]["json_schema"]["schema"]["required"] == ["result"]
+
+
+@pytest.mark.asyncio
+async def test_case_main_tool_is_unavailable_during_optional_cross_check_round(model_endpoint):
+    client, seen = model_endpoint
+    observed = []
+
+    def multiply(a: int, b: int) -> int:
+        """Compute the initial result."""
+        observed.append((a, b))
+        return a * b
+
+    def cross_check() -> int:
+        """Check a published result."""
+        return 84
+
+    result = await client.run_agent(
+        {},
+        "Execute the main tool once and use the independent check if needed.",
+        {"multiply": multiply, "cross_check": cross_check},
+        required_first_tool="multiply",
+        required_tool_completed=lambda: bool(observed),
+        auto_tool_rounds=2,
+    )
+    assert observed == [(12, 7)]
+    assert result["request_count"] == 2
+    first, second = [request[2] for request in seen]
+    assert first["tool_choice"] == {"type": "function", "function": {"name": "multiply"}}
+    assert [tool["function"]["name"] for tool in second["tools"]] == ["cross_check"]
+    assert second.get("tool_choice", "auto") == "auto"
+    assert any(m["role"] == "tool" and "84" in m["content"] for m in second["messages"])
+
+
+@pytest.mark.asyncio
+async def test_failed_required_tool_stays_available_for_bounded_repair(model_endpoint):
+    client, seen = model_endpoint
+
+    def multiply(a: int, b: int) -> int:
+        """Reject values outside the input contract."""
+        raise ValueError("invalid synthetic input")
+
+    result = await client.run_agent(
+        {},
+        "Return the tool error.",
+        {"multiply": multiply},
+        required_first_tool="multiply",
+        required_tool_completed=lambda: False,
+        auto_tool_rounds=2,
+    )
+    assert result["request_count"] == 2
+    follow_up = seen[1][2]
+    assert [tool["function"]["name"] for tool in follow_up["tools"]] == ["multiply"]
+    assert follow_up.get("tool_choice", "auto") == "auto"
+    assert any(
+        m["role"] == "tool" and "invalid synthetic input" in m["content"] for m in follow_up["messages"]
+    )
 
 
 @pytest.mark.asyncio

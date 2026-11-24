@@ -19,6 +19,7 @@ from ...platform.tool_trace import NodeDomainToolSession
 from .. import engine, roles
 from ..narrative_checks import monthly_facts, reconcile_assessment
 from ..role_analysis import requests as statistical_requests
+from ..role_analysis import statistical_family
 
 
 class ArtifactReference(Contract):
@@ -254,7 +255,8 @@ class CaseDomainToolSession(NodeDomainToolSession):
             context.prepared["records"] if context.stage == "analyze" else None,
         )
         self.statistical_cross_checks = None
-        if context.stage == "analyze" and context.code in {"B05", "G01", "G03", "G07", "T04"}:
+        family = statistical_family(context.code)
+        if context.stage == "analyze" and family in {"B05", "G01", "G03", "G07", "T04"}:
             # Plan from the frozen prepare checkpoint before exposing tool schemas.
             # These are supported call arguments. Results still require a governed tool call.
             options = statistical_requests(
@@ -273,7 +275,7 @@ class CaseDomainToolSession(NodeDomainToolSession):
                 "G07": (roles.KEYS,),
                 "T04": (roles.TOTAL,),
             }
-            for tool_id in planned_only.get(context.code, ()):
+            for tool_id in planned_only.get(family, ()):
                 if tool_id in names and names[tool_id] not in applicable_names:
                     del self.tools[names[tool_id]]
         self.tools[self.main_name] = {
@@ -614,6 +616,7 @@ async def run_domain_executor(executor: DomainExecutor, context: ExecutorContext
                 context={"run_id": execution.task["id"], "classification": "public"},
                 max_rounds=12,
                 required_first_tool=session.main_name,
+                required_tool_completed=lambda: bool(session.artifacts),
                 auto_tool_rounds=2,
                 native_tools=session.agent_tools(),
                 skills=session.skills_native,

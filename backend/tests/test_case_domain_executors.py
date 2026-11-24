@@ -274,7 +274,7 @@ async def test_cloud_agno_loop_preserves_three_node_contracts(db, tmp_path, monk
         names = {tool["function"]["name"] for tool in payload["tools"]}
         # The fixture supplies JSON records and, for some cases, PNG images.
         assert names.isdisjoint({"read_pdf_page", "select_cues", "extract_quantities", "compare_passages"})
-        if code in {"B05", "T04"} and f"case_{code.lower()}_analyze" in names:
+        if code in {"B05", "B13", "B14", "T04"} and f"case_{code.lower()}_analyze" in names:
             assert "audit_keys" in names and "reconcile_total" not in names
         if any(item.get("role") == "tool" for item in payload["messages"]):
             assert '"records": [' not in json.dumps(payload["messages"][-1])

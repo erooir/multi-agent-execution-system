@@ -7,6 +7,11 @@ import re
 from .geo_common import day, number, stamp
 
 
+def statistical_family(code):
+    """These three case profiles share the same monthly count product and source requirements."""
+    return "B05" if code in {"B13", "B14"} else code
+
+
 def _annual(records):
     policies = [r for r in records if r["fields"].get("kind") == "policy"]
     if len(policies) > 1:
@@ -337,6 +342,7 @@ def _observation_keys(code, records):
 
 def requests(code, inputs, records, candidate=None):
     """Only material explicitly present in the frozen case can select a cross-check."""
+    code = statistical_family(code)
     frozen = {(a["id"], str(a["source_version"])) for a in inputs}
     if not records or any((r["source_id"], str(r["source_version"])) not in frozen for r in records):
         return []
@@ -366,6 +372,7 @@ def _check(name, ok, message, hard=True):
 
 def compare(code, tool_id, result, candidate):
     """Compare only quantities with matching source, unit, population, epoch or OD."""
+    code = statistical_family(code)
     out = result.get("data", result)
     products = candidate.get("products", {})
     if code == "G03" and tool_id == "series.baseline_anomaly":
