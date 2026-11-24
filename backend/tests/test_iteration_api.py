@@ -197,3 +197,41 @@ def test_legacy_idempotency_survives_added_default_contract_fields(db):
     task["request_hash"] = service.digest(task["request"])
     db.put("tasks", task)
     assert service.create_task(body, ADMIN, db)["id"] == task["id"]
+
+
+def test_management_knowledge_replay_uses_the_original_selection(db, monkeypatch):
+    p = project(db)
+    source = asset(db, p, "河口盐度", modality="text", media_type="text/plain", source_id="estuary")
+    monkeypatch.setattr("backend.app.config.get_api_key", lambda: "synthetic-key")
+    monkeypatch.setattr(gateway_module.model_gateway, "budget", lambda: {"remaining_cny": 300})
+    request = task_body(
+        p,
+        source,
+        goal="河口盐度",
+        task_type="text_analysis",
+        mode="cloud",
+        max_cost_cny=1,
+        use_project_knowledge=True,
+    )
+    del request["input_refs"]
+    with TestClient(application()) as client:
+        preflight = client.post("/api/v2/tasks/preflight", json=request)
+        assert preflight.status_code == 200
+        assert preflight.json()["knowledge_scope"] == {"eligible": 1, "matched": 1, "selected": 1}
+        created = client.post("/api/v2/tasks", json=request)
+        assert created.status_code == 202
+        task_id = created.json()["id"]
+        asset(db, p, "河口盐度新记录", modality="text", media_type="text/plain", source_id="estuary-2")
+        repeated = client.post("/api/v2/tasks/preflight", json=request)
+        assert repeated.json()["existing_task_id"] == task_id
+        assert repeated.json()["knowledge_scope"] == preflight.json()["knowledge_scope"]
+
+        # Older tasks stored automatically selected sources in request.input_refs.
+        legacy = db.get("tasks", task_id)
+        del legacy["snapshot"]["knowledge_scope"]
+        legacy["request"]["input_refs"] = [source["id"]]
+        legacy["request_hash"] = service.digest(legacy["request"])
+        db.put("tasks", legacy)
+        assert client.post("/api/v2/tasks", json=request).json()["id"] == task_id
+        conflict = client.post("/api/v2/tasks", json={**request, "goal": "另一个目标"})
+        assert conflict.status_code == 409

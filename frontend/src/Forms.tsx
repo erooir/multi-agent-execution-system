@@ -958,7 +958,7 @@ export function TaskForm({
               update("use_project_knowledge", event.target.checked)
             }
           />
-          允许工具型智能体 检索本项目公开知识
+          允许工具型智能体检索本项目公开知识
         </label>
       )}
       {form.mode === "rehearsal" && (
@@ -1096,6 +1096,12 @@ export function TaskForm({
         {preview && (
           <div role="status">
             <strong>预检查通过</strong>
+            {preview.knowledge_scope && (
+              <p>
+                已检索 {preview.knowledge_scope.eligible} 份可用公开资料，匹配 {preview.knowledge_scope.matched} 份，本次选入 {preview.knowledge_scope.selected} 份。
+                {preview.knowledge_scope.matched > preview.knowledge_scope.selected && "优先保留手动选择的资料，其余按相关性选入。"}
+              </p>
+            )}
             {preview.warnings?.map((message) => (
               <p key={message} className="warning">{message}</p>
             ))}

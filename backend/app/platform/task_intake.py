@@ -18,6 +18,7 @@ from ..casework.intake_plan import _normal, _terms
 from . import knowledge
 from . import service as s
 from . import task_cases as cases
+from .contracts import MAX_TASK_INPUTS
 from .db import now
 from .task_case_contracts import InlineSubmissionInput
 
@@ -97,6 +98,13 @@ def management_inputs(body, user, repository):
     if "input_refs" in body.model_fields_set:
         return data
     s.project_access(body.project_id, user, True, repository)
+    if body.use_project_knowledge:
+        # New requests select knowledge inside the same transaction that freezes the task.
+        # Older requests persisted auto-resolved IDs in the request. Replay that original resolution.
+        previous = repository.list("tasks", body.project_id, idempotency_key=body.idempotency_key)
+        if previous and "knowledge_scope" not in previous[0]["snapshot"]:
+            data["input_refs"] = previous[0]["request"]["input_refs"]
+        return data
     record = {**data, "matched_case_id": data.get("case_id"), "input_refs": []}
     available = []
     for asset in repository.list("data_assets", body.project_id):
@@ -108,7 +116,7 @@ def management_inputs(body, user, repository):
             continue
         available.append(asset)
     refs, _ = _catalog_refs(available, record)
-    data["input_refs"] = refs[:50]
+    data["input_refs"] = refs[:MAX_TASK_INPUTS]
     return data
 
 

@@ -5828,6 +5828,36 @@
         ],
         "title": "ProjectInput"
       },
+      "ProjectKnowledgeScope": {
+        "properties": {
+          "eligible": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Eligible",
+            "description": "项目中对当前任务可用的公开资料数"
+          },
+          "matched": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Matched",
+            "description": "手动选择和检索命中的来源数"
+          },
+          "selected": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Selected",
+            "description": "本次实际选入的资料数"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "eligible",
+          "matched",
+          "selected"
+        ],
+        "title": "ProjectKnowledgeScope"
+      },
       "ProjectRenameInput": {
         "properties": {
           "name": {
@@ -6565,6 +6595,16 @@
             },
             "type": "array",
             "title": "Warnings"
+          },
+          "knowledge_scope": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectKnowledgeScope"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,

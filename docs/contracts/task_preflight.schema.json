@@ -1,4 +1,36 @@
 {
+  "$defs": {
+    "ProjectKnowledgeScope": {
+      "additionalProperties": false,
+      "properties": {
+        "eligible": {
+          "description": "项目中对当前任务可用的公开资料数",
+          "minimum": 0,
+          "title": "Eligible",
+          "type": "integer"
+        },
+        "matched": {
+          "description": "手动选择和检索命中的来源数",
+          "minimum": 0,
+          "title": "Matched",
+          "type": "integer"
+        },
+        "selected": {
+          "description": "本次实际选入的资料数",
+          "minimum": 0,
+          "title": "Selected",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "eligible",
+        "matched",
+        "selected"
+      ],
+      "title": "ProjectKnowledgeScope",
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
   "properties": {
     "ready": {
@@ -38,6 +70,17 @@
       },
       "title": "Warnings",
       "type": "array"
+    },
+    "knowledge_scope": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProjectKnowledgeScope"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     }
   },
   "required": [

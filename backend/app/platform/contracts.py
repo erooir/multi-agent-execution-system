@@ -5,7 +5,16 @@ from typing import Any, Literal
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 CASE_ID_PATTERN = r"^(?:[BT](?:0[1-9]|1[0-7])|G(?:0[1-9]|1[0-6]))$"
+MAX_TASK_INPUTS = 50
 FILE_INDEX_MEDIA_TYPE = "application/vnd.hangzhi.file-index+json"
+CASE_DOCUMENT_MEDIA_TYPES = frozenset(
+    {
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "text/csv;charset=windows-1252",
+    }
+)
 
 TaskType = Literal[
     "structured_transform",
@@ -290,12 +299,19 @@ class CapabilityCatalog(Contract):
     readiness: dict[str, Any] = Field(default_factory=dict)
 
 
+class ProjectKnowledgeScope(Contract):
+    eligible: int = Field(ge=0, description="项目中对当前任务可用的公开资料数")
+    matched: int = Field(ge=0, description="手动选择和检索命中的来源数")
+    selected: int = Field(ge=0, description="本次实际选入的资料数")
+
+
 class TaskPreflight(Contract):
     ready: bool
     existing_task_id: str | None = None
     selected_agents: list[dict[str, Any]] = Field(default_factory=list)
     checks: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    knowledge_scope: ProjectKnowledgeScope | None = None
 
 
 class QuestionInput(Contract):
@@ -427,7 +443,7 @@ class TaskInput(Contract):
     task_type: TaskType
     case_id: str | None = Field(default=None, pattern=CASE_ID_PATTERN)
     case_scope: Literal["reference", "sample", "project"] = "reference"
-    input_refs: list[str] = Field(default_factory=list, max_length=50)
+    input_refs: list[str] = Field(default_factory=list, max_length=MAX_TASK_INPUTS)
     workflow_id: str | None = None
     mode: Literal["local", "cloud", "rehearsal"] = "local"
     service_class: Literal["batch", "interactive"] = Field(

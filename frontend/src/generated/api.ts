@@ -2347,6 +2347,24 @@ export interface components {
              */
             description: string;
         };
+        /** ProjectKnowledgeScope */
+        ProjectKnowledgeScope: {
+            /**
+             * Eligible
+             * @description 项目中对当前任务可用的公开资料数
+             */
+            eligible: number;
+            /**
+             * Matched
+             * @description 手动选择和检索命中的来源数
+             */
+            matched: number;
+            /**
+             * Selected
+             * @description 本次实际选入的资料数
+             */
+            selected: number;
+        };
         /** ProjectRenameInput */
         ProjectRenameInput: {
             /** Name */
@@ -2646,6 +2664,7 @@ export interface components {
             checks?: string[];
             /** Warnings */
             warnings?: string[];
+            knowledge_scope?: components["schemas"]["ProjectKnowledgeScope"] | null;
         };
         /** TextAgentRequest */
         TextAgentRequest: {

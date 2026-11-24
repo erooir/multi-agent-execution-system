@@ -14,7 +14,15 @@ from functools import lru_cache
 from pathlib import Path
 from threading import Lock
 
-from .contracts import AgentInput, AssetInput, TaskInput, ToolParameters, WorkflowInput, is_file_index
+from .contracts import (
+    CASE_DOCUMENT_MEDIA_TYPES,
+    AgentInput,
+    AssetInput,
+    TaskInput,
+    ToolParameters,
+    WorkflowInput,
+    is_file_index,
+)
 from .db import QUEUE_AGING_SECONDS, QUEUE_POLICY_VERSION, ROOT, TERMINAL, json_scalar, now, repo, tables
 from .tool_registry import freeze_bindings, permissions, validate_frozen
 
@@ -1021,13 +1029,21 @@ def create_task(body, user, repository=None, *, preflight=False, task_case_id=No
                 fail("task_deleted", "原任务已删除，请使用新的提交标识创建任务", 409)
             if TaskInput.model_validate(previous[0]["request"]).model_dump() != body:
                 fail("idempotency_conflict", "同一幂等键已有不同任务请求", 409)
-            return {"ready": True, "existing_task_id": previous[0]["id"]} if preflight else previous[0]
+            if preflight:
+                response = {"ready": True, "existing_task_id": previous[0]["id"]}
+                if "knowledge_scope" in previous[0]["snapshot"]:
+                    response["knowledge_scope"] = previous[0]["snapshot"]["knowledge_scope"]
+                return response
+            return previous[0]
         if not capability["available"]:
             fail("unsupported_capability", "此任务能力尚未接入，请选择已验证能力", 422)
         if body["mode"] not in capability["modes"]:
             fail("unsupported_mode", "此任务不支持所选执行模式，请依据能力说明选择", 422)
         inputs = []
-        for asset_id in body["input_refs"]:
+        requested_refs = body["input_refs"]
+        if body["use_project_knowledge"]:
+            requested_refs = list(dict.fromkeys(requested_refs))
+        for asset_id in requested_refs:
             asset = required("data_assets", asset_id, user, repository=tx)
             if asset["project_id"] != body["project_id"]:
                 fail("permission_denied", "任务不能引用其他项目数据", 403)
@@ -1037,36 +1053,31 @@ def create_task(body, user, repository=None, *, preflight=False, task_case_id=No
             if body["mode"] == "cloud" and asset["classification"] != "public":
                 fail("data_egress_blocked", "云任务仅能处理已明确授权外发的公开资料", 403)
             inputs.append(asset)
+        reference_batch = None
+        if body["task_type"] == "case_analysis" and body["case_scope"] == "reference":
+            from ..casework.reference_batches import freeze
+
+            reference_batch = freeze(body["project_id"], body["case_id"])
+        knowledge_scope = None
         if body.get("use_project_knowledge"):
             if body["mode"] != "cloud":
                 fail("unsupported_knowledge_scope", "项目公开知识仅用于云端工具型智能体", 422)
-            existing_ids = {asset["id"] for asset in inputs}
-            for asset in tx.list("data_assets", body["project_id"]):
-                if (
-                    asset["id"] in existing_ids
-                    or (asset.get("task_case_id") and asset["task_case_id"] != task_case_id)
-                    or asset.get("classification") != "public"
-                    or asset.get("modality") not in capability["modalities"]
-                ):
-                    continue
-                try:
-                    usable_task_input(asset)
-                except DomainError:
-                    continue
-                inputs.append(asset)
-            if len(inputs) > 50:
-                fail("knowledge_scope_too_large", "项目公开知识超过50份，请缩小项目资料范围", 422)
+            from .project_knowledge import select_project_knowledge
+
+            extra, knowledge_scope = select_project_knowledge(
+                tx, body, inputs, capability["modalities"], task_case_id, reference_batch=reference_batch
+            )
+            inputs.extend(extra)
+            if not inputs and body["task_type"] != "autonomous_analysis":
+                fail(
+                    "insufficient_data",
+                    "没有匹配的公开资料，请选择输入资料或在任务目标中填写资料名称或主题。",
+                    422,
+                )
         if not inputs and body["task_type"] != "autonomous_analysis":
             fail("insufficient_data", "请至少选择一份有效资料", 422)
         if body["task_type"] not in {"case_analysis", "autonomous_analysis"} and any(
-            a.get("media_type")
-            in {
-                "application/pdf",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                "text/csv;charset=windows-1252",
-            }
-            for a in inputs
+            a.get("media_type") in CASE_DOCUMENT_MEDIA_TYPES for a in inputs
         ):
             fail("unsupported_input", "该文件需要用例协作组解析，请使用用例分析入口", 422)
         if any(a["modality"] not in capability["modalities"] for a in inputs):
@@ -1103,10 +1114,8 @@ def create_task(body, user, repository=None, *, preflight=False, task_case_id=No
                 for word in ("翻译", "译成", "译为", "译注", "translate", "translation")
             ):
                 case_contract["translation_requested"] = True
-            if body["case_scope"] == "reference":
-                from ..casework.reference_batches import freeze
-
-                case_contract["reference_batch"] = freeze(body["project_id"], body["case_id"])
+            if reference_batch is not None:
+                case_contract["reference_batch"] = reference_batch
             flow_id = assigned_workflow(body["project_id"], body["case_id"])
             if body.get("workflow_id") and body["workflow_id"] != flow_id:
                 fail("case_team_required", "必须使用与用例匹配的项目协作组", 422)
@@ -1197,6 +1206,7 @@ def create_task(body, user, repository=None, *, preflight=False, task_case_id=No
                     "knowledge_scope",
                 ],
                 "warnings": warnings,
+                **({"knowledge_scope": knowledge_scope} if knowledge_scope is not None else {}),
             }
         task_id = uuid.uuid4().hex
         accepted_at = datetime.now(UTC)
@@ -1221,6 +1231,7 @@ def create_task(body, user, repository=None, *, preflight=False, task_case_id=No
                     "agents": agents,
                     "workflow": workflow,
                     "inputs": inputs,
+                    **({"knowledge_scope": knowledge_scope} if knowledge_scope is not None else {}),
                     "scheduling": scheduling,
                     **({"case_profile": case_contract} if case_contract else {}),
                 },
