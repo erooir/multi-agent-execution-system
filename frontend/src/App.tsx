@@ -579,8 +579,8 @@ function ManagementApp() {
           <span className="environment">
             {data
               ? data.system.offline
-                ? "本地模式"
-                : "允许云端"
+                ? "离线部署"
+                : "允许模型请求"
               : "读取部署策略中"}
           </span>
         </>

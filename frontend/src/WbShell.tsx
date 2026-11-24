@@ -627,8 +627,8 @@ export default function WbShell({
                     <strong className={systemData?.offline ? "" : "is-good"}>
                       {systemData
                         ? systemData.offline
-                          ? "本地离线"
-                          : "允许云端"
+                          ? "离线部署"
+                          : "允许模型请求"
                         : "读取中…"}
                     </strong>
                   </div>

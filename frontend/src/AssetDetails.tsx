@@ -109,13 +109,13 @@ export function AgentDetails({
           <small>
             {dualMode
               ? offline
-                ? "同一资产按任务模式切换 · 离线部署云模型停用"
-                : "同一资产按任务模式切换 · 模型调用经统一网关计费"
+                ? "离线部署仅支持本地演练"
+                : "按任务所选模式执行，模型请求通过统一网关"
               : agent.model_policy === "local"
                 ? modeName("local")
                 : offline
-                  ? "离线部署 · 云模型停用"
-                  : "模型调用 · 统一网关计入累计预算"}
+                  ? "离线部署已停用模型调用"
+                  : modeName("cloud")}
           </small>
         </section>
         <section>
