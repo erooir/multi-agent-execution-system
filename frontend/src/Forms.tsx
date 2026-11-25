@@ -634,7 +634,10 @@ function TaskEditor({
   const [catalogError, setCatalogError] = useState("");
   const [fetchedProfiles, setProfiles] = useState<Item[]>([]);
   const profiles = caseProfiles ?? fetchedProfiles;
-  const edition = form.task_type === "case_analysis" && profiles.find((p) => p.id === form.case_id && p.edition);
+  const caseProfile = form.task_type === "case_analysis" ? profiles.find((p) => p.id === form.case_id) : undefined;
+  const edition = caseProfile?.edition ? caseProfile : undefined;
+  const canSearchProjectKnowledge = form.mode === "cloud" &&
+    (form.task_type !== "case_analysis" || (!!caseProfile && !edition));
   useEffect(() => {
     if (caseProfiles !== undefined || form.task_type !== "case_analysis") return;
     const c = new AbortController();
@@ -708,6 +711,9 @@ function TaskEditor({
     if (form.task_type === "autonomous_analysis") {
       throw new Error("自主任务请前往任务工作台创建。");
     }
+    if (form.task_type === "case_analysis" && form.use_project_knowledge && !caseProfile) {
+      throw new Error("请等用例目录载入后选择分析用例。");
+    }
     return {
       name: form.name,
       goal: form.goal,
@@ -725,7 +731,7 @@ function TaskEditor({
       max_cost_cny: form.max_cost_cny,
       max_revisions: form.max_revisions,
       allow_partial: form.allow_partial,
-      use_project_knowledge: form.use_project_knowledge,
+      use_project_knowledge: canSearchProjectKnowledge && form.use_project_knowledge,
       project_id: projectId,
       workflow_id: form.workflow_id || null,
       quality: {
@@ -1034,7 +1040,7 @@ function TaskEditor({
           只允许外发已标记公开的数据。执行、自动评审与修订均经过统一网关并计入历史累计 300 元上限。
         </p>
       )}
-      {form.mode === "cloud" && (
+      {canSearchProjectKnowledge && (
         <label className="check">
           <input
             type="checkbox"

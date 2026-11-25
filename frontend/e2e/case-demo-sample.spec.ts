@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const project = { id: "sample-project", name: "合成工作空间", members: ["operator"] };
 const other = { ...project, id: "other-project", name: "另一工作空间" };
@@ -15,8 +15,14 @@ const asset = {
   id: "ice-asset", project_id: project.id, name: "合成海冰年表", status: "active", classification: "public",
   expires_at: "2099-01-01T00:00:00Z", modality: "structured", media_type: "application/json",
 };
+const published = {
+  ...profile, edition: "public-casework-v1", workflow_id: "published-workflow",
+  inputs: [asset.name], case_request: { name: profile.title, goal: sample.goal, input_refs: [asset.id] },
+};
+const knowledgeLabel = "允许工具型智能体检索本项目公开知识";
+const capabilities = [capability, { id: "text_analysis", available: true, modes: ["cloud"], modalities: ["text"] }];
 
-async function setup(page: Page, options: { offline?: boolean; error?: boolean } = {}) {
+async function setup(page: Page, options: { offline?: boolean; error?: boolean; published?: boolean } = {}) {
   const lookups: string[] = [];
   let fail = options.error, submissions = 0;
   await page.route("**/api/**", async (route) => {
@@ -24,13 +30,13 @@ async function setup(page: Page, options: { offline?: boolean; error?: boolean }
     const selected = searchParams.get("project_id") === other.id ? other : project;
     if (pathname === "/api/auth/me") return route.fulfill({ json: user });
     if (pathname === "/api/v2/bootstrap") return route.fulfill({ json: {
-      user, projects: [project, other], current_project_id: selected.id, capabilities: [capability],
+      user, projects: [project, other], current_project_id: selected.id, capabilities,
       agents: [], workflows: [], tasks: [], data_assets: selected === project ? [asset] : [],
       schedules: [], improvements: [], connectors: [], memories: [], evaluations: [], workers: [],
       stats: {}, system: { offline: !!options.offline }, budget: {},
     } });
-    if (pathname === "/api/v2/casework/catalog") return route.fulfill({ json: [profile, otherCase] });
-    if (pathname === "/api/v2/capabilities") return route.fulfill({ json: { capabilities: [capability], tools: [] } });
+    if (pathname === "/api/v2/casework/catalog") return route.fulfill({ json: options.published ? [published] : [profile, otherCase] });
+    if (pathname === "/api/v2/capabilities") return route.fulfill({ json: { capabilities, tools: [] } });
     if (pathname === "/api/v2/casework/G03/demo-sample") {
       lookups.push(searchParams.get("project_id") || "");
       if (fail) {
@@ -46,10 +52,60 @@ async function setup(page: Page, options: { offline?: boolean; error?: boolean }
       return route.fulfill({ json: { ready: true, checks: [], selected_agents: [], warnings: [] } });
     }
     if (route.request().method() === "POST") submissions++;
+    if (pathname === "/api/v2/tasks" && route.request().method() === "POST") {
+      return route.fulfill({ json: { id: "synthetic-task", status: "accepted" } });
+    }
     return route.fulfill({ status: 404, json: {} });
   });
   return { lookups, submissions: () => submissions };
 }
+
+async function submit(page: Page, form: Locator) {
+  const [preflight, task] = await Promise.all([
+    page.waitForRequest(r => r.method() === "POST" && r.url().endsWith("/api/v2/tasks/preflight")),
+    page.waitForRequest(r => r.method() === "POST" && r.url().endsWith("/api/v2/tasks")),
+    form.getByRole("button", { name: "提交并自动执行" }).click(),
+  ]);
+  expect(task.postDataJSON()).toEqual(preflight.postDataJSON());
+  return task.postDataJSON();
+}
+
+for (const view of ["casework", "tasks"]) {
+  test(`${view} 手动提交新版用例仅使用随包原件`, async ({ page }) => {
+    await setup(page, { published: true });
+    await page.goto(`/manage?view=${view}&project=${project.id}`);
+    const form = page.getByRole("dialog");
+    if (view === "casework") {
+      await page.locator(".cc-card").filter({ hasText: published.title }).getByRole("button", { name: "创建用例任务" }).click();
+    } else {
+      await page.getByRole("main").getByRole("button", { name: "新建任务" }).click();
+      await form.getByLabel("任务类型").selectOption("text_analysis");
+      await form.getByLabel(knowledgeLabel).check();
+      await form.getByLabel("任务类型").selectOption("case_analysis");
+      await form.getByLabel("分析用例").selectOption(published.id);
+    }
+    await expect(form.getByLabel("验收范围")).toHaveValue("project");
+    await expect(form.getByLabel("执行模式")).toHaveValue("cloud");
+    await expect(form.getByLabel(knowledgeLabel)).toHaveCount(0);
+    expect(await submit(page, form)).toMatchObject({
+      project_id: project.id, case_id: published.id, case_scope: "project", mode: "cloud",
+      use_project_knowledge: false, input_refs: [asset.id], workflow_id: published.workflow_id,
+    });
+  });
+}
+
+test("普通模型任务仍可显式启用项目公开知识", async ({ page }) => {
+  await setup(page, { published: true });
+  await page.goto(`/manage?view=tasks&project=${project.id}`);
+  await page.getByRole("main").getByRole("button", { name: "新建任务" }).click();
+  const form = page.getByRole("dialog");
+  await form.getByLabel("任务类型").selectOption("text_analysis");
+  await form.getByLabel("任务名称").fill("合成文本比较");
+  await form.getByLabel("任务目标").fill("使用本项目公开文本核对月份。");
+  await expect(form.getByLabel(knowledgeLabel)).not.toBeChecked();
+  await form.getByLabel(knowledgeLabel).check();
+  expect(await submit(page, form)).toMatchObject({ task_type: "text_analysis", mode: "cloud", use_project_knowledge: true });
+});
 
 for (const view of ["casework", "tasks"]) {
   test(`${view} 普通创建使用当前项目的可追溯演示样本`, async ({ page }) => {
