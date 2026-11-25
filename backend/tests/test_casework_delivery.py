@@ -10,6 +10,7 @@ from xml.etree import ElementTree as ET
 
 import pytest
 from docx import Document
+from docx.oxml.ns import qn
 
 from backend.app.casework.delivery import bundle
 from backend.app.casework.delivery_files import csv_cell, safe_svg
@@ -50,6 +51,36 @@ def word(archive, name="brief.docx"):
     return "\n".join(
         [p.text for p in doc.paragraphs] + [c.text for t in doc.tables for row in t.rows for c in row.cells]
     )
+
+
+def test_brief_uses_simplified_chinese_fonts_without_losing_finding_emphasis():
+    title = "苏北人口安置压力分析"
+    finding = {"heading": "样本观察", "text": "本期登记人数保持稳定。", "evidence_ids": ["e1"]}
+    r = report("B02", {"专题分析": [finding]})
+    r.update(title=title, edition="public-casework-v1", scope="project")
+    r["evidence"][0]["location"] = {"原件位置": "第3页"}
+    r["evidence"][1]["location"] = {"原件位置": "第7行"}
+    with unpack(bundle(r)) as archive:
+        doc = Document(io.BytesIO(archive.read("brief.docx")))
+
+    assert doc.paragraphs[0].text == title
+    assert doc.paragraphs[0].style.name == "Title"
+    default_lang = doc.styles.element.xpath("./w:docDefaults/w:rPrDefault/w:rPr/w:lang")[0]
+    assert default_lang.get(qn("w:eastAsia")) == "zh-CN"
+    assert doc.settings.element.find(qn("w:themeFontLang")).get(qn("w:eastAsia")) == "zh-CN"
+    for name in ("Normal", "Title", "Subtitle", "Heading 1", "Heading 2"):
+        style = doc.styles[name]
+        fonts = style.element.rPr.rFonts
+        assert all(
+            fonts.get(qn(f"w:{slot}")) == "Microsoft YaHei" for slot in ("ascii", "hAnsi", "eastAsia", "cs")
+        )
+        assert not any(key.lower().endswith("theme") for key in fonts.attrib)
+        assert bool(style.font.bold) == (name in {"Title", "Heading 1", "Heading 2"})
+
+    paragraph = next(p for p in doc.paragraphs if p.text.startswith(finding["heading"]))
+    label, body = paragraph.runs
+    assert label.bold and label.text.strip() == finding["heading"]
+    assert not body.bold and finding["text"] in body.text
 
 
 def test_report_reuses_actual_located_values_and_indexes_every_generated_file():

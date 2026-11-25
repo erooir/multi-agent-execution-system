@@ -934,6 +934,51 @@ def scope_text(report):
     return f"指定参考批次，已登记清单版本 {show(batch.get('version'), 44)}，仍须结合实际审核结果。"
 
 
+def _brief_font(rpr):
+    # Word gives theme selectors precedence over the named font for each script.
+    fonts = rpr.get_or_add_rFonts()
+    fonts.attrib.clear()
+    for script in ("ascii", "hAnsi", "eastAsia", "cs"):
+        fonts.set(qn(f"w:{script}"), "Microsoft YaHei")
+
+
+def _brief_styles(doc):
+    defaults = doc.styles.element.xpath("./w:docDefaults/w:rPrDefault/w:rPr")[0]
+    _brief_font(defaults)
+    language = defaults.find(qn("w:lang"))
+    language.set(qn("w:val"), "zh-CN")
+    language.set(qn("w:eastAsia"), "zh-CN")
+    doc.settings.element.find(qn("w:themeFontLang")).set(qn("w:eastAsia"), "zh-CN")
+
+    for name, size, bold in (
+        ("Normal", 11, False),
+        ("Title", 21, True),
+        ("Subtitle", 10, False),
+        ("Heading 1", 15, True),
+        ("Heading 2", 12, True),
+    ):
+        paragraph = doc.styles[name]
+        # The built-in heading, title and subtitle each have a linked character style.
+        styles = (paragraph,) if name == "Normal" else (paragraph, doc.styles[name + " Char"])
+        for style in styles:
+            rpr = style.element.get_or_add_rPr()
+            _brief_font(rpr)
+            style.font.size = Pt(size)
+            style.font.bold = style.font.cs_bold = bold
+            style.font.italic = style.font.cs_italic = False
+            style.font.color.rgb = RGBColor(0, 0, 0)
+            size_cs = rpr.find(qn("w:szCs"))
+            if size_cs is None:
+                size_cs = OxmlElement("w:szCs")
+                rpr.sz.addnext(size_cs)
+            size_cs.set(qn("w:val"), str(2 * size))
+        pf = paragraph.paragraph_format
+        pf.line_spacing = 1.25
+        pf.space_after = Pt(5)
+        for border in list(paragraph.element.iter(qn("w:pBdr"))):
+            border.getparent().remove(border)
+
+
 def document_bytes(report, metadata, *, source_names=None, edition_files=None):
     doc = Document()
     sec = doc.sections[0]
@@ -942,18 +987,7 @@ def document_bytes(report, metadata, *, source_names=None, edition_files=None):
     sec.left_margin = sec.right_margin = Cm(2.2)
     sec.top_margin = Cm(2.1)
     sec.bottom_margin = Cm(1.9)
-    for name, size in (("Normal", 11), ("Title", 21), ("Subtitle", 10), ("Heading 1", 15), ("Heading 2", 12)):
-        style = doc.styles[name]
-        style.font.name = "Microsoft YaHei"
-        style.font.size = Pt(size)
-        style.font.color.rgb = RGBColor(0, 0, 0)
-        style.font.italic = False
-        style.element.get_or_add_rPr().rFonts.set(qn("w:eastAsia"), "Microsoft YaHei")
-        pf = style.paragraph_format
-        pf.line_spacing = 1.25
-        pf.space_after = Pt(5)
-        for border in list(style.element.iter(qn("w:pBdr"))):
-            border.getparent().remove(border)
+    _brief_styles(doc)
     if report.get("edition"):
         normal = doc.styles["Normal"].paragraph_format
         normal.line_spacing = 1.18
