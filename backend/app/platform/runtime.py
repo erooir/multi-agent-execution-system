@@ -328,6 +328,7 @@ class Execution:
     active_node_id: str | None = None
     failure: BaseException | None = None
     case_plan: dict | None = None
+    edition_model_context: object | None = None
     recovery: dict | None = None
     parallel_node: bool = False
 
@@ -506,6 +507,8 @@ async def _model(
     max_tokens=None,
 ) -> dict:
     execution.check()
+    if execution.edition_model_context is not None:
+        system, prompt = execution.edition_model_context.apply(system, prompt)
     if os.environ.get("HANGZHI_OFFLINE", "false").lower() == "true":
         raise TaskFailure("offline_policy", "离线部署策略禁止云端模型调用")
     allowed = (
@@ -1163,13 +1166,25 @@ async def _run_atomic(
             from ..casework import edition_runtime
             from ..casework.edition_verify import bind_source_check
 
+            edition_execution = execution
+            if execution.task["snapshot"]["workflow"].get("edition_guidance") and plan["id"] != "prepare":
+                from ..casework.edition_method import stage_guidance
+
+                context = await stage_guidance(execution, agent, permissions, revision, instance_id, previous)
+                edition_execution = replace(execution, edition_model_context=context)
+
             trace = (
                 bind_source_check(execution, agent, permissions, revision, instance_id)
                 if plan["id"] == "prepare"
                 else contextlib.nullcontext()
             )
             with trace:
-                output = await edition_runtime.run(execution, plan["id"], previous, revision)
+                output = await edition_runtime.run(edition_execution, plan["id"], previous, revision)
+            if plan["id"] == "review":
+                from ..casework.edition_method import GroundedMethod
+
+                if isinstance(edition_execution.edition_model_context, GroundedMethod):
+                    edition_execution.edition_model_context.check_report(output)
         elif task_type == "case_analysis":
             from ..casework.executors.base import ExecutorContext
             from ..casework.executors.registry import execute_cloud
@@ -1763,7 +1778,12 @@ async def _preflight(step_input: StepInput) -> StepOutput:
         from ..casework.team import frozen_profile
 
         profile = execution.task["snapshot"]["case_profile"]
+        from ..casework.edition_method import supported_signature
         from ..casework.editions import implementation
+
+        frozen_guidance = execution.task["snapshot"]["workflow"].get("edition_guidance")
+        if frozen_guidance and not supported_signature(frozen_guidance):
+            raise TaskFailure("case_profile_changed", "冻结的岗位工具流程实现已变化，请重新受理")
 
         expected = (
             implementation(profile["case_id"])

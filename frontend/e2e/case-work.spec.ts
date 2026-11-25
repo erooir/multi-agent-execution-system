@@ -67,6 +67,9 @@ test("用例任务：真实提交、三节点审核、来源证据与智能体�
   await expect(page.locator(".task-strip .badge")).toHaveText("成功", {
     timeout: 35000,
   });
+  const tokenCard = page.locator(".task-outcome-grid > div").filter({ hasText: "本任务 Token 用量" });
+  await expect(tokenCard.locator("strong")).toHaveText("0");
+  await expect(tokenCard).toContainText("输入 0 · 输出 0");
   await page.getByRole("button", { name: "执行图与实例", exact: true }).click();
   await expect(page.locator(".react-flow__node")).toHaveCount(3);
   const detail = await (

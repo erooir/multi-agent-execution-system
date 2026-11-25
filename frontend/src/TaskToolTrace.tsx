@@ -90,11 +90,12 @@ export function ToolCalls({
   const rows = calls.filter(
     (call) => status === "all" || call.status === status,
   );
+  const skillReads = calls.filter((call) => call.kind === "skill").length;
   return (
     <>
       <div className="trace-filters">
         <p>
-          共 {calls.length} 次实际调用 · 已完成{" "}
+          工具 {calls.length - skillReads} 次 · Skill 读取 {skillReads} 次 · 已完成{" "}
           {calls.filter((c) => c.status === "completed").length} 次 · 失败{" "}
           {calls.filter((c) => c.status === "failed").length} 次
         </p>
@@ -124,7 +125,7 @@ export function ToolCalls({
             </thead>
             <tbody>
               {rows.map((call) => {
-                const { label, node, agent, sourceVerification } = callContext(task, call);
+                const { label, node, agent } = callContext(task, call);
                 return (
                   <tr key={call.id}>
                     <td>
@@ -136,8 +137,9 @@ export function ToolCalls({
                         {call.kind === "tool" && call.external
                           ? "外部工具"
                           : kinds[call.kind] || call.kind}{" "}
-                        · {sourceVerification ? "流程自动执行" : "v" + call.version}
+                        · {call.summary?.invocation_mode === "fixed_workflow" ? "流程自动执行" : "v" + call.version}
                       </small>
+                      {call.summary?.input_kind === "edition_evidence_index" && <small>冻结证据索引</small>}
                       {call.transport && <small>{call.transport}</small>}
                     </td>
                     <td>
@@ -209,6 +211,7 @@ export function ToolCallDialog({
     return () => controller.abort();
   }, [task.id, call.id, call.status]);
   const { label, node, agent, sourceVerification } = callContext(task, call);
+  const instructions = call.kind === "skill" ? detail?.result?.instructions : null;
   return (
     <Modal wide title="工具调用详情" onClose={onClose}>
       <div className="modal-body trace-call">
@@ -221,9 +224,9 @@ export function ToolCallDialog({
           {node?.label || call.node_id || "未记录节点"}
           {agent && " · " + agent.name + " v" + agent.version}
         </p>
-        {!sourceVerification && <NodeExecutionFacts node={node} />}
+        {call.summary?.invocation_mode !== "fixed_workflow" && <NodeExecutionFacts node={node} />}
         <dl className="trace-facts">
-          {sourceVerification && (
+          {call.summary?.invocation_mode === "fixed_workflow" && (
             <>
               <dt>调用方式</dt>
               <dd>流程自动执行</dd>
@@ -239,9 +242,15 @@ export function ToolCallDialog({
           </dd>
           <dt>开始时间</dt>
           <dd>{time(call.started_at)}</dd>
-          <dt>读取来源</dt>
+          {call.summary?.input_kind === "edition_evidence_index" && (
+            <>
+              <dt>读取对象</dt>
+              <dd>冻结证据索引</dd>
+            </>
+          )}
+          <dt>{call.kind === "skill" ? "技能包" : "读取来源"}</dt>
           <dd>
-            {(call.source_refs || [])
+            {call.kind === "skill" ? label + " · v" + call.version : (call.source_refs || [])
               .map(
                 (ref: string) =>
                   task.snapshot?.inputs?.find((a: Item) => a.id === ref)
@@ -279,7 +288,12 @@ export function ToolCallDialog({
               <pre>{JSON.stringify(detail.arguments, null, 2)}</pre>
             )}
             <h3>实际输出</h3>
-            {detail.result == null ? (
+            {typeof instructions === "string" ? (
+              <>
+                <pre>{instructions}</pre>
+                <JsonView value={detail.result} label="完整技能读取结果" />
+              </>
+            ) : detail.result == null ? (
               <p className="muted">没有保存输出内容。</p>
             ) : (
               <pre>{JSON.stringify(detail.result, null, 2)}</pre>

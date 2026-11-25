@@ -1,6 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resultRows, tableColumns, qualityOutputs, elapsedSeconds, displayValue } from "../src/resultModel.ts";
+import { resultRows, tableColumns, qualityOutputs, elapsedSeconds, displayValue, taskTokenUsage } from "../src/resultModel.ts";
+
+test("任务卡使用网关确认的输入与输出，缺失记录不会显示为零", () => {
+  const task = (usage, mode = "cloud") => ({ status: "succeeded", request: { mode }, result: { usage } });
+  const complete = { accounting_available: true, accounting_complete: true, input_tokens: 7587, output_tokens: 1087 };
+  assert.deepEqual(taskTokenUsage(task(complete)), { value: "8,674", detail: "输入 7,587 · 输出 1,087" });
+  assert.deepEqual(taskTokenUsage(task({ ...complete, accounting_complete: false })), {
+    value: "待确认", detail: "已确认输入 7,587 · 输出 1,087",
+  });
+  const zero = { ...complete, accounting_available: false, input_tokens: 0, output_tokens: 0 };
+  assert.equal(taskTokenUsage(task(zero, "local")).value, "0");
+  assert.equal(taskTokenUsage(task(zero)).value, "待确认");
+  assert.equal(taskTokenUsage(task({ ...complete, output_tokens: null })).value, "待确认");
+  assert.equal(taskTokenUsage(task(undefined)).value, "未记录");
+  assert.equal(taskTokenUsage({ status: "running" }).value, "待汇总");
+});
 
 test("heterogeneous result tables keep later fields, false and zero", () => {
   const rows = resultRows({ records: [{ a: 0 }, { b: false }] });

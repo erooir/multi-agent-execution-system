@@ -105,7 +105,7 @@ export default function Casework({
     api<Item>("/v2/capabilities?project_id=" + encodeURIComponent(projectId), { signal })
       .then((data) => {
         if (!signal.aborted) {
-          setTools(data.tools || []);
+          setTools([...(data.tools || []), ...(data.skills || [])]);
           setToolError("");
         }
       })
@@ -190,7 +190,7 @@ export default function Casework({
         description="按业务问题选择分析流程。资料、专业计算和独立审核都有版本及运行记录。发布会将用例岗位与流程绑定到本项目，不会下载外部内容。"
         actions={
           canEdit &&
-          !publishedEdition && (!installed || needsUpgrade) && (
+          (needsUpgrade || (!publishedEdition && !installed)) && (
             <button
               disabled={busy || !catalog.length}
               onClick={() => provision(needsUpgrade)}
@@ -203,7 +203,7 @@ export default function Casework({
           )
         }
       />
-      {needsUpgrade && !publishedEdition && (
+      {needsUpgrade && (
         <p className="warning">
           打开用例时会尝试更新旧版内置流程，历史版本和任务记录会保留。
         </p>

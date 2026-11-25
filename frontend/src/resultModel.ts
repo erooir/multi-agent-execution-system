@@ -1,4 +1,31 @@
 import type { Item } from "./types";
+import { terminal } from "./domain.ts";
+
+const tokenCount = new Intl.NumberFormat("zh-CN");
+
+export function taskTokenUsage(task: Item) {
+  const usage = task.result?.usage;
+  if (!usage) {
+    return terminal.has(task.status)
+      ? { value: "未记录", detail: "任务结果中缺少 Token 用量" }
+      : { value: "待汇总", detail: "任务结束后显示输入和输出用量" };
+  }
+  const { input_tokens: input, output_tokens: output } = usage;
+  const mode = task.request?.mode ?? task.mode;
+  const localZero = (mode === "local" || mode === "rehearsal") && input === 0 && output === 0;
+  if (
+    (usage.accounting_available === false && !localZero) ||
+    !Number.isSafeInteger(input) || input < 0 ||
+    !Number.isSafeInteger(output) || output < 0
+  ) {
+    return { value: "待确认", detail: "网关用量记录不完整" };
+  }
+  const detail = `输入 ${tokenCount.format(input)} · 输出 ${tokenCount.format(output)}`;
+  if (usage.accounting_complete !== true) {
+    return { value: "待确认", detail: "已确认" + detail };
+  }
+  return { value: tokenCount.format(input + output), detail };
+}
 
 export function displayValue(value: unknown): string {
   if (value === null) return "null";

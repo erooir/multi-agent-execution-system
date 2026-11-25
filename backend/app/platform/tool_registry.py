@@ -335,11 +335,9 @@ def _repository():
     return repo
 
 
-def freeze_bindings(agent, repository=None):
-    available = (
-        catalog(agent.get("project_id"), repository, include_readiness=False)
-        if repository is not None
-        else catalog(include_readiness=False)
+def freeze_bindings(agent, repository=None, *, catalogue=None):
+    available = catalogue if catalogue is not None else catalog(
+        agent.get("project_id") if repository is not None else None, repository, include_readiness=False
     )
     tools, skills = [], []
     for key, id_key, target in (("tool_refs", "tool_id", tools), ("skill_refs", "skill_id", skills)):

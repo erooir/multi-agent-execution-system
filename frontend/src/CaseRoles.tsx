@@ -48,7 +48,7 @@ export function RoleFacts({
   agent?: Item;
   showDuty?: boolean;
 }) {
-  const labels = new Map(tools.map((t) => [t.id, t.label]));
+  const labels = new Map(tools.map((t) => [t.id, t.label || t.name]));
   const local = agent?.executor_bindings?.local;
   const cloud = agent?.executor_bindings?.cloud;
   const dualMode = Boolean(local?.id && cloud?.id);
@@ -119,6 +119,12 @@ export function RoleFacts({
             "无独立工具授权"
           )}
         </dd>
+        {role.skills?.length > 0 && (
+          <>
+            <dt>分析方法 Skill</dt>
+            <dd>{role.skills.map((id: string) => labels.get(id) || id).join("、")}</dd>
+          </>
+        )}
       </dl>
     </>
   );

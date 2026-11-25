@@ -11,7 +11,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { api, ApiError, idPath, post, remove } from "./api";
-import { money, reasonNames, taskTypes, terminal, time } from "./domain";
+import { reasonNames, taskTypes, terminal, time } from "./domain";
 import type { Item, Mutation, Notify } from "./types";
 import { NodeExecutionFacts, ToolCallDialog, ToolCalls } from "./TaskToolTrace";
 import { roundNodes } from "./taskTraceModel";
@@ -30,7 +30,7 @@ import { TaskForm, editionDraft } from "./Forms";
 import Graph from "./Graph";
 import { modeName } from "./domain";
 import { ArtifactContent, CasePackageDownload, QualityView } from "./ResultViews";
-import { durationLabel, elapsedSeconds } from "./resultModel";
+import { durationLabel, elapsedSeconds, taskTokenUsage } from "./resultModel";
 import TaskSummary from "./TaskSummary";
 import AgentCollaboration from "./AgentCollaboration";
 type Props = {
@@ -530,6 +530,7 @@ function TaskDetail({
       </>
     );
   const result = task.result || {};
+  const tokenUsage = taskTokenUsage(task);
   const quality = result.quality_verdict || task.quality_verdict;
   const activeRound = round ?? task.revision ?? 0;
   const selectedCall = (task.tool_calls || []).find(
@@ -634,17 +635,9 @@ function TaskDetail({
           </button>
         </div>
         <div>
-          <small>本任务保守计费</small>
-          <strong>
-            {result.usage?.total_cny == null
-              ? "待结算"
-              : `¥ ${money(result.usage?.total_cny)}`}
-          </strong>
-          <span>
-            {result.usage?.accounting_complete === false
-              ? "含未确认费用，预留继续保留"
-              : "以网关记录为准"}
-          </span>
+          <small>本任务 Token 用量</small>
+          <strong>{tokenUsage.value}</strong>
+          <span>{tokenUsage.detail}</span>
         </div>
       </div>
       {error && (

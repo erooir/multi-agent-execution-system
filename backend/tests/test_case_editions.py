@@ -6,7 +6,54 @@ from docx import Document
 
 from backend.app.casework import edition_files, editions
 from backend.app.casework.delivery import bundle
+from backend.app.platform import api
 from backend.app.platform.service import DomainError
+from backend.tests import test_v2_platform as fixtures
+
+db = fixtures.db
+
+
+def test_project_upgrades_only_the_requested_case_and_preserves_older_versions(db):
+    project = fixtures.project(db)
+    pid = project["id"]
+    cases = {}
+    for code in ("B02", "G03"):
+        case = {
+            "id": code,
+            "title": code,
+            "goal": "核查统计表",
+            "files": ["合成.csv"],
+            "input_refs": ["fixture"],
+            "scope": "合成数据",
+            "deliverables": "简报",
+        }
+        cases[code] = case
+        wid = editions.workflow_id(pid, code)
+        old = {
+            "id": wid,
+            "project_id": pid,
+            "status": "published",
+            "current_version": 1,
+            "edition_executor": editions.EDITION,
+            "nodes": [],
+        }
+        db.put("workflows", old)
+        db.put("workflow_versions", {**old, "id": f"{wid}:1", "definition_id": wid, "version": 1})
+    db.put("projects", {**project, "scenario_edition": {"cases": cases}})
+    assert not any(row["project_tools_current"] for row in api.case_catalog(pid, fixtures.ADMIN))
+    with pytest.raises(DomainError):
+        api.upgrade_case_tools(pid, "B02", fixtures.OTHER)
+    with pytest.raises(DomainError):
+        api.upgrade_case_tools(pid, "B11", fixtures.ADMIN)
+    wid = editions.workflow_id(pid, "B02")
+    assert wid in api.upgrade_case_tools(pid, "B02", fixtures.ADMIN)["updated"]
+    result = {row["id"]: row for row in api.case_catalog(pid, fixtures.ADMIN)}
+    assert result["B02"]["project_tools_current"] and not result["G03"]["project_tools_current"]
+    assert result["B02"]["role_contract"]["skills"] == ["statistics-visualization"]
+    assert "document.extract" in result["B02"]["role_contract"]["grants"]
+    assert "edition_guidance" not in db.get("workflow_versions", f"{wid}:1")
+    assert api.upgrade_case_tools(pid, "B02", fixtures.ADMIN) == {"created": [], "updated": []}
+    assert db.get("workflows", wid)["current_version"] == 2
 
 
 def test_project_edition_replaces_reused_codes_and_scopes_sources():

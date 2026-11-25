@@ -297,9 +297,9 @@ def projects(user: dict = read):
 def case_catalog(project_id: str, user: dict = read):
     from ..casework.executors.registry import catalog_binding_batch
 
-    s.project_access(project_id, user)
+    project = s.project_access(project_id, user)
     with catalog_binding_batch():
-        return _project_case_catalog(project_id)
+        return _project_case_catalog(project)
 
 
 @router.get("/casework/{case_id}/demo-sample", response_model=c.CaseDemoSample)
@@ -313,14 +313,15 @@ def case_demo_sample(case_id: str, project_id: str, user: dict = read) -> dict:
     return s.case_demo_sample(project_id, case_id, user, repo)
 
 
-def _project_case_catalog(project_id):
+def _project_case_catalog(project):
     from ..casework.editions import directory
     from ..casework.executors.registry import validate_binding
     from ..casework.roles import contract
     from ..casework.team import STAGES, assigned_workflow, catalog, role_id
     from .tool_registry import catalog as tool_catalog
 
-    published = directory(repo.get("projects", project_id))
+    project_id = project["id"]
+    published = directory(project, repo)
     if published is not None:
         return published
     profiles = catalog()
@@ -403,9 +404,9 @@ def upgrade_case_tools(project_id: str, case_id: str | None = None, user: dict =
 
     project = s.project_access(project_id, user, True)
     if project.get("scenario_edition"):
-        if case_id and case_id not in project["scenario_edition"]["cases"]:
-            s.fail("case_not_found", "用例已归档", 404)
-        return {"created": [], "updated": []}
+        from ..casework.editions import upgrade
+
+        return upgrade(project_id, case_id, user, repo)
     if case_id is not None and case_id not in catalog():
         s.fail("case_not_found", "未找到指定用例", 404)
     return install(project_id, user, repo, upgrade=True, case_id=case_id)
