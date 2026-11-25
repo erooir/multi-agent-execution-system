@@ -2,15 +2,19 @@
 
 import hashlib
 import io
+import json
 import re
 import zipfile
 from datetime import UTC, datetime
 
 from ..platform.contracts import CASE_ID_PATTERN
-from .delivery_brief import document_bytes
+from .delivery_brief import brief_document
 from .delivery_card import Card
 from .delivery_files import csv_table, derived_files, encoded_json
+from .delivery_html import brief_html, stage_html
 from .delivery_trend import monthly_figures
+
+MAX_BUNDLE_BYTES = 96_000_000
 
 
 def bundle(
@@ -85,7 +89,9 @@ def bundle(
         figures, skipped = monthly_figures(content["products"], content["evidence"])
         extras.extend(figures)
         omitted.extend(skipped)
-    brief = document_bytes(content, selected, source_names=source_names, edition_files=edition_files)
+    doc = brief_document(content, selected, source_names=source_names, edition_files=edition_files)
+    brief = io.BytesIO()
+    doc.save(brief)
     sources = csv_table(
         [
             {
@@ -107,8 +113,10 @@ def bundle(
         card_name, card_label = None, ""
         for name, data in (edition_files or {}).items():
             extras.append(("研究附件/" + name, data, "/attachments", "case_attachment"))
-    readme = (
-        "航智用例研究成果\n\nbrief.docx：中文研究简报，摘录主要发现、证据与材料缺口。\n"
+    readme_title = "航智用例研究成果\n\n".encode()
+    html_note = "研究简报.html 可用浏览器离线阅读简报图文与表格。\n".encode()
+    readme_body = (
+        "brief.docx：中文研究简报，摘录主要发现、证据与材料缺口。\n"
         + card_label
         + "report.json：包含范围、可信参考批次状态、完整产品、审查，以及辅助译文的证据、方法与未译原因。\n"
         "evidence.csv：逐项来源、版本、位置和原文引文。\n"
@@ -118,16 +126,26 @@ def bundle(
         "结果仅适用于冻结材料和已声明规则；未确认项、推断和译文不得替代原件。\n"
     ).encode()
     parts = [
-        ("brief.docx", brief, "/", "brief"),
+        ("brief.docx", brief.getvalue(), "/", "brief"),
         ("report.json", full, "/", "complete_report"),
         ("evidence.csv", sources, "/evidence", "evidence"),
-        ("README.txt", readme, "", "instructions"),
-        *extras,
     ]
     if card_name:
-        parts.append((card_name, Card(content).make(selected), "/products", "single_page_brief"))
-    if sum(len(data) for _, data, _, _ in parts) > 96_000_000:
+        extras.append((card_name, Card(content).make(selected), "/products", "single_page_brief"))
+    base_size = len(readme_title) + len(readme_body) + sum(len(data) for _, data, _, _ in [*parts, *extras])
+    if base_size > MAX_BUNDLE_BYTES:
         raise ValueError("文件包超过导出上限")
+    html_budget = MAX_BUNDLE_BYTES - base_size - len(html_note)
+    html = brief_html(doc, html_budget) if html_budget > 0 else None
+    if html is not None and len(html) <= html_budget:
+        parts.insert(1, ("研究简报.html", html, "/", "readable_brief"))
+        readme_title += html_note
+    else:
+        omitted.append(
+            {"pointer": "/", "reason": "研究简报.html 超出文件包剩余空间，完整简报仍可在 brief.docx 中阅读。"}
+        )
+    parts.append(("README.txt", readme_title + readme_body, "", "instructions"))
+    parts.extend(extras)
     manifest = {
         "schema_version": "hangzhi.delivery.v1",
         "case_id": report["case_id"],
@@ -149,4 +167,16 @@ def bundle(
         for path, data, _, _ in parts:
             archive.writestr(path, data)
         archive.writestr("manifest.json", encoded_json(manifest))
+    return out.getvalue()
+
+
+def stage_bundle(kind, content, task_name):
+    """Export only this intermediate artifact, including its exact original payload."""
+    raw = json.dumps(content, ensure_ascii=False, allow_nan=False, indent=2).encode("utf-8")
+    if len(raw) > MAX_BUNDLE_BYTES:
+        raise ValueError("过程产物超过文件包大小上限，可下载原始文件")
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=5) as archive:
+        archive.writestr("过程记录.html", stage_html(kind, content, task_name))
+        archive.writestr("original.json", raw)
     return out.getvalue()

@@ -1,6 +1,7 @@
 import { modeName, reasonNames, taskTypes, time } from "./domain";
 import { durationLabel, elapsedSeconds, qualityOutputs } from "./resultModel";
 import type { Item } from "./types";
+import { CasePackageDownload } from "./ResultViews";
 import { Badge, Empty, Panel } from "./ui";
 
 const scopes: Record<string, string> = {
@@ -160,6 +161,7 @@ export default function TaskSummary({
                 >
                   查看产物详情
                 </button>
+                <CasePackageDownload artifact={artifact} />
               </div>
             ))}
           </>

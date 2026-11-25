@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   CheckCircle2,
   CircleAlert,
+  Download,
   FileText,
   Search,
   ShieldCheck,
@@ -116,6 +117,23 @@ export function QualityView({
   );
 }
 
+export function CasePackageDownload({ artifact }: { artifact: Item }) {
+  if (
+    !artifact.id || artifact.content_withheld ||
+    !["case_report", "case_records", "case_candidate"].includes(artifact.type)
+  ) return null;
+
+  return (
+    <a
+      className="button primary"
+      href={`/api/v2/artifacts/${encodeURIComponent(artifact.id)}/case-package`}
+      download
+    >
+      <Download size={16} /> 下载可读成果包
+    </a>
+  );
+}
+
 export function ArtifactContent({
   artifact,
   calls,
@@ -133,20 +151,7 @@ export function ArtifactContent({
     rows = resultRows(content);
   if (artifact.type === "case_report")
     return (
-      <>
-        <a
-          className="button"
-          href={
-            "/api/v2/artifacts/" +
-            encodeURIComponent(artifact.id) +
-            "/case-package"
-          }
-          download
-        >
-          下载报告、数据表和图层
-        </a>
-        <CaseReport content={content} findings={artifact.brief_findings} calls={calls} onCall={onCall} />
-      </>
+      <CaseReport content={content} findings={artifact.brief_findings} calls={calls} onCall={onCall} />
     );
   const columns = rows ? tableColumns(rows) : [];
   const filtered =

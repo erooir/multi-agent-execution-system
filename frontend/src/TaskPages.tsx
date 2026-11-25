@@ -29,7 +29,7 @@ import {
 import { TaskForm, editionDraft } from "./Forms";
 import Graph from "./Graph";
 import { modeName } from "./domain";
-import { ArtifactContent, QualityView } from "./ResultViews";
+import { ArtifactContent, CasePackageDownload, QualityView } from "./ResultViews";
 import { durationLabel, elapsedSeconds } from "./resultModel";
 import TaskSummary from "./TaskSummary";
 import AgentCollaboration from "./AgentCollaboration";
@@ -930,14 +930,16 @@ function TaskDetail({
                   {a.content_withheld || task.content_withheld ? (
                     <small>来源不可用，产物已屏蔽</small>
                   ) : (
-                    <a
-                      className="button"
-                      href={`/api/v2/artifacts/${encodeURIComponent(a.id)}/download`}
-                      download
-                    >
-                      <Download size={16} />
-                      下载
-                    </a>
+                    <>
+                      <CasePackageDownload artifact={a} />
+                      <a
+                        className="button"
+                        href={`/api/v2/artifacts/${encodeURIComponent(a.id)}/download`}
+                        download
+                      >
+                        <Download size={16} /> 下载原始文件
+                      </a>
+                    </>
                   )}
                 </div>
               ))
@@ -983,6 +985,7 @@ function TaskDetail({
             task={task}
             calls={task.tool_calls || []}
             onSelect={setCallId}
+            taskOverview
           />
         </Panel>
       )}
@@ -1109,7 +1112,10 @@ function TaskDetail({
           onClose={() => setArtifact(null)}
         >
           <div className="modal-body">
-            <Badge status={artifact.quality_status || "unknown"} />
+            <div className="actions">
+              <Badge status={artifact.quality_status || "unknown"} />
+              <CasePackageDownload artifact={artifact} />
+            </div>
             <ArtifactContent
               artifact={artifact}
               calls={task.tool_calls || []}

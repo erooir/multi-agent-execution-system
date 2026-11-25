@@ -95,7 +95,11 @@ test("用例任务：真实提交、三节点审核、来源证据与智能体�
   );
   expect(finding.tool_call_id).toBeTruthy();
   await page.getByRole("button", { name: /^结果与产物/ }).click();
+  const artifactUrl = "/api/v2/artifacts/" + detail.artifacts[0].id;
+  await expect(page.getByRole("link", { name: "下载可读成果包" })).toHaveAttribute("href", artifactUrl + "/case-package");
+  await expect(page.getByRole("link", { name: "下载原始文件" })).toHaveAttribute("href", artifactUrl + "/download");
   await page.getByRole("button", { name: "查看内容", exact: true }).click();
+  await expect(page.getByRole("dialog").getByRole("link", { name: "下载可读成果包" })).toHaveAttribute("href", artifactUrl + "/case-package");
   await expect(page.getByRole("region", { name: "主要发现" })).toContainText("2004");
   await page
     .locator("summary")
@@ -116,4 +120,5 @@ test("用例任务：真实提交、三节点审核、来源证据与智能体�
   await expect(
     page.getByRole("button", { name: "查看内容", exact: true }),
   ).toBeDisabled();
+  await expect(page.getByRole("link", { name: "下载可读成果包" })).toHaveCount(0);
 });

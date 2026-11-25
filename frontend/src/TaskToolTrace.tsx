@@ -64,19 +64,29 @@ export function ToolCalls({
   task,
   calls,
   onSelect,
+  taskOverview = false,
 }: {
   task: Item;
   calls: Item[];
   onSelect: (id: string) => void;
+  taskOverview?: boolean;
 }) {
   const [status, setStatus] = useState("all");
-  if (!calls.length)
+  if (!calls.length) {
+    const hasSourceChecks = taskOverview && !task.content_withheld &&
+      task.snapshot?.case_profile?.edition === "public-casework-v1" &&
+      task.nodes?.some((node: Item) => node.node_id === "prepare" &&
+        node.output?.method === "verified_public_originals" &&
+        node.output.content?.source_checks?.length > 0);
     return (
       <Empty
-        title="暂无工具调用"
-        description="此范围内尚无实际调用记录。智能体授权可在智能体资产中查看。"
+        title="暂无工具或 Skill 调用记录"
+        description={hasSourceChecks
+          ? "本次原件核对结果保存在“执行图与实例”的“原始资料核对”节点。模型调用记录可在“事件轨迹”中查看。"
+          : "此范围内尚无实际调用记录。智能体授权可在智能体资产中查看。"}
       />
     );
+  }
   const rows = calls.filter(
     (call) => status === "all" || call.status === status,
   );
@@ -114,7 +124,7 @@ export function ToolCalls({
             </thead>
             <tbody>
               {rows.map((call) => {
-                const { label, node, agent } = callContext(task, call);
+                const { label, node, agent, sourceVerification } = callContext(task, call);
                 return (
                   <tr key={call.id}>
                     <td>
@@ -126,7 +136,7 @@ export function ToolCalls({
                         {call.kind === "tool" && call.external
                           ? "外部工具"
                           : kinds[call.kind] || call.kind}{" "}
-                        · v{call.version}
+                        · {sourceVerification ? "流程自动执行" : "v" + call.version}
                       </small>
                       {call.transport && <small>{call.transport}</small>}
                     </td>
@@ -198,7 +208,7 @@ export function ToolCallDialog({
       });
     return () => controller.abort();
   }, [task.id, call.id, call.status]);
-  const { label, node, agent } = callContext(task, call);
+  const { label, node, agent, sourceVerification } = callContext(task, call);
   return (
     <Modal wide title="工具调用详情" onClose={onClose}>
       <div className="modal-body trace-call">
@@ -211,8 +221,14 @@ export function ToolCallDialog({
           {node?.label || call.node_id || "未记录节点"}
           {agent && " · " + agent.name + " v" + agent.version}
         </p>
-        <NodeExecutionFacts node={node} />
+        {!sourceVerification && <NodeExecutionFacts node={node} />}
         <dl className="trace-facts">
+          {sourceVerification && (
+            <>
+              <dt>调用方式</dt>
+              <dd>流程自动执行</dd>
+            </>
+          )}
           <dt>调用 ID</dt>
           <dd>
             <code>{call.id}</code>
@@ -243,6 +259,18 @@ export function ToolCallDialog({
           <ErrorLine>{error}</ErrorLine>
         ) : detail ? (
           <>
+            {sourceVerification && Array.isArray(detail.result?.checks) && (
+              <section>
+                <h3>原件核对结果</h3>
+                <ul>
+                  {detail.result.checks.map((check: Item, i: number) => (
+                    <li key={i}>
+                      <strong>{check.passed ? "通过" : "未通过"}</strong>　{check.message || check.name}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
             <JsonView value={detail.call} label="调用元数据" />
             <h3>实际参数</h3>
             {detail.arguments == null ? (

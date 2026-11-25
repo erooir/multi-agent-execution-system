@@ -1025,40 +1025,59 @@ def artifact(artifact_id: str, user: dict = read):
 def download(artifact_id: str, user: dict = read):
     record = artifact_record(artifact_id, user)
     value = record["content"]
-    data = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, indent=2)
+    structured = not isinstance(value, str)
+    data = json.dumps(value, ensure_ascii=False, indent=2) if structured else value
+    ext = ".json" if structured else ".txt"
     return Response(
         data,
-        media_type=record.get("media_type", "application/json"),
+        media_type="application/json" if structured else record.get("media_type", "text/plain"),
         headers={
-            "Content-Disposition": f"attachment; filename*=UTF-8''{quote('artifact-' + artifact_id + '.txt', safe='')}"
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote('artifact-' + artifact_id + ext, safe='')}"
         },
     )
 
 
 @router.get("/artifacts/{artifact_id}/case-package")
 def case_package(artifact_id: str, user: dict = read):
-    from ..casework.delivery import bundle
-
-    record = artifact_record(artifact_id, user)
-    if record["type"] != "case_report" or not record.get("content"):
-        s.fail("unsupported_output", "当前产物不是可交付的用例报告", 422)
-    task = s.required("tasks", record["task_id"], user)
-    frozen_inputs = (task.get("snapshot") or {}).get("inputs") or []
-    source_names = {a["id"]: a["name"] for a in frozen_inputs if a.get("id") and a.get("name")}
+    from ..casework.delivery import bundle, stage_bundle
+    from ..casework.delivery_html import STAGE_TITLES
     from ..casework.edition_files import read_attachments
 
-    payload = bundle(
-        record["content"],
-        {"task_id": task["id"], "name": task["name"], "status": task["status"], "revision": task["revision"]},
-        source_names=source_names,
-        edition_files=read_attachments(record["content"], task) if record["content"].get("edition") else None,
-    )
+    record = artifact_record(artifact_id, user)
+    kind, content = record["type"], record.get("content")
+    if (kind != "case_report" and kind not in STAGE_TITLES) or not isinstance(content, dict):
+        s.fail("unsupported_output", "当前产物缺少可导出的用例内容", 422)
+    if (
+        record.get("content_withheld")
+        or content.get("content_withheld")
+        or content.get("unavailable_source_refs")
+    ):
+        s.fail("source_unavailable", "来源已失效，导出已屏蔽", 409)
+    task = s.required("tasks", record["task_id"], user)
+    try:
+        if kind == "case_report":
+            frozen = (task.get("snapshot") or {}).get("inputs") or []
+            names = {a["id"]: a["name"] for a in frozen if a.get("id") and a.get("name")}
+            payload = bundle(
+                content,
+                {"task_id": task["id"], **{key: task[key] for key in ("name", "status", "revision")}},
+                source_names=names,
+                edition_files=read_attachments(content, task) if content.get("edition") else None,
+            )
+            disposition = f'attachment; filename="case-{content["case_id"]}.zip"'
+        else:
+            payload = stage_bundle(kind, content, task["name"])
+            code = (task.get("request") or {}).get("case_id") or task["id"]
+            filename = f"case-{code}-{STAGE_TITLES[kind]}.zip"
+            disposition = f"attachment; filename*=UTF-8''{quote(filename, safe='')}"
+    except ValueError as exc:
+        s.fail("unsupported_output", str(exc), 422)
     artifact_record(artifact_id, user)
     return Response(
         payload,
         media_type="application/zip",
         headers={
-            "Content-Disposition": f'attachment; filename="case-{record["content"]["case_id"]}.zip"',
+            "Content-Disposition": disposition,
             "Cache-Control": "no-store",
         },
     )

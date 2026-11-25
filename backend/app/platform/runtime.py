@@ -1161,8 +1161,15 @@ async def _run_atomic(
             raise TaskFailure("model_denied", "冻结智能体配置禁止云端模型")
         if task_type == "case_analysis" and execution.task["snapshot"]["case_profile"].get("edition"):
             from ..casework import edition_runtime
+            from ..casework.edition_verify import bind_source_check
 
-            output = await edition_runtime.run(execution, plan["id"], previous, revision)
+            trace = (
+                bind_source_check(execution, agent, permissions, revision, instance_id)
+                if plan["id"] == "prepare"
+                else contextlib.nullcontext()
+            )
+            with trace:
+                output = await edition_runtime.run(execution, plan["id"], previous, revision)
         elif task_type == "case_analysis":
             from ..casework.executors.base import ExecutorContext
             from ..casework.executors.registry import execute_cloud

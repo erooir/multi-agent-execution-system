@@ -126,3 +126,15 @@ test("只有真实领域工具循环方法和模型同时存在才标识领域 A
       false,
     );
 });
+
+test("只有带执行来源的用例工具记录才显示为流程自动执行", () => {
+  const call = {
+    kind: "tool",
+    capability_id: "case_analysis",
+    summary: { operation: "verify_public_originals", invocation_mode: "fixed_workflow" },
+  };
+  assert.equal(callContext({}, call).label, "公开原件复核");
+  for (const change of [{ kind: "skill" }, { summary: {} }, { capability_id: "other" }]) {
+    assert.equal(callContext({}, { ...call, ...change }).sourceVerification, false);
+  }
+});

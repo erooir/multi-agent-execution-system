@@ -22,8 +22,9 @@ def implementation(code):
     }[code[0]]
     modules = ["edition_runtime.py", "edition_verify.py", "edition_files.py", *family]
     for name in modules:
-        path = Path(__file__).with_name(name)
-        h.update(path.name.encode())
+        # Keep the original algorithm's logical filename after separating its audit adapter.
+        path = Path(__file__).with_name("edition_checks.py" if name == "edition_verify.py" else name)
+        h.update(name.encode())
         h.update(path.read_text(encoding="utf8").encode())
     return h.hexdigest()
 

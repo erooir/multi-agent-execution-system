@@ -979,7 +979,7 @@ def _brief_styles(doc):
             border.getparent().remove(border)
 
 
-def document_bytes(report, metadata, *, source_names=None, edition_files=None):
+def brief_document(report, metadata, *, source_names=None, edition_files=None):
     doc = Document()
     sec = doc.sections[0]
     sec.page_width = Cm(21)
@@ -1138,8 +1138,13 @@ def document_bytes(report, metadata, *, source_names=None, edition_files=None):
     field = OxmlElement("w:fldSimple")
     field.set(qn("w:instr"), "PAGE")
     foot._p.append(field)
+    return doc
+
+
+def document_bytes(report, metadata, *, source_names=None, edition_files=None):
+    """Build a standalone Word copy for existing preview and export callers."""
     out = io.BytesIO()
-    doc.save(out)
+    brief_document(report, metadata, source_names=source_names, edition_files=edition_files).save(out)
     return out.getvalue()
 
 

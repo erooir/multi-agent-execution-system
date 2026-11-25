@@ -76,9 +76,14 @@ export function callContext(task: Item, call: Item) {
     (b: Item) =>
       b.id === call.capability_id && String(b.version) === String(call.version),
   );
+  const sourceVerification = call.kind === "tool" &&
+    call.capability_id === "case_analysis" &&
+    call.summary?.operation === "verify_public_originals" &&
+    call.summary?.invocation_mode === "fixed_workflow";
   return {
     node,
     agent,
-    label: match?.label || match?.name || call.capability_id,
+    label: sourceVerification ? "公开原件复核" : match?.label || match?.name || call.capability_id,
+    sourceVerification,
   };
 }

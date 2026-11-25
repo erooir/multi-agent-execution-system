@@ -1,5 +1,6 @@
 """Download builder tests; all observations are deliberately synthetic."""
 
+import base64
 import csv
 import hashlib
 import io
@@ -11,9 +12,12 @@ from xml.etree import ElementTree as ET
 import pytest
 from docx import Document
 from docx.oxml.ns import qn
+from PIL import Image
 
-from backend.app.casework.delivery import bundle
+from backend.app.casework import delivery
+from backend.app.casework.delivery import bundle, stage_bundle
 from backend.app.casework.delivery_files import csv_cell, safe_svg
+from backend.app.casework.delivery_html import brief_html
 
 
 def report(code="B01", products=None, review=None, gaps=None):
@@ -53,6 +57,98 @@ def word(archive, name="brief.docx"):
     )
 
 
+@pytest.mark.parametrize("stage", ["case_candidate", "case_records"])
+def test_stage_reading_copy_is_passive_and_preserves_the_complete_source(stage):
+    quote = '<script src="https://invalid.test">材料标记</script>'
+    content = (
+        {"findings": [{"heading": "资料比对", "text": quote, "evidence_ids": ["E1", "E2"]}]}
+        if stage == "case_candidate"
+        else {
+            "approach": "核对附录行号",
+            "priority_ids": ["E1"],
+            "source_checks": [{"name": "页数核查", "passed": True, "message": "共两页"}],
+            "records": [{"id": "E1", "原件位置": "表五第九行", "依据": quote}] * 105,
+            "file_context": {"对照表.csv": "检查摘录"},
+        }
+    )
+    content["gaps"] = ["原件第二列缺失"]
+    with unpack(stage_bundle(stage, content, "合成案例")) as z:
+        html = z.read("过程记录.html").decode()
+        assert json.loads(z.read("original.json")) == content
+        assert "材料标记" in html and "&lt;script" in html and "<script" not in html
+        assert "原件第二列缺失" in html and "合成案例" in html
+        if stage == "case_candidate":
+            assert "<h2>资料比对</h2>" in html and "E1、E2" in html
+        else:
+            assert "共 105 条，摘列 100 条" in html and "对照表.csv" in html and "表五第九行" in html
+
+
+def test_html_uses_the_embedded_word_image_at_its_caption_and_respects_package_budget():
+    doc = Document()
+    doc.add_heading("示例图", 2)
+    image = io.BytesIO()
+    Image.new("RGB", (24, 16), "navy").save(image, format="PNG")
+    doc.add_picture(image)
+    doc.add_paragraph("图后说明")
+    raw = base64.b64encode(image.getvalue()).decode()
+    page = brief_html(doc, 10_000).decode()
+    assert (
+        page.index("<h3>示例图</h3>")
+        < page.index(f'src="data:image/png;base64,{raw}"')
+        < page.index("图后说明")
+    )
+    reduced = brief_html(doc, len(page.encode()) - 1).decode()
+    assert "图件见同包 brief.docx" in reduced and "data:image" not in reduced
+
+
+def test_full_legacy_package_survives_when_optional_html_or_its_readme_note_will_not_fit(monkeypatch):
+    result = report(products={"表一": [{"站点": "南区", "读数": 2}]})
+    with unpack(bundle(result)) as normal:
+        old_files = set(normal.namelist()) - {"研究简报.html"}
+        readme = normal.read("README.txt").decode()
+        legacy_readme = "".join(
+            line for line in readme.splitlines(keepends=True) if "研究简报.html" not in line
+        )
+        base_size = len(legacy_readme.encode()) + sum(
+            normal.getinfo(name).file_size for name in old_files - {"README.txt", "manifest.json"}
+        )
+        full_size = sum(info.file_size for info in normal.infolist() if info.filename != "manifest.json")
+        originals = {
+            name: normal.read(name)
+            for name in old_files
+            if name.endswith((".json", ".csv")) and name != "manifest.json"
+        }
+        original_text = {name: word(normal, name) for name in old_files if name.endswith(".docx")}
+    for limit in (base_size, full_size - 1):
+        monkeypatch.setattr(delivery, "MAX_BUNDLE_BYTES", limit)
+        with unpack(bundle(result)) as archive:
+            assert set(archive.namelist()) == old_files
+            assert archive.read("README.txt").decode() == legacy_readme
+            assert all(archive.read(name) == data for name, data in originals.items())
+            assert all(word(archive, name) == value for name, value in original_text.items())
+            manifest = json.loads(archive.read("manifest.json"))
+            assert {f["name"] for f in manifest["files"]} == old_files - {"manifest.json"}
+            assert any(
+                "研究简报.html" in entry["reason"] and "brief.docx" in entry["reason"]
+                for entry in manifest["omitted"]
+            )
+    monkeypatch.setattr(delivery, "MAX_BUNDLE_BYTES", base_size - 1)
+    with pytest.raises(ValueError, match="文件包超过导出上限"):
+        bundle(result)
+
+
+def test_historical_mixed_stage_values_keep_a_passive_preview_and_complete_json():
+    content = {
+        "findings": ["旧版摘要", {"无固定列": "多列结论"}],
+        "products": {"观测": [{"日期": "十月"}, {"增量": 3}, "备注"], "汇总": {"行数": 2}},
+        "gaps": [{"缺字段": "精度"}],
+    }
+    with unpack(stage_bundle("case_candidate", content, "历史材料")) as archive:
+        page = archive.read("过程记录.html").decode()
+        assert "旧版摘要" in page and "多列结论" in page and "精度" in page
+        assert json.loads(archive.read("original.json")) == content
+
+
 def test_brief_uses_simplified_chinese_fonts_without_losing_finding_emphasis():
     title = "苏北人口安置压力分析"
     finding = {"heading": "样本观察", "text": "本期登记人数保持稳定。", "evidence_ids": ["e1"]}
@@ -62,6 +158,9 @@ def test_brief_uses_simplified_chinese_fonts_without_losing_finding_emphasis():
     r["evidence"][1]["location"] = {"原件位置": "第7行"}
     with unpack(bundle(r)) as archive:
         doc = Document(io.BytesIO(archive.read("brief.docx")))
+        html = archive.read("研究简报.html").decode()
+        assert f"<h1>{title}</h1>" in html and "<strong>样本观察" in html and "<table>" in html
+        assert finding["text"] in html and "第3页" in html
 
     assert doc.paragraphs[0].text == title
     assert doc.paragraphs[0].style.name == "Title"
@@ -491,6 +590,8 @@ def test_hard_review_failure_preserves_diagnostics_without_promoting_candidate_t
     with unpack(bundle(r, {"status": "failed"})) as z:
         text = word(z)
         assert "强制核验" in text and "数值与原件不符" in text and "900" not in text
+        html = z.read("研究简报.html").decode()
+        assert "数值与原件不符" in html and "虚构" not in html
         assert json.loads(z.read("report.json"))["products"] == r["products"]
 
 

@@ -1,5 +1,7 @@
 """Regression tests for streaming boundaries, withdrawal and cold-start concurrency."""
 
+import io
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
@@ -229,6 +231,37 @@ def test_case_artifact_findings_require_visible_sources_and_no_hard_failure(db):
         for resource in (path, path + "/case-package"):
             blocked = client.get(resource)
             assert blocked.status_code == 409 and "2004-02-05" not in blocked.text
+
+
+def test_stage_package_and_raw_download_share_source_access_checks(db):
+    p = project(db)
+    source = asset(db, p)
+    task = service.create_task(task_body(p, source), ADMIN, db)
+    content = {"records": [{"原件位置": "表一", "依据": "合成记录"}], "gaps": []}
+    stage = db.put(
+        "artifacts",
+        {
+            "project_id": p["id"],
+            "task_id": task["id"],
+            "source_refs": [source["id"]],
+            "type": "case_records",
+            "content": content,
+            "media_type": "application/json",
+        },
+    )
+    path = f"/api/v2/artifacts/{stage['id']}"
+    with TestClient(application()) as client:
+        raw = client.get(path + "/download")
+        assert raw.headers["content-disposition"].endswith(".json") and raw.json() == content
+        packed = client.get(path + "/case-package")
+        assert packed.status_code == 200 and packed.headers["content-type"] == "application/zip"
+        with zipfile.ZipFile(io.BytesIO(packed.content)) as archive:
+            assert archive.read("original.json") == raw.content
+            assert "合成记录" in archive.read("过程记录.html").decode()
+        service.revoke_asset(source["id"], ADMIN, db)
+        for suffix in ("/download", "/case-package"):
+            blocked = client.get(path + suffix)
+            assert blocked.status_code == 409 and "合成记录" not in blocked.text
 
 
 async def test_withdrawn_sources_hidden_on_all_collection_paths(db):
